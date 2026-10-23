@@ -6,3 +6,6 @@ provides_hooks:
   - pre_approval_request
   - post_approval_response
   - post_llm_call
+# Installed into the Hermes venv by `hermes pm` so Web Push survives venv rebuilds.
+pip_dependencies:
+  - pywebpush>=2.0
