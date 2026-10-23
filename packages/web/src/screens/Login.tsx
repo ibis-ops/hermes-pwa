@@ -57,6 +57,9 @@ export function Login({ store, error }: LoginProps) {
               onChange={(e) => setUsername(e.target.value)}
               placeholder="your-username"
               autoComplete="username"
+              autoCapitalize="none"
+              autoCorrect="off"
+              spellCheck={false}
               required
             />
           </label>

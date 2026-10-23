@@ -382,9 +382,21 @@ export const useConnectionStore = create<ConnectionStore>((set, get) => {
       set({ state: 'init', error: undefined });
       try {
         const { rest } = assertRefs();
-        const result = await rest.passwordLogin({ provider, username, password, next: '/' });
+        let result;
+        try {
+          result = await rest.passwordLogin({ provider, username, password, next: '/' });
+        } catch (err) {
+          // The dashboard answers a wrong username or password with 401/403.
+          // That is a login problem, not an expired session or a dead link,
+          // so keep the form up and say so.
+          if (explainConnectionError(err).advice === 'sign-in-again') {
+            set({ state: 'login', error: 'Wrong username or password.' });
+            return;
+          }
+          throw err;
+        }
         if (!result.ok) {
-          set({ state: 'login', error: 'Login failed. Please check your credentials.' });
+          set({ state: 'login', error: 'Wrong username or password.' });
           return;
         }
         const user = await rest.me();

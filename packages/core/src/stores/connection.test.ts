@@ -351,7 +351,20 @@ describe('useConnectionStore', () => {
     await store.login('basic', 'alice', 'wrong');
 
     expect(useConnectionStore.getState().state).toBe('login');
-    expect(useConnectionStore.getState().error).toContain('failed');
+    expect(useConnectionStore.getState().error).toBe('Wrong username or password.');
+  });
+
+  it('login stays on login when the dashboard rejects the credentials with 401', async () => {
+    const rejected = Object.assign(new Error('Unauthorized'), { status: 401 });
+    vi.mocked(restMock.passwordLogin).mockRejectedValue(rejected);
+
+    const store = useConnectionStore.getState();
+    store.bindTransport(restMock, wsMock, rpcMock);
+    await store.login('basic', 'alice', 'wrong');
+
+    expect(useConnectionStore.getState().state).toBe('login');
+    expect(useConnectionStore.getState().error).toBe('Wrong username or password.');
+    expect(restMock.me).not.toHaveBeenCalled();
   });
 
   it('login transitions to offline on network error', async () => {
