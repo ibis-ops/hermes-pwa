@@ -1,29 +1,32 @@
 /* Hermes Mobile Design Tokens — CSS Variables */
-/* Prototype: /home/stasstep/PWAHermesprototype/hermes pwa design prototype */
+/* Direction: iOS Human Interface Guidelines. System type, semantic colors,
+   Dynamic Type default sizes, flat grouped surfaces, one accent. */
 
 :root {
   /* ── Fonts ──────────────────────────────────────────────────────── */
-  --hm-font-display: 'Bodoni Moda', Georgia, serif;
-  --hm-font-sans: 'Hanken Grotesk', system-ui, -apple-system, sans-serif;
-  --hm-font-mono: 'JetBrains Mono', 'SF Mono', 'Cascadia Code', Consolas, monospace;
+  --hm-font-display: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'SF Pro Text', system-ui, 'Helvetica Neue', Helvetica, Arial, sans-serif;
+  --hm-font-sans:    -apple-system, BlinkMacSystemFont, 'SF Pro Text', system-ui, 'Helvetica Neue', Helvetica, Arial, sans-serif;
+  --hm-font-mono:    ui-monospace, 'SF Mono', Menlo, 'Cascadia Code', Consolas, monospace;
 
-  /* ── Surface ────────────────────────────────────────────────────── */
-  --hm-color-bg:        #f4f6fc;
+  /* ── Surface (iOS light, grouped) ───────────────────────────────── */
+  --hm-color-bg:        #f2f2f7;
   --hm-color-surface:   #ffffff;
-  --hm-color-surface-2: #f5f7fd;
-  --hm-color-border:    #e7eaf3;
+  --hm-color-surface-2: #f2f2f7;
+  --hm-color-border:    rgba(60, 60, 67, 0.29);
+  --hm-color-fill:      rgba(120, 120, 128, 0.12);
+  --hm-color-bubble:    #e9e9eb;
 
-  /* ── Text ───────────────────────────────────────────────────────── */
-  --hm-color-text:       #161a27;
-  --hm-color-text-2:     #2b3346;
-  --hm-color-text-muted: #6b7384;
-  --hm-color-text-faint: #9aa2b4;
-  --hm-color-text-secondary: #868fa1;
-  --hm-color-text-subtle: #c4cad8;
+  /* ── Text (iOS label hierarchy) ─────────────────────────────────── */
+  --hm-color-text:       #000000;
+  --hm-color-text-2:     #1c1c1e;
+  --hm-color-text-muted: rgba(60, 60, 67, 0.6);
+  --hm-color-text-faint: rgba(60, 60, 67, 0.3);
+  --hm-color-text-secondary: rgba(60, 60, 67, 0.6);
+  --hm-color-text-subtle: rgba(60, 60, 67, 0.18);
 
-  /* ── Primary (blue) ─────────────────────────────────────────────── */
-  --hm-color-primary:      #2540ff;
-  --hm-color-primary-tint: #eef1ff;
+  /* ── Primary (system blue) ──────────────────────────────────────── */
+  --hm-color-primary:      #007aff;
+  --hm-color-primary-tint: rgba(0, 122, 255, 0.12);
   --hm-color-primary-text: #ffffff;
 
   /* Backward-compat aliases used by existing .hm-* classes */
@@ -32,18 +35,18 @@
   --hm-color-on-accent:   var(--hm-color-primary-text);
 
   /* ── Semantic ───────────────────────────────────────────────────── */
-  --hm-color-success:    #15a06a;
-  --hm-color-warning:    #d98a16;
-  --hm-color-danger:     #dc4b46;
-  --hm-color-running:    #2540ff;
-  --hm-color-success-strong: #065f46;
-  --hm-color-warning-strong: #92400e;
-  --hm-color-danger-strong:  #991b1b;
+  --hm-color-success:    #34c759;
+  --hm-color-warning:    #ff9500;
+  --hm-color-danger:     #ff3b30;
+  --hm-color-running:    #007aff;
+  --hm-color-success-strong: #1f7a3a;
+  --hm-color-warning-strong: #9a5300;
+  --hm-color-danger-strong:  #b3261e;
 
-  --hm-color-success-bg: #e3fbef;
-  --hm-color-warning-bg: #fff7ed;
-  --hm-color-danger-bg:  #fdeaea;
-  --hm-color-info-bg:    #e7f4fd;
+  --hm-color-success-bg: rgba(52, 199, 89, 0.14);
+  --hm-color-warning-bg: rgba(255, 149, 0, 0.14);
+  --hm-color-danger-bg:  rgba(255, 59, 48, 0.12);
+  --hm-color-info-bg:    rgba(0, 122, 255, 0.12);
 
   /* ── Spacing (4 px base) ────────────────────────────────────────── */
   --hm-space-1: 4px;
@@ -54,33 +57,33 @@
   --hm-space-6: 32px;
   --hm-space-8: 48px;
 
-  /* ── Radius ─────────────────────────────────────────────────────── */
+  /* ── Radius (iOS: 10 for grouped cells, 12 for tiles, 20 for bubbles) ─ */
   --hm-radius-xs:   6px;
   --hm-radius-sm:   8px;
-  --hm-radius-md:   11px;
-  --hm-radius-card: 14px;
-  --hm-radius-lg:   15px;
-  --hm-radius-xl:   16px;
+  --hm-radius-md:   10px;
+  --hm-radius-card: 12px;
+  --hm-radius-lg:   14px;
+  --hm-radius-xl:   20px;
   --hm-radius-full: 999px;
 
-  /* ── Elevation ──────────────────────────────────────────────────── */
-  --hm-elev-1:     0 1px 2px rgba(20, 30, 60, 0.04), 0 1px 1px rgba(20, 30, 60, 0.03);
-  --hm-elev-2:     0 4px 12px rgba(20, 30, 60, 0.08);
-  --hm-elev-3:     0 6px 20px rgba(37, 64, 255, 0.07);
-  --hm-elev-sheet: 0 -8px 28px rgba(20, 30, 60, 0.14);
-  --hm-elev-drawer: 14px 0 40px rgba(15, 20, 40, 0.18);
+  /* ── Elevation (flat; sheets and drawers only) ──────────────────── */
+  --hm-elev-1:     none;
+  --hm-elev-2:     none;
+  --hm-elev-3:     none;
+  --hm-elev-sheet: 0 -8px 28px rgba(0, 0, 0, 0.18);
+  --hm-elev-drawer: 14px 0 40px rgba(0, 0, 0, 0.22);
 
   /* ── Touch ──────────────────────────────────────────────────────── */
   --hm-tap-min: 44px;
 
-  /* ── Typography ─────────────────────────────────────────────────── */
-  --hm-fs-display: 28px;
-  --hm-fs-title:   20px;
-  --hm-fs-heading: 16px;
-  --hm-fs-body:    15px;
-  --hm-fs-small:   13px;
-  --hm-fs-label:   11px;
-  --hm-fs-mono:    13px;
+  /* ── Typography (iOS Dynamic Type, Large default) ───────────────── */
+  --hm-fs-display: 34px;   /* Large Title */
+  --hm-fs-title:   22px;   /* Title 2 */
+  --hm-fs-heading: 17px;   /* Headline */
+  --hm-fs-body:    17px;   /* Body */
+  --hm-fs-small:   15px;   /* Subheadline */
+  --hm-fs-label:   13px;   /* Footnote */
+  --hm-fs-mono:    14px;
 
   --hm-fw-regular:  400;
   --hm-fw-medium:   500;
@@ -134,56 +137,72 @@
   50%, 100% { opacity: 0; }
 }
 
-/* ── Dark theme ─────────────────────────────────────────────────────── */
+/* ── Dark theme (iOS dark, true black base) ─────────────────────────── */
 :root[data-theme='dark'] {
-  --hm-color-bg:        #0e1116;
-  --hm-color-surface:   #161b22;
-  --hm-color-surface-2: #1c222b;
-  --hm-color-border:    #2a313c;
+  --hm-color-bg:        #000000;
+  --hm-color-surface:   #1c1c1e;
+  --hm-color-surface-2: #2c2c2e;
+  --hm-color-border:    rgba(84, 84, 88, 0.65);
+  --hm-color-fill:      rgba(120, 120, 128, 0.24);
+  --hm-color-bubble:    #262629;
 
-  --hm-color-text:       #e6e9ee;
-  --hm-color-text-2:     #c8cdd8;
-  --hm-color-text-muted: #9aa3b0;
-  --hm-color-text-faint: #6b7382;
+  --hm-color-text:       #ffffff;
+  --hm-color-text-2:     #ebebf5;
+  --hm-color-text-muted: rgba(235, 235, 245, 0.6);
+  --hm-color-text-faint: rgba(235, 235, 245, 0.3);
+  --hm-color-text-secondary: rgba(235, 235, 245, 0.6);
+  --hm-color-text-subtle: rgba(235, 235, 245, 0.18);
 
-  --hm-color-primary:      #5c7cff;
-  --hm-color-primary-tint: #1b2440;
-  --hm-color-primary-text: #0e1116;
+  --hm-color-primary:      #0a84ff;
+  --hm-color-primary-tint: rgba(10, 132, 255, 0.2);
+  --hm-color-primary-text: #ffffff;
 
-  --hm-color-success:    #51cf66;
-  --hm-color-warning:    #ffc14d;
-  --hm-color-danger:     #ff6b6b;
-  --hm-color-running:    #5c7cff;
+  --hm-color-success:    #30d158;
+  --hm-color-warning:    #ff9f0a;
+  --hm-color-danger:     #ff453a;
+  --hm-color-running:    #0a84ff;
+  --hm-color-success-strong: #30d158;
+  --hm-color-warning-strong: #ffd60a;
+  --hm-color-danger-strong:  #ff6961;
 
-  --hm-color-success-bg: #11261a;
-  --hm-color-warning-bg: #2a2110;
-  --hm-color-danger-bg:  #2a1414;
+  --hm-color-success-bg: rgba(48, 209, 88, 0.16);
+  --hm-color-warning-bg: rgba(255, 159, 10, 0.16);
+  --hm-color-danger-bg:  rgba(255, 69, 58, 0.16);
+  --hm-color-info-bg:    rgba(10, 132, 255, 0.18);
 }
 
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme]) {
-    --hm-color-bg:        #0e1116;
-    --hm-color-surface:   #161b22;
-    --hm-color-surface-2: #1c222b;
-    --hm-color-border:    #2a313c;
+    --hm-color-bg:        #000000;
+    --hm-color-surface:   #1c1c1e;
+    --hm-color-surface-2: #2c2c2e;
+    --hm-color-border:    rgba(84, 84, 88, 0.65);
+    --hm-color-fill:      rgba(120, 120, 128, 0.24);
+    --hm-color-bubble:    #262629;
 
-    --hm-color-text:       #e6e9ee;
-    --hm-color-text-2:     #c8cdd8;
-    --hm-color-text-muted: #9aa3b0;
-    --hm-color-text-faint: #6b7382;
+    --hm-color-text:       #ffffff;
+    --hm-color-text-2:     #ebebf5;
+    --hm-color-text-muted: rgba(235, 235, 245, 0.6);
+    --hm-color-text-faint: rgba(235, 235, 245, 0.3);
+    --hm-color-text-secondary: rgba(235, 235, 245, 0.6);
+    --hm-color-text-subtle: rgba(235, 235, 245, 0.18);
 
-    --hm-color-primary:      #5c7cff;
-    --hm-color-primary-tint: #1b2440;
-    --hm-color-primary-text: #0e1116;
+    --hm-color-primary:      #0a84ff;
+    --hm-color-primary-tint: rgba(10, 132, 255, 0.2);
+    --hm-color-primary-text: #ffffff;
 
-    --hm-color-success:    #51cf66;
-    --hm-color-warning:    #ffc14d;
-    --hm-color-danger:     #ff6b6b;
-    --hm-color-running:    #5c7cff;
+    --hm-color-success:    #30d158;
+    --hm-color-warning:    #ff9f0a;
+    --hm-color-danger:     #ff453a;
+    --hm-color-running:    #0a84ff;
+    --hm-color-success-strong: #30d158;
+    --hm-color-warning-strong: #ffd60a;
+    --hm-color-danger-strong:  #ff6961;
 
-    --hm-color-success-bg: #11261a;
-    --hm-color-warning-bg: #2a2110;
-    --hm-color-danger-bg:  #2a1414;
+    --hm-color-success-bg: rgba(48, 209, 88, 0.16);
+    --hm-color-warning-bg: rgba(255, 159, 10, 0.16);
+    --hm-color-danger-bg:  rgba(255, 69, 58, 0.16);
+    --hm-color-info-bg:    rgba(10, 132, 255, 0.18);
   }
 }
 

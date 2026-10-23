@@ -12,6 +12,7 @@ import { AppPreview } from './AppPreview';
 import { useNativeViewportLock } from './useNativeViewportLock';
 import './App.css';
 import '../styles/prototype.css';
+import '../styles/apple.css';
 
 const isPreview = import.meta.env.DEV &&
   new URLSearchParams(window.location.search).has('preview');

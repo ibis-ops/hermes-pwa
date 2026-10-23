@@ -30,12 +30,14 @@ const TILES: {
   tint: string;
   color: string;
 }[] = [
-  { key: 'chat', label: 'New chat', sub: 'fresh session', icon: 'chat', tint: '#eef1ff', color: '#2540ff' },
-  { key: 'approvals', label: 'Approvals', sub: 'respond now', icon: 'shield', tint: '#fff7ed', color: '#c2790f' },
-  { key: 'kanban', label: 'Kanban', sub: 'tasks & runs', icon: 'kanban', tint: '#f0ecfe', color: '#7a5af0' },
-  { key: 'sessions', label: 'Sessions', sub: 'history', icon: 'sessions', tint: '#e2f7f3', color: '#1f9d8b' },
-  { key: 'cron', label: 'Cron', sub: 'schedules', icon: 'cron', tint: '#e7f4fd', color: '#2aabee' },
-  { key: 'command', label: 'System', sub: 'gateway & health', icon: 'system', tint: '#fdeaea', color: '#dc4b46' },
+  // iOS system colors as filled icon squares with white glyphs; they read the
+  // same in light and dark mode.
+  { key: 'chat', label: 'New chat', sub: 'Start fresh', icon: 'chat', tint: '#007aff', color: '#ffffff' },
+  { key: 'approvals', label: 'Approvals', sub: 'Waiting on you', icon: 'shield', tint: '#ff9500', color: '#ffffff' },
+  { key: 'kanban', label: 'Kanban', sub: 'Tasks and runs', icon: 'kanban', tint: '#af52de', color: '#ffffff' },
+  { key: 'sessions', label: 'Sessions', sub: 'History', icon: 'sessions', tint: '#34c759', color: '#ffffff' },
+  { key: 'cron', label: 'Schedules', sub: 'Recurring jobs', icon: 'cron', tint: '#5ac8fa', color: '#ffffff' },
+  { key: 'command', label: 'System', sub: 'Gateway and health', icon: 'system', tint: '#ff3b30', color: '#ffffff' },
 ];
 
 export function Home({ rpc, rest, onNavigate }: HomeProps) {
@@ -65,11 +67,8 @@ export function Home({ rpc, rest, onNavigate }: HomeProps) {
       <div className="hm-home__scroll">
       {/* Hero */}
       <div className="hm-home__hero">
-        <h1 className="hm-home__wordmark">Hermes Agent</h1>
-        <p className="hm-home__desc">
-          Drop a file path, a traceback, or a rough idea. I&apos;ll investigate, suggest next
-          steps, and keep things reversible.
-        </p>
+        <h1 className="hm-home__wordmark">Hermes</h1>
+        <p className="hm-home__desc">Running on your Mac. Ask for anything.</p>
       </div>
 
       {/* Approval banner */}
