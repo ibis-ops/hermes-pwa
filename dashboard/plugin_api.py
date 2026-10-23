@@ -7,7 +7,7 @@ import sys
 from datetime import datetime, timezone
 from html import escape
 from pathlib import Path
-from urllib.parse import quote
+from urllib.parse import quote, urlsplit
 from urllib.request import Request as UrlRequest, urlopen
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -130,8 +130,46 @@ def _file_response(path: Path) -> FileResponse:
     return FileResponse(path, media_type=media_type, headers=_headers_for(path))
 
 
+def _configured_public_url() -> str | None:
+    """``dashboard.public_url`` from the Hermes config, when it names a real host.
+
+    Returns ``None`` when the config is missing or unreadable, the value is not
+    an http(s) URL, or it points at loopback (then it adds nothing over the
+    request's own origin). Only the scheme and host are kept.
+    """
+    path = _hermes_home() / "config.yaml"
+    try:
+        import yaml  # type: ignore[import-untyped]
+
+        data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    except Exception:
+        return None
+    dashboard = data.get("dashboard") if isinstance(data, dict) else None
+    value = dashboard.get("public_url") if isinstance(dashboard, dict) else None
+    if not isinstance(value, str) or not value.strip():
+        return None
+    parsed = urlsplit(value.strip())
+    if parsed.scheme not in ("http", "https") or not parsed.netloc or not parsed.hostname:
+        return None
+    if _is_localhost(parsed.hostname):
+        return None
+    return f"{parsed.scheme}://{parsed.netloc}"
+
+
 def _origin(request: Request) -> str:
-    return str(request.base_url).rstrip("/")
+    """Origin to build phone-facing links from.
+
+    The Mobile tab is usually opened on the machine running Hermes, so the
+    request origin is a loopback address the phone cannot reach. When the
+    operator configured ``dashboard.public_url`` (a Tailscale name, a reverse
+    proxy host), links and the QR code use that instead.
+    """
+    request_origin = str(request.base_url).rstrip("/")
+    if _is_localhost(request.url.hostname or ""):
+        configured = _configured_public_url()
+        if configured:
+            return configured
+    return request_origin
 
 
 def _public_mobile_base(request: Request) -> str:

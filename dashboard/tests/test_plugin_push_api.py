@@ -200,3 +200,65 @@ class PluginPushApiTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class PublicUrlOriginTests(unittest.TestCase):
+    """Phone-facing links prefer dashboard.public_url when the tab is opened on loopback."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.env = patch.dict(os.environ, {"HERMES_HOME": self.tmp.name}, clear=False)
+        self.env.start()
+        self.addCleanup(self.env.stop)
+        app = FastAPI()
+        app.include_router(router)
+        self.app = app
+
+    def _write_config(self, text: str) -> None:
+        Path(self.tmp.name, "config.yaml").write_text(text, encoding="utf-8")
+
+    def _diagnostics(self, base_url: str) -> dict:
+        client = TestClient(self.app, base_url=base_url, headers={_SESSION_HEADER_NAME: _SESSION_TOKEN})
+        response = client.get("/diagnostics")
+        self.assertEqual(response.status_code, 200)
+        return response.json()
+
+    def test_loopback_request_uses_configured_public_url(self):
+        self._write_config("dashboard:\n  public_url: https://mac.example.ts.net\n")
+        body = self._diagnostics("http://127.0.0.1:9119")
+        self.assertEqual(body["origin"], "http://127.0.0.1:9119")
+        self.assertEqual(
+            body["app_url"],
+            "https://mac.example.ts.net/dashboard-plugins/hermes-pwa/dist/mobile/index.html",
+        )
+        self.assertTrue(body["app_scope"].startswith("https://mac.example.ts.net/"))
+
+    def test_public_request_keeps_its_own_origin(self):
+        self._write_config("dashboard:\n  public_url: https://mac.example.ts.net\n")
+        body = self._diagnostics("https://other.example.com")
+        self.assertEqual(
+            body["app_url"],
+            "https://other.example.com/dashboard-plugins/hermes-pwa/dist/mobile/index.html",
+        )
+
+    def test_loopback_or_invalid_public_url_is_ignored(self):
+        for text in (
+            "dashboard:\n  public_url: http://localhost:9119\n",
+            "dashboard:\n  public_url: hermes.local\n",
+            "dashboard:\n  public_url: ''\n",
+            "dashboard: []\n",
+            "not: yaml: [\n",
+        ):
+            self._write_config(text)
+            body = self._diagnostics("http://127.0.0.1:9119")
+            self.assertEqual(
+                body["app_url"],
+                "http://127.0.0.1:9119/dashboard-plugins/hermes-pwa/dist/mobile/index.html",
+                text,
+            )
+
+    def test_missing_config_falls_back_to_request_origin(self):
+        body = self._diagnostics("http://localhost:9119")
+        self.assertEqual(body["origin"], "http://localhost:9119")
+        self.assertTrue(body["app_url"].startswith("http://localhost:9119/"))
