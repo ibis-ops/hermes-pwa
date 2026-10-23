@@ -512,10 +512,21 @@ textarea {
 }
 
 .hm-drawer__wordmark {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
   font-size: var(--hm-fs-title);
   font-weight: var(--hm-fw-bold);
   letter-spacing: -0.4px;
+  line-height: 1.15;
   color: var(--hm-color-text);
+}
+
+.hm-drawer__wordmark-sub {
+  font-size: var(--hm-fs-label);
+  font-weight: var(--hm-fw-regular);
+  letter-spacing: 0;
+  color: var(--hm-color-text-muted);
 }
 
 .hm-drawer__close {

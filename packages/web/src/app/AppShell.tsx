@@ -669,7 +669,10 @@ export function AppShell({ connectionState, rpc, rest, onRetry }: AppShellProps)
             <div className="hm-drawer__header">
               <span className="hm-drawer__brand">
                 <img className="hm-drawer__brand-logo" src="./icons/icon-192.png" alt="" aria-hidden="true" />
-                <span className="hm-drawer__wordmark">Hermes-Agent PWA (unofficial)</span>
+                <span className="hm-drawer__wordmark">
+                  Hermes
+                  <span className="hm-drawer__wordmark-sub">Mobile, unofficial</span>
+                </span>
               </span>
               <button
                 ref={drawerCloseRef}

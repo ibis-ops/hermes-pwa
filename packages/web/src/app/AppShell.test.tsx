@@ -232,7 +232,8 @@ describe('AppShell', () => {
     fireEvent.click(screen.getByRole('button', { name: /open menu/i }));
     const drawer = screen.getByRole('dialog', { name: /navigation menu/i });
     expect(drawer).toBeInTheDocument();
-    expect(within(drawer).getByText('Hermes-Agent PWA (unofficial)')).toBeInTheDocument();
+    expect(within(drawer).getByText('Mobile, unofficial')).toBeInTheDocument();
+    expect(drawer.querySelector('.hm-drawer__wordmark')?.textContent).toContain('Hermes');
     expect(within(drawer).getByRole('button', { name: 'New session' })).toBeInTheDocument();
     expect(within(drawer).queryByText('⌘N')).not.toBeInTheDocument();
     expect(drawer.querySelector('.hm-drawer__brand-logo')).toHaveAttribute('src', './icons/icon-192.png');
