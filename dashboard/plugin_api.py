@@ -130,30 +130,86 @@ def _file_response(path: Path) -> FileResponse:
     return FileResponse(path, media_type=media_type, headers=_headers_for(path))
 
 
-def _configured_public_url() -> str | None:
-    """``dashboard.public_url`` from the Hermes config, when it names a real host.
+def _public_url_from_config_text(text: str) -> str | None:
+    """Read ``dashboard.public_url`` from config.yaml text without a YAML parser.
 
-    Returns ``None`` when the config is missing or unreadable, the value is not
-    an http(s) URL, or it points at loopback (then it adds nothing over the
-    request's own origin). Only the scheme and host are kept.
+    Hermes ships its own YAML stack, so a plain ``yaml`` import is not
+    guaranteed inside the dashboard process. This only looks at the direct
+    children of a top-level ``dashboard:`` block, which is where Hermes keeps
+    the key; anything fancier (anchors, flow mappings) is out of scope.
     """
-    path = _hermes_home() / "config.yaml"
+    in_dashboard = False
+    for raw in text.splitlines():
+        stripped = raw.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        indent = len(raw) - len(raw.lstrip())
+        if indent == 0:
+            in_dashboard = raw.split(":", 1)[0].strip() == "dashboard" and ":" in raw
+            continue
+        if in_dashboard and indent == 2 and stripped.startswith("public_url:"):
+            value = stripped.split(":", 1)[1].strip()
+            if value[:1] in ("'", '"'):
+                quote_char = value[0]
+                end = value.find(quote_char, 1)
+                value = value[1:end] if end > 0 else value[1:]
+            elif " #" in value:
+                value = value.split(" #", 1)[0].strip()
+            return value.strip() or None
+    return None
+
+
+def _raw_public_url() -> str:
+    """Operator-configured public URL, from the same sources Hermes itself uses.
+
+    Order: ``HERMES_DASHBOARD_PUBLIC_URL`` env, then Hermes' own resolver when
+    the plugin runs inside the dashboard, then ``dashboard.public_url`` read
+    straight from ``config.yaml``.
+    """
+    raw = os.environ.get("HERMES_DASHBOARD_PUBLIC_URL", "").strip()
+    if raw:
+        return raw
+    try:
+        from hermes_cli.dashboard_auth.prefix import resolve_public_url  # type: ignore[import-not-found]
+
+        raw = str(resolve_public_url() or "").strip()
+    except Exception:
+        raw = ""
+    if raw:
+        return raw
+    try:
+        text = (_hermes_home() / "config.yaml").read_text(encoding="utf-8")
+    except OSError:
+        return ""
     try:
         import yaml  # type: ignore[import-untyped]
-
-        data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    except ImportError:
+        return _public_url_from_config_text(text) or ""
+    try:
+        data = yaml.safe_load(text) or {}
     except Exception:
-        return None
+        return ""
     dashboard = data.get("dashboard") if isinstance(data, dict) else None
     value = dashboard.get("public_url") if isinstance(dashboard, dict) else None
-    if not isinstance(value, str) or not value.strip():
+    return value.strip() if isinstance(value, str) else ""
+
+
+def _configured_public_url() -> str | None:
+    """``dashboard.public_url`` when it names a host a phone could reach.
+
+    Returns ``None`` when nothing is configured, the value is not an http(s)
+    URL, or it points at loopback (then it adds nothing over the request's own
+    origin). A path prefix is kept, since Hermes mounts under it.
+    """
+    raw = _raw_public_url()
+    if not raw:
         return None
-    parsed = urlsplit(value.strip())
+    parsed = urlsplit(raw)
     if parsed.scheme not in ("http", "https") or not parsed.netloc or not parsed.hostname:
         return None
     if _is_localhost(parsed.hostname):
         return None
-    return f"{parsed.scheme}://{parsed.netloc}"
+    return f"{parsed.scheme}://{parsed.netloc}{parsed.path.rstrip('/')}"
 
 
 def _origin(request: Request) -> str:

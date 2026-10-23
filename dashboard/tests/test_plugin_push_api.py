@@ -262,3 +262,37 @@ class PublicUrlOriginTests(unittest.TestCase):
         body = self._diagnostics("http://localhost:9119")
         self.assertEqual(body["origin"], "http://localhost:9119")
         self.assertTrue(body["app_url"].startswith("http://localhost:9119/"))
+
+    def test_env_var_wins_over_config(self):
+        self._write_config("dashboard:\n  public_url: https://from-config.example\n")
+        with patch.dict(os.environ, {"HERMES_DASHBOARD_PUBLIC_URL": "https://from-env.example/hermes/"}):
+            body = self._diagnostics("http://127.0.0.1:9119")
+        self.assertEqual(
+            body["app_url"],
+            "https://from-env.example/hermes/dashboard-plugins/hermes-pwa/dist/mobile/index.html",
+        )
+
+    def test_config_is_readable_without_a_yaml_parser(self):
+        from dashboard import plugin_api
+
+        text = (
+            "# comment\n"
+            "gateway:\n"
+            "  public_url: https://wrong-section.example\n"
+            "dashboard:\n"
+            "  bind: 127.0.0.1\n"
+            "  public_url: 'https://mac.example.ts.net'  # phone reaches this\n"
+            "other:\n"
+            "  public_url: https://also-wrong.example\n"
+        )
+        self.assertEqual(plugin_api._public_url_from_config_text(text), "https://mac.example.ts.net")
+        self.assertIsNone(plugin_api._public_url_from_config_text("dashboard:\n  bind: 0.0.0.0\n"))
+        self.assertIsNone(plugin_api._public_url_from_config_text("dashboard:\n  public_url: ''\n"))
+
+        self._write_config(text)
+        with patch.dict("sys.modules", {"yaml": None}):
+            body = self._diagnostics("http://127.0.0.1:9119")
+        self.assertEqual(
+            body["app_url"],
+            "https://mac.example.ts.net/dashboard-plugins/hermes-pwa/dist/mobile/index.html",
+        )
