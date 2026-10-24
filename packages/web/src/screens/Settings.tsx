@@ -31,12 +31,6 @@ function reasoningLabel(effort: ReasoningEffort | undefined): string {
   return effort.charAt(0).toUpperCase() + effort.slice(1);
 }
 
-function thinkingLabel(showReasoning: boolean | undefined): string {
-  if (showReasoning === true) return 'Shown';
-  if (showReasoning === false) return 'Hidden';
-  return 'Default';
-}
-
 function normalizeBusyInputMode(value: unknown): BusyInputMode {
   return value === 'queue' || value === 'interrupt' || value === 'steer' ? value : 'queue';
 }
@@ -99,8 +93,6 @@ export function Settings({ rest, onNavigate, onLogout }: SettingsProps) {
     : (status ? 'None' : '—');
   const modelLabel = activeProfile?.model ?? info?.model ?? '—';
   const providerLabel = activeProfile?.provider ?? info?.provider;
-  const effortLabel = reasoningLabel(activeProfile?.reasoningEffort);
-  const thinkingDisplayLabel = thinkingLabel(activeProfile?.showReasoning);
   const pushProfile = activeName || 'default';
   const pushCapability = useMemo(() => getPushCapability(), []);
   const iosSafari = useMemo(() => isIosSafari(), []);
@@ -302,7 +294,7 @@ export function Settings({ rest, onNavigate, onLogout }: SettingsProps) {
         <SettingsRow label="Auth" value={authLabel} />
         <SettingsRow
           label="Model"
-          value={providerLabel ? `${providerLabel} / ${modelLabel} · Effort ${effortLabel} · Thinking ${thinkingDisplayLabel}` : modelLabel}
+          value={providerLabel ? `${providerLabel} / ${modelLabel}` : modelLabel}
           action={
             <button
               type="button"
