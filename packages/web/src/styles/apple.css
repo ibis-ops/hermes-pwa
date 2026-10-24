@@ -2543,3 +2543,53 @@ textarea {
     max-width: 90vw;
   }
 }
+
+/* ── Approval cards: the full command, readable ─────────────────────── */
+.hm-approval-card__cmd,
+.hm-approval-inline__cmd {
+  margin: 0;
+  max-height: 240px;
+  overflow: auto;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--hm-color-fill);
+  font-family: var(--hm-font-mono);
+  font-size: var(--hm-fs-mono);
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-word;
+  -webkit-overflow-scrolling: touch;
+}
+
+.hm-approval-card__warning,
+.hm-approval-inline__warning {
+  margin: 8px 0 0;
+  padding: 8px 12px;
+  border-radius: 10px;
+  background: var(--hm-color-danger-bg);
+  color: var(--hm-color-danger-strong);
+  font-size: var(--hm-fs-small);
+  font-weight: var(--hm-fw-medium);
+}
+
+.hm-approval-card__risk {
+  text-transform: none;
+  letter-spacing: 0;
+  font-size: var(--hm-fs-label);
+  font-weight: var(--hm-fw-semibold);
+  border-radius: var(--hm-radius-full);
+  padding: 3px 9px;
+}
+
+.hm-message__blocked-image {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 6px;
+  background: var(--hm-color-fill);
+  color: var(--hm-color-text-muted);
+  font-size: var(--hm-fs-label);
+}
+
+.hm-file-row--busy {
+  opacity: 0.6;
+}

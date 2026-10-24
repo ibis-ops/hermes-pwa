@@ -30,6 +30,18 @@ def _subscription(endpoint: str = "https://push.example/sub/1"):
     return {"endpoint": endpoint, "keys": {"p256dh": "p256", "auth": "auth"}}
 
 
+_ENV = {"HERMES_PWA_PUSH_ALLOW_ANY_ENDPOINT": "1"}
+
+
+def setUpModule():
+    os.environ.update(_ENV)
+
+
+def tearDownModule():
+    for key in _ENV:
+        os.environ.pop(key, None)
+
+
 class PushCommonTests(unittest.TestCase):
     def test_missing_or_corrupt_subscription_file_is_empty(self):
         with tempfile.TemporaryDirectory() as tmp:

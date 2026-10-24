@@ -22,6 +22,10 @@ export interface Approval extends ActionItem {
   highImpact: boolean;
   visibility?: 'private' | 'public';
   session?: string;
+  /** The command exactly as it would run. `summary` may be redacted or shortened for lists. */
+  command?: string;
+  /** False when the stored command text was cut short; the card then warns before approval. */
+  commandComplete?: boolean;
 }
 
 export interface Clarify extends ActionItem {
@@ -56,6 +60,8 @@ export function toActionItem(raw: Record<string, unknown>): ActionItem {
       highImpact: Boolean(raw.high_impact ?? raw.highImpact),
     };
     if (typeof raw.summary === 'string') out.summary = raw.summary;
+    if (typeof raw.command === 'string' && raw.command.trim()) out.command = raw.command;
+    if (typeof raw.command_complete === 'boolean') out.commandComplete = raw.command_complete;
     if (typeof raw.session === 'string') out.session = raw.session;
     if (typeof raw.visibility === 'string' && (raw.visibility === 'private' || raw.visibility === 'public')) {
       out.visibility = raw.visibility;

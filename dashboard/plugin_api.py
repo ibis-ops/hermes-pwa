@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import inspect
 import json
+import logging
 import os
 import sqlite3
 import sys
@@ -14,10 +16,13 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Response
 
 router = APIRouter()
+_file_log = logging.getLogger("hermes_pwa.files")
 
 _PLUGIN_ROOT = Path(__file__).resolve().parent.parent
 if str(_PLUGIN_ROOT) not in sys.path:
-    sys.path.insert(0, str(_PLUGIN_ROOT))
+    # Appended, not prepended: the plugin directory must never shadow Hermes'
+    # own modules (a planted hermes_cli/ here would otherwise replace auth).
+    sys.path.append(str(_PLUGIN_ROOT))
 
 from local_files import (  # noqa: E402
     FileAccessError,
@@ -54,6 +59,40 @@ _INSTALL_MARKER_NAMES = (
 _BACKUP_ARCHIVE_SUFFIXES = (".zip", ".tgz", ".tar.gz")
 
 
+_SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
+
+
+def _reject_cross_site_write(request: Request) -> None:
+    """Refuse state-changing requests that did not come from this origin.
+
+    SameSite=Lax cookies do not isolate tailnet nodes: ``ts.net`` is on the
+    Public Suffix List, so every ``*.<tailnet>.ts.net`` host is the same site as
+    the dashboard and a page on any other node could POST here with the cookie.
+    Browsers always send ``Sec-Fetch-Site`` (and ``Origin`` on cross-origin
+    POSTs); non-browser clients send neither and are not CSRF targets.
+    """
+    if request.method in _SAFE_METHODS:
+        return
+    fetch_site = request.headers.get("sec-fetch-site", "").lower()
+    if fetch_site and fetch_site not in ("same-origin", "none"):
+        raise HTTPException(status_code=403, detail="cross-site request refused")
+    origin = request.headers.get("origin")
+    if origin:
+        from urllib.parse import urlsplit
+
+        origin_host = (urlsplit(origin).netloc or "").lower()
+        request_host = (request.headers.get("host") or "").lower()
+        forwarded_host = (request.headers.get("x-forwarded-host") or "").split(",")[0].strip().lower()
+        if origin_host not in {request_host, forwarded_host} or not origin_host:
+            raise HTTPException(status_code=403, detail="cross-site request refused")
+    if request.method in ("POST", "PUT", "PATCH", "DELETE"):
+        content_type = request.headers.get("content-type", "").split(";", 1)[0].strip().lower()
+        if content_type and content_type != "application/json":
+            # A cross-origin "simple" request can only carry form or text bodies;
+            # insisting on JSON forces a preflight this API never answers.
+            raise HTTPException(status_code=415, detail="application/json required")
+
+
 def _require_dashboard_auth(request: Request) -> None:
     """Defense-in-depth auth check for sensitive plugin API routes.
 
@@ -62,13 +101,19 @@ def _require_dashboard_auth(request: Request) -> None:
     namespace policy for endpoints that expose local transcripts, backups, or
     push subscription state.
     """
+    _reject_cross_site_write(request)
     try:
         from hermes_cli.web_server import _require_token  # type: ignore
     except Exception as exc:  # pragma: no cover - production Hermes provides it
         if getattr(request.app.state, "auth_required", False) and getattr(request.state, "session", None) is not None:
             return
         raise HTTPException(status_code=401, detail="Unauthorized") from exc
-    _require_token(request)
+    result = _require_token(request)
+    if inspect.isawaitable(result):
+        # A future async Hermes would return a coroutine that never raises;
+        # treat that as "could not verify" rather than "verified".
+        result.close() if hasattr(result, "close") else None
+        raise HTTPException(status_code=401, detail="Unauthorized")
 
 _MESSAGING_SOURCES = {
     "api_server",
@@ -110,7 +155,12 @@ def _safe_dist_path(relative_path: str) -> Path:
 def _headers_for(path: Path) -> dict[str, str]:
     name = path.name
     suffix = path.suffix.lower()
-    headers: dict[str, str] = {}
+    headers: dict[str, str] = {
+        "X-Content-Type-Options": "nosniff",
+    }
+    if suffix in (".html", ".htm"):
+        headers["X-Frame-Options"] = "DENY"
+        headers["Content-Security-Policy"] = "frame-ancestors 'none'"
 
     if name == "index.html":
         headers["Cache-Control"] = "no-store"
@@ -736,8 +786,8 @@ def push_status(profile: str = "default") -> JSONResponse:
 
 @router.post("/push/subscribe", dependencies=[Depends(_require_dashboard_auth)])
 async def push_subscribe(request: Request, profile: str = "default") -> JSONResponse:
+    body = await _json_body(request)
     try:
-        body = await request.json()
         subscription = body.get("subscription") if isinstance(body, dict) and "subscription" in body else body
         label = body.get("label") if isinstance(body, dict) else None
         user_agent_hint = request.headers.get("user-agent")
@@ -752,9 +802,16 @@ async def push_subscribe(request: Request, profile: str = "default") -> JSONResp
     return JSONResponse({"ok": True, "subscription": safe, "id": safe["id"]})
 
 
+async def _json_body(request: Request) -> object:
+    try:
+        return await request.json()
+    except (ValueError, UnicodeDecodeError) as exc:
+        raise HTTPException(status_code=400, detail="invalid JSON body") from exc
+
+
 @router.post("/push/unsubscribe", dependencies=[Depends(_require_dashboard_auth)])
 async def push_unsubscribe(request: Request, profile: str = "default") -> JSONResponse:
-    body = await request.json()
+    body = await _json_body(request)
     target_id = str(body.get("id") or "") if isinstance(body, dict) else ""
     endpoint = str(body.get("endpoint") or "") if isinstance(body, dict) else ""
     records = load_push_subscriptions()
@@ -776,7 +833,7 @@ async def push_test(request: Request, profile: str = "default") -> JSONResponse:
     available, reason = _push_availability()
     if not available:
         raise HTTPException(status_code=503, detail=reason or "push unavailable")
-    body = await request.json()
+    body = await _json_body(request)
     record_id = str(body.get("id") or "") if isinstance(body, dict) else ""
     if not record_id:
         raise HTTPException(status_code=400, detail="id is required")
@@ -835,7 +892,9 @@ def local_file(path: str = "") -> Response:
     try:
         served = resolve_served_file(path)
     except FileAccessError as exc:
+        _file_log.info("local-file refused status=%s reason=%s", exc.status, exc.detail)
         raise HTTPException(status_code=exc.status, detail=exc.detail) from None
+    _file_log.info("local-file served path=%s bytes=%s inline=%s", served.path, served.size, served.inline)
     return FileResponse(served.path, media_type=served.media_type, headers=local_file_headers(served))
 
 
@@ -939,7 +998,7 @@ def _app_link_svg(app_url: str) -> str:
 </svg>"""
 
 
-@router.get("/app-link.svg")
+@router.get("/app-link.svg", dependencies=[Depends(_require_dashboard_auth)])
 def app_link_svg(request: Request) -> Response:
     """Return a local SVG link card for the app URL.
 

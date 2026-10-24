@@ -62,6 +62,12 @@ export function explainConnectionError(err: unknown): ConnectionDiagnostics {
   }
 
   const msg = err instanceof Error ? err.message : String(err);
+  if (/<!doctype|<html|<body/i.test(msg)) {
+    return {
+      message: "Can't reach Hermes. Check Tailscale and that the Mac is awake, then try again.",
+      advice: 'check-network',
+    };
+  }
   if (/ticket|websocket|ws/i.test(msg)) {
     return {
       message: 'Live updates disconnected. Retrying…',

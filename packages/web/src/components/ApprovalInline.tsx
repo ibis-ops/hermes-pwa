@@ -2,6 +2,7 @@ import { useState } from 'react';
 import type { RpcClient, Approval, ToolCall } from '@hermes-pwa/core';
 import { useActivityStore, useChatStore } from '@hermes-pwa/core';
 import { Icon } from './Icon';
+import { approvalText } from './approvalText';
 import { firstStringField } from '../lib/toolView';
 
 interface ApprovalInlineProps {
@@ -79,6 +80,7 @@ export function ApprovalInline({ rpc, toolName, tool }: ApprovalInlineProps) {
   if (!pending) return null;
 
   const approval = pending;
+  const shown = approvalText(approval);
   const risk = approval.highImpact ? 'high' : 'low';
   const style = riskStyle(risk);
   const busy = submitting !== null;
@@ -89,6 +91,10 @@ export function ApprovalInline({ rpc, toolName, tool }: ApprovalInlineProps) {
       const ok = window.confirm(
         'Always allow this approval pattern? This is persistent and can affect future Hermes actions.',
       );
+      if (!ok) return;
+    }
+    if (choice === 'session') {
+      const ok = window.confirm('Allow this pattern for the rest of this session without asking again?');
       if (!ok) return;
     }
     setSubmitting(choice);
@@ -118,7 +124,12 @@ export function ApprovalInline({ rpc, toolName, tool }: ApprovalInlineProps) {
       </div>
       <div className="hm-approval-inline__body">
         <div className="hm-approval-inline__label">{toolScoped ? 'Pending tool wants to run' : `${approval.title} wants to run`}</div>
-        {approval.summary && <div className="hm-approval-inline__cmd">{approval.summary}</div>}
+        {shown.text && <pre className="hm-approval-inline__cmd">{shown.text}</pre>}
+        {shown.incomplete && (
+          <div className="hm-approval-inline__warning" role="alert">
+            The command text is incomplete. Deny unless you know exactly what this is.
+          </div>
+        )}
         <div className="hm-approval-inline__actions">
           <button
             type="button"

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { localFileUrl, type FileRef, type RestClient } from '@hermes-pwa/core';
 import { Icon } from './Icon';
 import { Lightbox } from './Lightbox';
+import { shareOrOpenFile } from '../pwa/share';
 
 interface FileCardsProps {
   refs: FileRef[];
@@ -95,6 +96,7 @@ function ImageCard({ file, rest }: { file: FileRef; rest: RestClient | undefined
 
 function FileRow({ file, rest }: { file: FileRef; rest: RestClient | undefined }) {
   const info = useFileInfo(file, rest);
+  const [sharing, setSharing] = useState(false);
   const url = localFileUrl('', file.path);
   const unavailable = info.state === 'missing' || info.state === 'denied';
   const detail =
@@ -133,17 +135,22 @@ function FileRow({ file, rest }: { file: FileRef; rest: RestClient | undefined }
     );
   }
   return (
-    <a
-      className="hm-file-row"
-      href={url}
-      target="_blank"
-      rel="noopener noreferrer"
+    <button
+      type="button"
+      className={`hm-file-row ${sharing ? 'hm-file-row--busy' : ''}`}
+      onClick={() => {
+        if (sharing) return;
+        setSharing(true);
+        void shareOrOpenFile(url, file.name, info.state === 'ready' ? info.mime : undefined).finally(() => setSharing(false));
+      }}
       title={file.path}
       aria-label={`Open ${file.name}`}
+      aria-busy={sharing}
       data-testid="file-row"
+      data-href={url}
     >
       {body}
-    </a>
+    </button>
   );
 }
 

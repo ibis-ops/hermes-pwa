@@ -27,6 +27,8 @@ class PluginPushApiTests(unittest.TestCase):
                 "HERMES_HOME": self.tmp.name,
                 "HERMES_PWA_VAPID_PRIVATE_KEY": "",
                 "HERMES_PWA_VAPID_PUBLIC_KEY": "",
+                # Tests use push.example endpoints; production only accepts browser push hosts.
+                "HERMES_PWA_PUSH_ALLOW_ANY_ENDPOINT": "1",
             },
             clear=False,
         )

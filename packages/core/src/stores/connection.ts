@@ -358,6 +358,9 @@ export const useConnectionStore = create<ConnectionStore>((set, get) => {
           } catch (err) {
             const diagnostics = explainConnectionError(err);
             if (diagnostics.advice === 'sign-in-again') {
+              // No valid session: the cached transcript (commands, tool output)
+              // must not outlive it on a shared or lost phone.
+              purgeLocalPrivateCache();
               set({ state: 'login', user: undefined, error: undefined });
             } else {
               set({ state: 'offline', error: diagnostics.message });

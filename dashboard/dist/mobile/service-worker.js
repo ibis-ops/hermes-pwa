@@ -46,7 +46,27 @@ function isEntryShellAsset(url) {
   return isRuntimeAsset(url) && /\/assets\/index-[^/]+\.(?:js|css)$/u.test(url.pathname);
 }
 
+function appScope() {
+  return (self.registration && self.registration.scope) || (self.location ? self.location.href : '');
+}
+
+function isOwnOrigin(url) {
+  const scope = appScope();
+  if (!scope) return true;
+  return url.origin === new URL(scope).origin;
+}
+
+function isWithinAppScope(url) {
+  const scope = appScope();
+  return Boolean(scope) && url.href.startsWith(scope);
+}
+
 function isStaticShellAsset(url) {
+  // Only this app's own files are cached: same origin, inside the app scope
+  // (or its hashed asset directory). Cross-origin images and anything under
+  // /api/ never enter CacheStorage, so a logout leaves nothing private behind.
+  if (!isOwnOrigin(url)) return false;
+  if (!isWithinAppScope(url) && !isRuntimeAsset(url)) return false;
   return isRuntimeAsset(url) ||
     url.pathname.endsWith('.css') ||
     url.pathname.endsWith('.js') ||

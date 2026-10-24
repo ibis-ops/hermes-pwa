@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { Icon } from './Icon';
+import { shareOrOpenFile } from '../pwa/share';
 
 interface LightboxProps {
   src: string;
@@ -9,9 +10,9 @@ interface LightboxProps {
 
 /**
  * Full-screen image viewer. Installed PWAs on iOS leave the app when a link
- * opens a new tab, so images open in place; a long press on the picture still
- * gives the system Save Image / Share sheet, and the Open button is there for
- * anyone who wants the raw file.
+ * opens a new tab, so images open in place. The share button fetches the file
+ * with the app's session and opens the system share sheet (Save to Photos,
+ * AirDrop, Messages); a long press on the picture works too.
  */
 export function Lightbox({ src, name, onClose }: LightboxProps) {
   const closeRef = useRef<HTMLButtonElement>(null);
@@ -37,9 +38,14 @@ export function Lightbox({ src, name, onClose }: LightboxProps) {
           <Icon name="close" size={18} />
         </button>
         <span className="hm-lightbox__name">{name}</span>
-        <a className="hm-lightbox__button" href={src} target="_blank" rel="noopener noreferrer" aria-label="Open image in a new tab">
+        <button
+          type="button"
+          className="hm-lightbox__button"
+          onClick={() => void shareOrOpenFile(src, name)}
+          aria-label="Save or share image"
+        >
           <Icon name="download" size={18} />
-        </a>
+        </button>
       </div>
       <div className="hm-lightbox__stage" onClick={onClose}>
         <img className="hm-lightbox__img" src={src} alt={name} onClick={(event) => event.stopPropagation()} />

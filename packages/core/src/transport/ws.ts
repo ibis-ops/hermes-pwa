@@ -54,7 +54,11 @@ export function makeWsConnection(baseWsUrl: string): WsConnection {
       socket.onclose = (event) => {
         if (ws !== socket) return;
 
-        if (!opened && !legacyQueryTicket && !legacyFallbackTried) {
+        // Only a handshake the server refused (abnormal or protocol close before
+        // open) justifies retrying with the ticket in the query string, where
+        // proxies and access logs can see it.
+        const refusedHandshake = event.code === 1006 || event.code === 1002 || event.code === 1015;
+        if (!opened && !legacyQueryTicket && !legacyFallbackTried && refusedHandshake) {
           legacyFallbackTried = true;
           socket.onclose = null;
           ws = null;

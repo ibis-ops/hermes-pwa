@@ -8,7 +8,7 @@ import { UpdateNotification } from '../components/UpdateNotification';
 import { LazyScreenErrorBoundary } from './LazyScreenErrorBoundary';
 import { usePresence } from '../hooks/usePresence';
 import { getInitialScreen, persistScreen } from '../lib/screenStorage';
-import { syncPushSubscription } from '../pwa/push';
+import { disablePushNotifications, syncPushSubscription } from '../pwa/push';
 
 export type Screen =
   | 'home'
@@ -110,6 +110,10 @@ function approvalFromEvent(event: RpcEvent): Approval {
   else if (event.sessionId) item.session = `Session ${event.sessionId.slice(0, 8)}`;
   const summary = [command, description].filter(Boolean).join('\n');
   if (summary) item.summary = summary;
+  if (command) {
+    item.command = command;
+    item.commandComplete = true;
+  }
   if (typeof d.visibility === 'string' && (d.visibility === 'private' || d.visibility === 'public')) {
     item.visibility = d.visibility;
   } else {
@@ -643,7 +647,19 @@ export function AppShell({ connectionState, rpc, rest, onRetry }: AppShellProps)
                 key={activeName ?? 'default'}
                 rest={rest}
                 onNavigate={(s) => navigate(s as Screen)}
-                onLogout={() => void useConnectionStore.getState().logout()}
+                onLogout={() => {
+                  void (async () => {
+                    // A logged-out phone must stop receiving approval and reply
+                    // notifications; drop the push subscription first while the
+                    // session cookie can still authorize the unsubscribe call.
+                    try {
+                      await disablePushNotifications(rest, undefined, activeName ?? 'default');
+                    } catch {
+                      // Best effort; logout proceeds either way.
+                    }
+                    await useConnectionStore.getState().logout();
+                  })();
+                }}
               />
             )}
           </Suspense>

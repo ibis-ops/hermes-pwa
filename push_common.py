@@ -53,10 +53,17 @@ def _read_json_list(path: Path) -> list[dict[str, Any]]:
 
 
 def _write_json_list(path: Path, records: list[dict[str, Any]]) -> None:
+    """Atomic write, owner-only permissions: these files hold push keys and command text."""
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(path.suffix + ".tmp")
-    tmp.write_text(json.dumps(records, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as handle:
+        handle.write(json.dumps(records, indent=2, sort_keys=True) + "\n")
     os.replace(tmp, path)
+    try:
+        os.chmod(path, 0o600)
+    except OSError:
+        pass
 
 
 def load_push_subscriptions(path: Path | None = None) -> list[dict[str, Any]]:
@@ -67,6 +74,36 @@ def save_push_subscriptions(records: list[dict[str, Any]], path: Path | None = N
     _write_json_list(path or push_subscriptions_path(), records)
 
 
+MAX_PUSH_SUBSCRIPTIONS_PER_PROFILE = 10
+PUSH_SEND_TIMEOUT_SECONDS = 8
+
+# Browser push services. A subscription endpoint anywhere else is not a browser
+# subscription; refusing it keeps the sender from being pointed at loopback or
+# tailnet services (blind SSRF) or at a black hole that would stall the hooks.
+_PUSH_ENDPOINT_HOST_SUFFIXES = (
+    ".push.apple.com",
+    ".notify.windows.com",
+    ".push.services.mozilla.com",
+    ".googleapis.com",
+    ".google.com",
+)
+
+
+def _endpoint_allowed(endpoint: str) -> bool:
+    from urllib.parse import urlsplit
+
+    try:
+        parts = urlsplit(endpoint)
+    except ValueError:
+        return False
+    host = (parts.hostname or "").lower()
+    if parts.scheme != "https" or not host:
+        return False
+    if os.environ.get("HERMES_PWA_PUSH_ALLOW_ANY_ENDPOINT") == "1":
+        return True
+    return any(host == suffix[1:] or host.endswith(suffix) for suffix in _PUSH_ENDPOINT_HOST_SUFFIXES)
+
+
 def validate_browser_subscription(subscription: Any) -> dict[str, Any]:
     if not isinstance(subscription, dict):
         raise ValueError("subscription must be an object")
@@ -74,6 +111,8 @@ def validate_browser_subscription(subscription: Any) -> dict[str, Any]:
     keys = subscription.get("keys")
     if not isinstance(endpoint, str) or not endpoint.strip():
         raise ValueError("subscription.endpoint is required")
+    if not _endpoint_allowed(endpoint.strip()):
+        raise ValueError("subscription.endpoint must be an https URL on a browser push service")
     if not isinstance(keys, dict):
         raise ValueError("subscription.keys is required")
     p256dh = keys.get("p256dh")
@@ -143,6 +182,12 @@ def upsert_push_subscription(
             "last_error": None,
         }
         records.append(updated)
+    # Cap devices per profile: keep the newest, drop the oldest beyond the limit.
+    same_profile = [r for r in records if _normalized_profile(r.get("profile")) == _normalized_profile(normalized_profile)]
+    if len(same_profile) > MAX_PUSH_SUBSCRIPTIONS_PER_PROFILE:
+        same_profile.sort(key=lambda r: float(r.get("updated_at") or r.get("created_at") or 0))
+        drop_ids = {r.get("id") for r in same_profile[: len(same_profile) - MAX_PUSH_SUBSCRIPTIONS_PER_PROFILE]}
+        records = [r for r in records if r.get("id") not in drop_ids]
     save_push_subscriptions(records, path)
     return safe_subscription_record(updated)
 
@@ -232,9 +277,26 @@ def load_pending_approvals(*, profile: str | None = None, max_age_seconds: int =
     return active
 
 
+def approval_command_text(value: Any, *, limit: int = 20_000) -> str:
+    """The command exactly as it will run, for the approval card.
+
+    No secret redaction and no short cap here: the person approving must see the
+    whole thing. Only NUL and other non-printing control characters are dropped
+    (newlines and tabs stay). The push payload never carries the command.
+    """
+    text = "" if value is None else str(value)
+    text = re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]", "", text)
+    if len(text) > limit:
+        return text[: limit - 1] + "…"
+    return text
+
+
 def record_pending_approval(**kwargs: Any) -> dict[str, Any]:
     session_key = sanitize_notification_text(kwargs.get("session_key") or "global", limit=120)
-    command = sanitize_notification_text(kwargs.get("command") or "", limit=600)
+    command = approval_command_text(kwargs.get("command") or "")
+    # `summary` is the redacted, one-line form for lists and notifications;
+    # `command` is the full text the card shows before anyone taps Approve.
+    short_command = sanitize_notification_text(command, limit=600)
     description = sanitize_notification_text(kwargs.get("description") or "Security approval required", limit=240)
     pattern_key = sanitize_notification_text(kwargs.get("pattern_key") or "", limit=120)
     profile = sanitize_notification_text(kwargs.get("profile") or "default", limit=80)
@@ -243,10 +305,11 @@ def record_pending_approval(**kwargs: Any) -> dict[str, Any]:
         "kind": "approval",
         "status": "needs_you",
         "title": "Approval required",
-        "summary": "\n".join(part for part in (command, description) if part),
+        "summary": "\n".join(part for part in (short_command, description) if part),
         "session_id": session_key,
         "session": f"Session {session_key[:8]}",
         "command": command,
+        "command_complete": not command.endswith("…"),
         "description": description,
         "pattern_key": pattern_key,
         "high_impact": True,
@@ -267,7 +330,7 @@ def record_pending_approval(**kwargs: Any) -> dict[str, Any]:
 
 def clear_pending_approval(**kwargs: Any) -> int:
     session_key = sanitize_notification_text(kwargs.get("session_key") or "global", limit=120)
-    command = sanitize_notification_text(kwargs.get("command") or "", limit=600)
+    command = approval_command_text(kwargs.get("command") or "")
     pattern_key = sanitize_notification_text(kwargs.get("pattern_key") or "", limit=120)
     path = pending_approvals_path()
     records = _read_json_list(path)
@@ -410,6 +473,7 @@ def send_web_push_record(record: dict[str, Any], payload: dict[str, Any]) -> Non
         data=json.dumps(payload),
         vapid_private_key=os.environ["HERMES_PWA_VAPID_PRIVATE_KEY"].replace("\\n", "\n"),
         vapid_claims={"sub": vapid_subject()},
+        timeout=PUSH_SEND_TIMEOUT_SECONDS,
     )
 
 

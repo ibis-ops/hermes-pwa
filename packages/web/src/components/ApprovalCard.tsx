@@ -1,5 +1,6 @@
 import type { Approval } from '@hermes-pwa/core';
 import { Icon } from './Icon';
+import { approvalText } from './approvalText';
 
 interface ApprovalCardProps {
   item: Approval;
@@ -9,7 +10,8 @@ interface ApprovalCardProps {
 
 export function ApprovalCard({ item, onApprove, onReject }: ApprovalCardProps) {
   const isHighImpact = item.highImpact;
-  const riskLabel = isHighImpact ? 'HIGH RISK' : 'LOW RISK';
+  const shown = approvalText(item);
+  const riskLabel = isHighImpact ? 'High risk' : 'Low risk';
   const riskColor = isHighImpact ? 'var(--hm-color-danger-strong)' : 'var(--hm-color-success-strong)';
   const riskBg = isHighImpact ? 'var(--hm-color-danger-bg)' : 'var(--hm-color-success-bg)';
 
@@ -32,8 +34,13 @@ export function ApprovalCard({ item, onApprove, onReject }: ApprovalCardProps) {
         {item.session && (
           <div className="hm-approval-card__session">{item.session}</div>
         )}
-        {item.summary && (
-          <div className="hm-approval-card__cmd">{item.summary}</div>
+        {shown.text && (
+          <pre className="hm-approval-card__cmd">{shown.text}</pre>
+        )}
+        {shown.incomplete && (
+          <div className="hm-approval-card__warning" role="alert">
+            The command text is incomplete. Deny unless you know exactly what this is.
+          </div>
         )}
         <div className="hm-approval-card__actions">
           <button

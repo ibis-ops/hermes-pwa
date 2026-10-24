@@ -33,8 +33,12 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable
 
-MAX_FILE_BYTES = 200 * 1024 * 1024
+MAX_FILE_BYTES = 100 * 1024 * 1024
 
+# Default roots: where Hermes stages uploads and writes its own output, plus
+# the two folders it is told to save deliverables to. Documents, Pictures and
+# Movies are deliberately not here (tax PDFs, the Photos library, personal
+# video); opt in with HERMES_PWA_FILE_ROOTS when needed.
 _DEFAULT_ROOT_SUFFIXES = (
     (".hermes", "attachments"),
     (".hermes", "cache"),
@@ -42,10 +46,17 @@ _DEFAULT_ROOT_SUFFIXES = (
     (".hermes", "audio_cache"),
     ("Desktop",),
     ("Downloads",),
-    ("Documents",),
-    ("Pictures",),
-    ("Movies",),
 )
+
+# Roots that would expose credential stores or whole accounts are refused even
+# when configured: the home directory itself, filesystem roots, and ~/Library
+# (Keychains, Messages, Safari and Mail databases live there).
+_FORBIDDEN_ROOT_SUFFIXES = (("Library",),)
+
+# Package bundles are directories macOS shows as one item; their internals are
+# regular files (Photos.sqlite, originals/*.jpeg) and never something Hermes
+# hands over on purpose.
+_BUNDLE_SUFFIXES = (".photoslibrary", ".app", ".framework", ".appex", ".bundle", ".plugin", ".keychain-db", ".keychain")
 
 # Extension -> media type for files that may render inline in the browser.
 _INLINE_TYPES: dict[str, str] = {
@@ -129,8 +140,25 @@ def _hermes_home() -> Path:
     return Path(os.environ.get("HERMES_HOME") or _home() / ".hermes").expanduser()
 
 
+def _forbidden_root(real: Path) -> bool:
+    home = Path(os.path.realpath(_home()))
+    if real == home or real == home.parent or real == Path(real.anchor):
+        return True
+    if real in (Path("/Users"), Path("/System"), Path("/private"), Path("/var"), Path("/etc")):
+        return True
+    for parts in _FORBIDDEN_ROOT_SUFFIXES:
+        forbidden = home.joinpath(*parts)
+        if real == forbidden or real.is_relative_to(forbidden):
+            return True
+    return False
+
+
 def allowed_roots() -> list[Path]:
-    """Real paths of the roots files may be served from. Missing dirs are skipped."""
+    """Real paths of the roots files may be served from.
+
+    Missing directories are skipped; roots that would expose the whole account
+    (see ``_forbidden_root``) are skipped too, even when configured.
+    """
     raw = os.environ.get("HERMES_PWA_FILE_ROOTS")
     candidates: Iterable[Path]
     if raw and raw.strip():
@@ -144,13 +172,37 @@ def allowed_roots() -> list[Path]:
             real = Path(os.path.realpath(candidate))
         except OSError:
             continue
-        if real.is_dir():
+        if real.is_dir() and not _forbidden_root(real):
             roots.append(real)
     return roots
 
 
 def _has_hidden_segment(relative: Path) -> bool:
     return any(part.startswith(".") for part in relative.parts)
+
+
+def _inside_bundle(relative: Path) -> bool:
+    return any(part.lower().endswith(_BUNDLE_SUFFIXES) for part in relative.parts[:-1])
+
+
+def _verify_same_file(real: Path, expected: os.stat_result) -> None:
+    """Open without following a final symlink and check it is the file we vetted.
+
+    Narrows the window between the checks above and the response reading the
+    path again. The remaining race is only open to a local process running as
+    the same user, which can already read the file directly.
+    """
+    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_CLOEXEC", 0)
+    try:
+        fd = os.open(real, flags)
+    except OSError as exc:
+        raise FileAccessError(403, f"cannot read file: {exc.strerror or exc}") from None
+    try:
+        current = os.fstat(fd)
+    finally:
+        os.close(fd)
+    if (current.st_dev, current.st_ino) != (expected.st_dev, expected.st_ino):
+        raise FileAccessError(409, "file changed while being checked")
 
 
 def resolve_served_file(raw_path: str) -> ServedFile:
@@ -175,8 +227,11 @@ def resolve_served_file(raw_path: str) -> ServedFile:
     root = next((r for r in allowed_roots() if real == r or real.is_relative_to(r)), None)
     if root is None or real == root:
         raise FileAccessError(403, "path is outside the folders Hermes Mobile may read")
-    if _has_hidden_segment(real.relative_to(root)):
+    relative = real.relative_to(root)
+    if _has_hidden_segment(relative):
         raise FileAccessError(403, "hidden files are not served")
+    if _inside_bundle(relative):
+        raise FileAccessError(403, "files inside app and library bundles are not served")
 
     try:
         stat = real.stat()
@@ -188,6 +243,7 @@ def resolve_served_file(raw_path: str) -> ServedFile:
         raise FileAccessError(404, "not a regular file")
     if stat.st_size > MAX_FILE_BYTES:
         raise FileAccessError(413, "file is too large to send")
+    _verify_same_file(real, stat)
 
     inline_type = _INLINE_TYPES.get(real.suffix.lower())
     return ServedFile(
@@ -202,15 +258,18 @@ def resolve_served_file(raw_path: str) -> ServedFile:
 def response_headers(served: ServedFile) -> dict[str, str]:
     """Headers for the FileResponse, including a safe Content-Disposition."""
     # RFC 6266: ASCII fallback plus UTF-8 encoded filename*.
+    import re
     from urllib.parse import quote
 
-    ascii_name = served.download_name.encode("ascii", "replace").decode("ascii").replace('"', "")
+    # ASCII fallback: printable characters only, no quotes or backslashes, so the
+    # on-disk name (which the model may have chosen) cannot break the header.
+    ascii_name = served.download_name.encode("ascii", "replace").decode("ascii")
+    ascii_name = re.sub(r"[^\x20-\x7e]", "_", ascii_name).replace("\\", "_").replace('"', "")
     disposition = "inline" if served.inline else "attachment"
     headers = dict(SAFE_HEADERS)
     headers["Content-Disposition"] = (
-        f"{disposition}; filename=\"{ascii_name}\"; filename*=UTF-8''{quote(served.download_name)}"
+        f"{disposition}; filename=\"{ascii_name or 'file'}\"; filename*=UTF-8''{quote(served.download_name)}"
     )
-    headers["Content-Length"] = str(served.size)
     return headers
 
 

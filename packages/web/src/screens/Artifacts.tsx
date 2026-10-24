@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useChatStore, type RestClient, type Artifact as DomainArtifact } from '@hermes-pwa/core';
+import { localFileUrl, useChatStore, type RestClient, type Artifact as DomainArtifact } from '@hermes-pwa/core';
 
 interface ArtifactsProps {
   rest: RestClient;
@@ -52,8 +52,22 @@ function fmtSize(bytes: number | undefined): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+/**
+ * Only plain web links are opened as-is. A filesystem path goes through the
+ * plugin's file route; anything else (javascript:, data:, custom schemes) is
+ * not a link the app will follow.
+ */
+function safeArtifactHref(url: string | undefined): string | undefined {
+  if (!url) return undefined;
+  const trimmed = url.trim();
+  if (/^https?:\/\//i.test(trimmed)) return trimmed;
+  if (trimmed.startsWith('/') || trimmed.startsWith('~/')) return localFileUrl('', trimmed);
+  return undefined;
+}
+
 function ArtifactItem({ artifact }: { artifact: Artifact }) {
   const icon = artifact.kind === 'image' ? '🖼' : artifact.kind === 'link' ? '🔗' : '📎';
+  const href = safeArtifactHref(artifact.url);
   return (
     <div className="hm-artifact-row" data-testid="artifact-row">
       <span className="hm-artifact-row__icon" aria-hidden="true">{icon}</span>
@@ -65,12 +79,12 @@ function ArtifactItem({ artifact }: { artifact: Artifact }) {
           </span>
         )}
       </span>
-      {artifact.url && (
+      {href && (
         <a
-          href={artifact.url}
+          href={href}
           className="hm-ghost hm-artifact-row__action"
           target="_blank"
-          rel="noreferrer"
+          rel="noopener noreferrer"
           aria-label={`Open ${artifact.name}`}
         >
           ↗
