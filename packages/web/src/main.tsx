@@ -5,9 +5,11 @@ import './styles/tokens.css';
 import './pwa/install';
 import { installVitePreloadErrorReload } from './pwa/preloadError';
 import { registerServiceWorker } from './pwa/registerSW';
+import { installPushForegroundHandling } from './pwa/push';
 
 installVitePreloadErrorReload();
 void registerServiceWorker();
+installPushForegroundHandling();
 
 const root = document.getElementById('root');
 if (!root) throw new Error('Root element not found');

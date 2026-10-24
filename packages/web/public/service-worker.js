@@ -1,5 +1,5 @@
 const CACHE_PREFIX = 'hermes-mobile-';
-const CACHE_VERSION = 'hermes-mobile-v66';
+const CACHE_VERSION = 'hermes-mobile-v67';
 const SHELL_CACHE = `${CACHE_VERSION}:shell`;
 const RUNTIME_ASSET_CACHE = 'hermes-mobile-runtime-assets';
 const RUNTIME_ASSET_CACHE_MAX_ENTRIES = 60;
@@ -110,6 +110,7 @@ function safeNotificationPayload(event) {
   const url = typeof data.url === 'string' && data.url.startsWith('./') ? data.url : './index.html';
   return {
     title: title.slice(0, 80),
+    kind: typeof data.type === 'string' ? data.type : 'notice',
     options: {
       body: body.slice(0, 180),
       tag,
@@ -121,9 +122,24 @@ function safeNotificationPayload(event) {
   };
 }
 
+// Safari expects a notification for every push, so one is always shown. The
+// open app is told about it and closes an "answer ready" banner when the
+// person is already looking at the chat.
+async function tellOpenClients(payload) {
+  const clientList = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+  for (const client of clientList) {
+    client.postMessage({ type: 'hermes-push', kind: payload.kind, tag: payload.options.tag });
+  }
+}
+
 self.addEventListener('push', (event) => {
   const payload = safeNotificationPayload(event);
-  event.waitUntil(self.registration.showNotification(payload.title, payload.options));
+  event.waitUntil(
+    self.registration
+      .showNotification(payload.title, payload.options)
+      .then(() => tellOpenClients(payload))
+      .catch(() => undefined),
+  );
 });
 
 self.addEventListener('notificationclick', (event) => {

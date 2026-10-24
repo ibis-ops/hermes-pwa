@@ -151,3 +151,41 @@ export async function syncPushSubscription(
     return false;
   }
 }
+
+const TURN_TAG_PREFIX = 'hermes-turn:';
+
+async function closeTurnNotifications(tag?: string): Promise<void> {
+  if (!('serviceWorker' in navigator)) return;
+  const registration = await navigator.serviceWorker.getRegistration().catch(() => undefined);
+  if (!registration || typeof registration.getNotifications !== 'function') return;
+  const shown = await registration.getNotifications(tag ? { tag } : undefined).catch(() => [] as Notification[]);
+  for (const notification of shown) {
+    if (notification.tag.startsWith(TURN_TAG_PREFIX)) notification.close();
+  }
+}
+
+/**
+ * "Hermes replied" banners are for a phone in the pocket. While the app is on
+ * screen the answer is already in view, so a banner that arrives then is
+ * closed at once, and any that piled up while the app was away are cleared
+ * when it comes back.
+ */
+export function installPushForegroundHandling(): () => void {
+  if (typeof navigator === 'undefined' || !('serviceWorker' in navigator)) return () => undefined;
+  const onMessage = (event: MessageEvent) => {
+    const data = event.data as { type?: unknown; kind?: unknown; tag?: unknown } | null;
+    if (!data || data.type !== 'hermes-push' || data.kind !== 'turn.complete') return;
+    if (document.visibilityState !== 'visible') return;
+    void closeTurnNotifications(typeof data.tag === 'string' ? data.tag : undefined);
+  };
+  const onVisible = () => {
+    if (document.visibilityState === 'visible') void closeTurnNotifications();
+  };
+  navigator.serviceWorker.addEventListener('message', onMessage);
+  document.addEventListener('visibilitychange', onVisible);
+  onVisible();
+  return () => {
+    navigator.serviceWorker.removeEventListener('message', onMessage);
+    document.removeEventListener('visibilitychange', onVisible);
+  };
+}
