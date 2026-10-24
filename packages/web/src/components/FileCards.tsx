@@ -39,10 +39,14 @@ function statusOf(err: unknown): number | undefined {
     : undefined;
 }
 
+function canDescribe(rest: RestClient | undefined): rest is RestClient {
+  return typeof rest?.localFileInfo === 'function';
+}
+
 function useFileInfo(file: FileRef, rest: RestClient | undefined): InfoState {
-  const [info, setInfo] = useState<InfoState>({ state: rest ? 'loading' : 'idle' });
+  const [info, setInfo] = useState<InfoState>({ state: canDescribe(rest) ? 'loading' : 'idle' });
   useEffect(() => {
-    if (!rest) {
+    if (!canDescribe(rest)) {
       setInfo({ state: 'idle' });
       return;
     }
