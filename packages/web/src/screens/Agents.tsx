@@ -1,9 +1,27 @@
-import { useEffect, useState } from 'react';
-import { useSpawnStore, useChatStore, type RpcClient, type SpawnNode, type SpawnStatus } from '@hermes-pwa/core';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import ReactMarkdown from 'react-markdown';
+import {
+  groupRunsByDay,
+  useSpawnStore,
+  useChatStore,
+  type AgentHistory,
+  type AgentRun,
+  type RestClient,
+  type RpcClient,
+  type SpawnNode,
+  type SpawnStatus,
+} from '@hermes-pwa/core';
+import { Icon } from '../components/Icon';
+import { MARKDOWN_COMPONENTS, REHYPE_PLUGINS, REMARK_PLUGINS } from '../components/MessageBubble.helpers';
+import { formatClockTime, formatDayLabel, formatElapsed } from '../lib/chatTime';
 
 interface AgentsProps {
   rpc: RpcClient;
+  rest?: RestClient | undefined;
 }
+
+const HISTORY_DAYS = 30;
+const HISTORY_REFRESH_MS = 20_000;
 
 
 function fmtDuration(s: number | undefined): string {
@@ -125,10 +143,111 @@ function SpawnRow({ node, depth = 0, nowMs }: { node: SpawnNode; depth?: number;
   );
 }
 
-export function Agents({ rpc }: AgentsProps) {
+function runStatusLabel(run: AgentRun): string {
+  switch (run.status) {
+    case 'running':
+      return 'Working';
+    case 'completed':
+      return 'Done';
+    case 'failed':
+      return 'Failed';
+    case 'interrupted':
+      return 'Stopped';
+    default:
+      return 'Unknown';
+  }
+}
+
+function shortModel(model: string | undefined): string | undefined {
+  if (!model) return undefined;
+  return model.includes('/') ? model.slice(model.lastIndexOf('/') + 1) : model;
+}
+
+function RunRow({ run, nowMs }: { run: AgentRun; nowMs: number }) {
+  const [open, setOpen] = useState(false);
+  const live = run.status === 'running';
+  const elapsed = live ? (nowMs - run.startedAt) / 1000 : run.durationSeconds;
+  const tokens = run.inputTokens + run.outputTokens;
+  const meta = [
+    shortModel(run.model),
+    elapsed !== undefined ? formatElapsed(elapsed) + (live ? '…' : '') : '',
+    run.toolCallCount > 0 ? `${run.toolCallCount} tool${run.toolCallCount === 1 ? '' : 's'}` : '',
+    tokens > 0 ? fmtTokens(tokens) : '',
+    run.costUsd ? `$${run.costUsd.toFixed(2)}` : '',
+  ].filter(Boolean);
+  return (
+    <div className={`hm-run hm-run--${run.status}`} data-testid="agent-run" data-status={run.status}>
+      <button type="button" className="hm-run__row" onClick={() => setOpen((v) => !v)} aria-expanded={open}>
+        <span className="hm-run__dot" aria-hidden="true" />
+        <span className="hm-run__body">
+          <span className="hm-run__line">
+            <span className="hm-run__bot">{run.bot}</span>
+            <span className="hm-run__time hm-muted">{formatClockTime(run.startedAt)}</span>
+          </span>
+          <span className="hm-run__goal">{run.goal}</span>
+          <span className="hm-run__meta hm-muted">
+            {runStatusLabel(run)}
+            {meta.length ? ` · ${meta.join(' · ')}` : ''}
+          </span>
+        </span>
+        <span className="hm-run__chevron" aria-hidden="true">
+          <Icon name="chevD" size={14} />
+        </span>
+      </button>
+      {open ? (
+        <div className="hm-run__detail">
+          {run.parent ? (
+            <p className="hm-run__parent hm-muted">
+              Asked by {run.parent.title ? `“${run.parent.title}”` : 'a chat'}
+              {run.parent.profile && run.parent.profile !== run.bot ? ` (${run.parent.profile})` : ''}
+            </p>
+          ) : null}
+          {run.result ? (
+            <div className="hm-message__text hm-run__result" data-testid="agent-run-result">
+              <ReactMarkdown remarkPlugins={REMARK_PLUGINS} rehypePlugins={REHYPE_PLUGINS} components={MARKDOWN_COMPONENTS}>
+                {run.result}
+              </ReactMarkdown>
+            </div>
+          ) : (
+            <p className="hm-muted">{live ? run.lastActivity ?? 'Still working.' : 'No answer was recorded for this run.'}</p>
+          )}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+export function Agents({ rpc, rest }: AgentsProps) {
   const { tree, agents } = useSpawnStore();
   const sessionId = useChatStore((s) => s.sessionId);
   const [nowMs, setNowMs] = useState(() => Date.now());
+  const [history, setHistory] = useState<AgentHistory | undefined>(undefined);
+  const [historyError, setHistoryError] = useState<string | undefined>(undefined);
+
+  const loadHistory = useCallback(async () => {
+    if (!rest) return;
+    try {
+      setHistory(await rest.agentHistory(HISTORY_DAYS));
+      setHistoryError(undefined);
+      setNowMs(Date.now());
+    } catch (err) {
+      setHistoryError(err instanceof Error && err.message ? err.message : 'Could not load the agent history.');
+    }
+  }, [rest]);
+
+  useEffect(() => {
+    if (!rest) return undefined;
+    void loadHistory();
+    const timer = window.setInterval(() => void loadHistory(), HISTORY_REFRESH_MS);
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') void loadHistory();
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
+  }, [rest, loadHistory]);
 
   // The shell feeds the spawn store from the live events; this screen only
   // renders it. A session switch while open still binds the store here.
@@ -137,12 +256,15 @@ export function Agents({ rpc }: AgentsProps) {
   }, [sessionId]);
   void rpc;
 
-  const hasActive = agents.some((a) => a.status === 'running' || a.status === 'queued');
+  const historyRuns = useMemo(() => history?.runs ?? [], [history]);
+  const anyRunLive = historyRuns.some((run) => run.status === 'running');
+  const hasActive = agents.some((a) => a.status === 'running' || a.status === 'queued') || anyRunLive;
   useEffect(() => {
     if (!hasActive) return;
     const id = setInterval(() => setNowMs(Date.now()), 500);
     return () => clearInterval(id);
   }, [hasActive]);
+  const dayGroups = useMemo(() => groupRunsByDay(historyRuns), [historyRuns]);
 
   const active = agents.filter((a) => a.status === 'running' || a.status === 'queued').length;
   const failed = agents.filter((a) => a.status === 'failed' || a.status === 'interrupted').length;
@@ -156,26 +278,59 @@ export function Agents({ rpc }: AgentsProps) {
     totalCost > 0 ? `$${totalCost.toFixed(2)}` : '',
   ].filter(Boolean);
 
+  const historySection = rest ? (
+    <section className="hm-run-history" data-testid="agent-history">
+      <h3 className="hm-run-history__title">
+        History
+        {history ? <span className="hm-run-history__count hm-muted">{history.total}</span> : null}
+      </h3>
+      {historyError ? <div className="hm-warning-banner hm-warning-banner--error">{historyError}</div> : null}
+      {history === undefined && !historyError ? <p className="hm-muted hm-loading">Loading…</p> : null}
+      {history && dayGroups.length === 0 ? (
+        <p className="hm-run-history__empty hm-muted">No bot has been delegated to in the last {HISTORY_DAYS} days.</p>
+      ) : null}
+      {dayGroups.map((group) => (
+        <div key={group.day} className="hm-run-history__day" data-testid="agent-history-day">
+          <h4 className="hm-run-history__day-title">
+            {formatDayLabel(group.day, nowMs)}
+            <span className="hm-muted">{group.runs.length}</span>
+          </h4>
+          <div className="hm-run-history__list">
+            {group.runs.map((run) => (
+              <RunRow key={`${run.ownerProfile}/${run.id}`} run={run} nowMs={nowMs} />
+            ))}
+          </div>
+        </div>
+      ))}
+    </section>
+  ) : null;
+
   if (tree.length === 0) {
     return (
-      <div className="hm-empty-state" data-testid="agents-empty">
-        <span style={{ fontSize: 36 }} aria-hidden="true">
-          ✦
-        </span>
-        <p className="hm-body-semibold">No active agents</p>
-        <p className="hm-muted">Subagents will appear here when the session is running.</p>
+      <div className="hm-agents-screen hm-scroll">
+        <div className="hm-empty-state hm-empty-state--compact" data-testid="agents-empty">
+          <span style={{ fontSize: 36 }} aria-hidden="true">
+            ✦
+          </span>
+          <p className="hm-body-semibold">No active agents</p>
+          <p className="hm-muted">Subagents show here live while a chat delegates work. Past runs stay in the history below.</p>
+        </div>
+        {historySection}
       </div>
     );
   }
 
   return (
-    <div className="hm-spawn-tree">
-      {summary.length > 0 && <p className="hm-spawn-tree__summary">{summary.join(' · ')}</p>}
-      <div className="hm-spawn-tree__list">
-        {tree.map((node) => (
-          <SpawnRow key={node.id} node={node} depth={0} nowMs={nowMs} />
-        ))}
+    <div className="hm-agents-screen hm-scroll">
+      <div className="hm-spawn-tree">
+        {summary.length > 0 && <p className="hm-spawn-tree__summary">{summary.join(' · ')}</p>}
+        <div className="hm-spawn-tree__list">
+          {tree.map((node) => (
+            <SpawnRow key={node.id} node={node} depth={0} nowMs={nowMs} />
+          ))}
+        </div>
       </div>
+      {historySection}
     </div>
   );
 }

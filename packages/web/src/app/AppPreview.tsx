@@ -325,6 +325,15 @@ const noopRest: RestClient = {
     total: 2,
     error: undefined,
   }),
+  agentHistory:        () => Promise.resolve({
+    runs: [
+      { id: 'sub1', bot: 'google-calander', ownerProfile: 'default', goal: "Check Sean's Google Calendar for today", model: 'claude-sonnet-5', status: 'completed' as const, startedAt: Date.now() - 3_600_000, endedAt: Date.now() - 3_540_000, durationSeconds: 63, messageCount: 13, toolCallCount: 6, inputTokens: 12, outputTokens: 5492, costUsd: undefined, lastActivity: undefined, parent: { id: 'p', title: 'Check Google Calendar via delegate_task', source: 'oneshot', profile: 'default' }, result: '## Summary\n\nTwo events today.' },
+    ],
+    days: 30,
+    total: 1,
+    scannedAt: Date.now(),
+    error: undefined,
+  }),
   obsidianNote:        () => Promise.resolve({ vault: 'General', phoneVault: 'Vault 1', path: 'Clients/Ann Lee/Ann Lee.md', name: 'Ann Lee', text: '---\ntype: note\ntags: [client]\n---\n\n# Ann Lee\n\nCheck-in prep for Friday.', size: 80, modifiedAt: Date.now() - 3_600_000 }),
   messagingPlatforms:  () => Promise.resolve({
     gatewayRunning: true,

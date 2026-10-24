@@ -17,6 +17,7 @@ import { toEnvVar } from '../domain/env';
 import type { MessagingOverview } from '../domain/messaging';
 import { toMessagingOverview } from '../domain/messaging';
 import { toObsidianActivity, toObsidianNoteContent, type ObsidianActivity, type ObsidianNoteContent } from '../domain/obsidian';
+import { toAgentHistory, type AgentHistory } from '../domain/agent-history';
 import type {
   AuxiliaryModels,
   ModelAssignment,
@@ -316,6 +317,8 @@ export interface RestClient {
   obsidianActivity(days?: number): Promise<ObsidianActivity>;
   /** One note's text, read from the vault on the Mac. */
   obsidianNote(vault: string, path: string): Promise<ObsidianNoteContent>;
+  /** Every delegated agent run across profiles, newest first. */
+  agentHistory(days?: number): Promise<AgentHistory>;
 }
 
 export function makeRestClient(http: Http): RestClient {
@@ -802,6 +805,10 @@ export function makeRestClient(http: Http): RestClient {
       return toObsidianActivity(
         await http<unknown>(`/api/plugins/hermes-pwa/obsidian/activity?days=${encodeURIComponent(String(days))}`),
       );
+    },
+
+    async agentHistory(days = 30): Promise<AgentHistory> {
+      return toAgentHistory(await http<unknown>(`/api/plugins/hermes-pwa/agents/history?days=${encodeURIComponent(String(days))}`));
     },
 
     async obsidianNote(vault: string, path: string): Promise<ObsidianNoteContent> {

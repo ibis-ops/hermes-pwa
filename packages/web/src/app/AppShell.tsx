@@ -667,7 +667,7 @@ export function AppShell({ connectionState, rpc, rest, onRetry }: AppShellProps)
             {screen === 'sessions'  && <Sessions key={activeName ?? 'default'} rpc={rpc} rest={rest} onSessionOpen={() => navigate('chat')} />}
             {screen === 'approvals' && <Activity key={activeName ?? 'default'} rpc={rpc} />}
             {screen === 'kanban'    && <Projects key={activeName ?? 'default'} rest={rest} />}
-            {screen === 'agents'    && <Agents key={activeName ?? 'default'} rpc={rpc} />}
+            {screen === 'agents'    && <Agents key={activeName ?? 'default'} rpc={rpc} rest={rest} />}
             {screen === 'messaging' && <Messaging key={activeName ?? 'default'} rest={rest} />}
             {screen === 'obsidian'  && <Obsidian rest={rest} />}
             {screen === 'profiles'  && <Profiles key={activeName ?? 'default'} rest={rest} onActivated={() => navigate('chat')} />}

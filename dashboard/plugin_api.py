@@ -30,6 +30,7 @@ from local_files import (  # noqa: E402
     resolve_served_file,
     response_headers as local_file_headers,
 )
+from agent_history import cached_history as agent_cached_history  # noqa: E402
 from obsidian_activity import (  # noqa: E402
     NoteAccessError,
     cached_activity as obsidian_cached_activity,
@@ -925,6 +926,17 @@ def obsidian_activity(days: int = 60, limit: int = 300) -> JSONResponse:
     except Exception as exc:  # pragma: no cover - defensive: a corrupt DB must not 500 the tab
         _file_log.warning("obsidian activity scan failed: %s", sanitize_error_text(str(exc)))
         payload = {"available": False, "vaults": [], "profiles": [], "notes": [], "total": 0, "error": "scan failed"}
+    return JSONResponse(payload, headers={"Cache-Control": "private, no-store"})
+
+
+@router.get("/agents/history", dependencies=[Depends(_require_dashboard_auth)])
+def agents_history(days: int = 30, limit: int = 200) -> JSONResponse:
+    """Delegated agent runs across every profile: which bot, what goal, when, how long, its answer."""
+    try:
+        payload = agent_cached_history(days=max(1, min(days, 3650)), limit=max(1, min(limit, 1000)))
+    except Exception as exc:  # pragma: no cover - defensive: a corrupt DB must not 500 the tab
+        _file_log.warning("agent history scan failed: %s", sanitize_error_text(str(exc)))
+        payload = {"profiles": [], "runs": [], "total": 0, "error": "scan failed"}
     return JSONResponse(payload, headers={"Cache-Control": "private, no-store"})
 
 

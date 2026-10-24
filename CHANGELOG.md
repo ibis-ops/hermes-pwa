@@ -15,6 +15,10 @@ All notable changes are documented here. The format follows
   it straight from the Mac (`/obsidian/note`, vault-scoped) so it is readable before the phone's
   Obsidian has synced it, with "Open in Obsidian" below. Notes written through the Local REST API
   plugin are picked up too.
+- **Agent history.** The Agents screen keeps a durable history under the live subagent tree:
+  every delegated run across all profiles (`/agents/history`, read from each profile's subagent
+  sessions), grouped by day, with the bot that ran it, the goal, status, duration, model, tool and
+  token counts, the chat that asked, and the run's final answer on tap.
 - **Bots.** Profiles are presented as bots: Activate now really switches the chat to that profile
   (messages used to go to the gateway's launch profile) and opens a new chat with it.
 
