@@ -510,10 +510,10 @@ export function Composer({
         </div>
       )}
 
-      <div className="hm-composer__pill">
+      <div className="hm-composer__pill" data-has-text={hasText ? 'true' : 'false'} data-busy={busy ? 'true' : 'false'}>
         <button
           type="button"
-          className="hm-composer__action"
+          className="hm-composer__action hm-composer__action--attach"
           onClick={() => setAttachMenuOpen((v) => !v)}
           disabled={isRecording || isVoiceBusy || !onUploadFile}
           aria-label="Add attachment"
@@ -547,7 +547,7 @@ export function Composer({
 
         <button
           type="button"
-          className={`hm-composer__action ${isRecording ? 'hm-composer__action--recording' : ''}`}
+          className={`hm-composer__action hm-composer__action--mic ${isRecording ? 'hm-composer__action--recording' : ''}`}
           onClick={voiceRecorder.dictate}
           disabled={isVoiceBusy}
           aria-label={isRecording ? 'Stop recording' : 'Record voice'}
@@ -560,7 +560,7 @@ export function Composer({
 
         <button
           type="button"
-          className={`hm-composer__action ${voiceConversation.active ? 'hm-composer__action--active' : ''}`}
+          className={`hm-composer__action hm-composer__action--voice ${voiceConversation.active ? 'hm-composer__action--active' : ''}`}
           onClick={toggleVoiceMode}
           disabled={isRecording}
           aria-label={voiceConversation.active ? 'Turn off voice mode' : 'Turn on voice mode'}

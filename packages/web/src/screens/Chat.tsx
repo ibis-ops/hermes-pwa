@@ -513,10 +513,10 @@ export function Chat({ rpc, rest }: ChatProps) {
     busyInputMode === 'queue' ? 'Queue message' : busyInputMode === 'interrupt' ? 'Interrupt and send' : 'Steer agent';
   const busyPlaceholder =
     busyInputMode === 'queue'
-      ? 'Queue message for after this turn…'
+      ? 'Send after this reply…'
       : busyInputMode === 'interrupt'
-        ? 'Interrupt current turn and send…'
-        : 'Steer the running turn…';
+        ? 'Interrupt and send…'
+        : 'Steer the reply…';
 
   const handleBusyInput = useCallback(
     (text: string, options: { fallbackToFront?: boolean } = {}) => {
@@ -705,9 +705,9 @@ export function Chat({ rpc, rest }: ChatProps) {
 
         {messages.length === 0 ? (
           <div className="hm-empty-state hm-empty-state--chat">
-            <div className="hm-mark">H</div>
-            <h2>Start a conversation with Hermes</h2>
-            <p className="hm-muted">Open the session drawer to resume history, or send a message to begin a fresh mobile chat.</p>
+            <img className="hm-empty-state__logo" src="./icons/icon-192.png" alt="" aria-hidden="true" />
+            <h2>Start a conversation</h2>
+            <p className="hm-muted">Type a message, attach a photo, or tap the mic to dictate. Earlier chats are in the menu.</p>
           </div>
         ) : (
           messages.map((m, index) => (
@@ -735,7 +735,7 @@ export function Chat({ rpc, rest }: ChatProps) {
         onStop={() => void interrupt(rpc)}
         busy={streaming}
         busySubmitLabel={busySubmitLabel}
-        placeholder={streaming ? busyPlaceholder : 'Reply or steer the agent…'}
+        placeholder={streaming ? busyPlaceholder : 'Message'}
         messages={messages}
         onTranscribeAudio={handleTranscribeAudio}
         onSpeakVoiceText={speakVoiceText}

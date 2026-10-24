@@ -647,7 +647,7 @@ describe('Chat', () => {
       return { status: 'ok' };
     });
     render(<Chat rpc={rpcMock} rest={restMock} />);
-    fireEvent.change(screen.getByPlaceholderText(/Reply or steer/i), { target: { value: 'hello' } });
+    fireEvent.change(screen.getByPlaceholderText(/^Message$/), { target: { value: 'hello' } });
     fireEvent.click(screen.getByRole('button', { name: /Send/i }));
     await waitFor(() => {
       expect(rpcMock.request).toHaveBeenCalledWith('session.create', { profile: 'default' });
@@ -819,7 +819,7 @@ describe('Chat', () => {
       expect(core.useChatStore.getState().streaming).toBe(false);
     });
 
-    fireEvent.change(screen.getByPlaceholderText(/Reply or steer/i), { target: { value: 'after reload' } });
+    fireEvent.change(screen.getByPlaceholderText(/^Message$/), { target: { value: 'after reload' } });
     fireEvent.click(screen.getByRole('button', { name: /Send/i }));
 
     await waitFor(() => {
@@ -851,7 +851,7 @@ describe('Chat', () => {
     render(<Chat rpc={rpcMock} rest={rest} />);
 
     await waitFor(() => expect(core.useChatStore.getState().streaming).toBe(false));
-    fireEvent.change(screen.getByPlaceholderText(/Reply or steer/i), { target: { value: 'queued after busy' } });
+    fireEvent.change(screen.getByPlaceholderText(/^Message$/), { target: { value: 'queued after busy' } });
     fireEvent.click(screen.getByRole('button', { name: /Send/i }));
 
     await waitFor(() => expect(submitAttempts).toBe(1));
@@ -872,7 +872,7 @@ describe('Chat', () => {
     vi.mocked(rpcMock.request).mockResolvedValue({ status: 'queued' });
     render(<Chat rpc={rpcMock} rest={restMock} />);
 
-    fireEvent.change(screen.getByPlaceholderText(/Steer the running turn/i), { target: { value: 'adjust this' } });
+    fireEvent.change(screen.getByPlaceholderText(/Steer the reply/i), { target: { value: 'adjust this' } });
     fireEvent.click(screen.getByRole('button', { name: /Steer agent/i }));
 
     await waitFor(() => {
@@ -889,7 +889,7 @@ describe('Chat', () => {
     });
     render(<Chat rpc={rpcMock} rest={restMock} />);
 
-    fireEvent.change(screen.getByPlaceholderText(/Steer the running turn/i), { target: { value: 'fallback me' } });
+    fireEvent.change(screen.getByPlaceholderText(/Steer the reply/i), { target: { value: 'fallback me' } });
     fireEvent.click(screen.getByRole('button', { name: /Steer agent/i }));
 
     await waitFor(() => {
@@ -908,7 +908,7 @@ describe('Chat', () => {
     vi.mocked(rpcMock.request).mockResolvedValue({ status: 'streaming' });
     render(<Chat rpc={rpcMock} rest={restMock} />);
 
-    fireEvent.change(screen.getByPlaceholderText(/Queue message/i), { target: { value: 'next prompt' } });
+    fireEvent.change(screen.getByPlaceholderText(/Send after this reply/i), { target: { value: 'next prompt' } });
     fireEvent.click(screen.getByRole('button', { name: /Queue message/i }));
 
     expect(rpcMock.request).not.toHaveBeenCalledWith('prompt.submit', { session_id: 's-1', text: 'next prompt' });
@@ -925,7 +925,7 @@ describe('Chat', () => {
     vi.mocked(rpcMock.request).mockResolvedValue({ status: 'streaming' });
     render(<Chat rpc={rpcMock} rest={restMock} />);
 
-    fireEvent.change(screen.getByPlaceholderText(/Interrupt current turn/i), { target: { value: 'new prompt' } });
+    fireEvent.change(screen.getByPlaceholderText(/Interrupt and send/i), { target: { value: 'new prompt' } });
     fireEvent.click(screen.getByRole('button', { name: /Interrupt and send/i }));
 
     await waitFor(() => {

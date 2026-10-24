@@ -2030,3 +2030,172 @@ textarea {
     color: #a167e6;
   }
 }
+
+/* ════════════════════════════════════════════════════════════════════
+   Pass 2: composer behavior, attach menu, empty states, chat details
+   ════════════════════════════════════════════════════════════════════ */
+
+/* The composer shows mic and voice mode while the field is empty and swaps
+   them for the send button once there is text, like Messages. */
+.hm-composer__pill[data-has-text='true'] .hm-composer__action--mic,
+.hm-composer__pill[data-has-text='true'] .hm-composer__action--voice {
+  display: none;
+}
+
+.hm-composer__pill[data-has-text='false'][data-busy='false'] .hm-composer__send {
+  display: none;
+}
+
+.hm-composer__pill {
+  align-items: flex-end;
+  min-height: 46px;
+  padding: 5px 5px 5px 6px;
+  gap: 2px;
+}
+
+.hm-composer__action {
+  width: 36px;
+  height: 36px;
+  min-width: 36px;
+  border: 0;
+  border-radius: 18px;
+  background: transparent;
+  color: var(--hm-color-text-muted);
+}
+
+.hm-composer__action:active {
+  background: var(--hm-color-fill);
+}
+
+.hm-composer__action--attach {
+  color: var(--hm-color-text-muted);
+}
+
+.hm-composer__action--active {
+  background: var(--hm-color-primary-tint);
+  color: var(--hm-color-primary);
+}
+
+.hm-composer__action--recording {
+  background: var(--hm-color-danger);
+  color: #fff;
+}
+
+.hm-composer textarea {
+  padding: 8px 6px;
+  min-height: 36px;
+}
+
+.hm-composer__send,
+.hm-composer__stop {
+  width: 36px;
+  height: 36px;
+  min-width: 36px;
+  border-radius: 18px;
+  border: 0;
+}
+
+.hm-composer__voice-bar {
+  margin-top: 8px;
+  padding: 8px 12px;
+  border-radius: 12px;
+  background: var(--hm-color-fill);
+  font-size: var(--hm-fs-label);
+  color: var(--hm-color-text-muted);
+}
+
+/* Attach menu sits inside the screen on narrow phones. */
+.hm-attach-menu {
+  left: 12px;
+  right: 12px;
+  min-width: 0;
+  width: auto;
+}
+
+/* Empty chat: no boxed card, just the mark and two lines. */
+.hm-empty-state--chat {
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  max-width: 300px;
+  gap: 8px;
+}
+
+.hm-empty-state__logo {
+  width: 64px;
+  height: 64px;
+  border-radius: 16px;
+  margin-bottom: 8px;
+}
+
+.hm-empty-state--chat h2 {
+  font-size: var(--hm-fs-title);
+  font-weight: var(--hm-fw-bold);
+  letter-spacing: -0.4px;
+}
+
+.hm-empty-state--chat p {
+  font-size: var(--hm-fs-small);
+  line-height: 1.4;
+}
+
+/* Context chips at the top of a chat: quieter. */
+.hm-chat__context {
+  padding: 2px 0 6px;
+}
+
+.hm-chat__context-chip {
+  min-height: 26px;
+  padding: 0 10px;
+  font-size: 12px;
+  font-weight: var(--hm-fw-medium);
+}
+
+/* Assistant header row: smaller avatar, no stray status dot on the far right. */
+.hm-message__header {
+  min-height: 22px;
+}
+
+.hm-message__activity {
+  margin-left: 0;
+}
+
+.hm-message__activity-dot {
+  width: 6px;
+  height: 6px;
+  opacity: 0.6;
+}
+
+/* Thinking and tool groups: one quiet card, not nested boxes. */
+.hm-message__actions {
+  gap: 6px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+
+.hm-thinking,
+.hm-tool-group {
+  border-radius: 12px;
+}
+
+.hm-thinking__summary,
+.hm-tool-group__header {
+  min-height: 40px;
+  font-size: var(--hm-fs-small);
+}
+
+.hm-tool-group__row {
+  min-height: 40px;
+  border-radius: 10px;
+}
+
+.hm-tool-row__name {
+  font-weight: var(--hm-fw-medium);
+}
+
+.hm-tool-group__count,
+.hm-tool-group__status {
+  font-size: var(--hm-fs-label);
+  color: var(--hm-color-text-muted);
+}
