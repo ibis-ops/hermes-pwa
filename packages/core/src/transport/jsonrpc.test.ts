@@ -1,7 +1,7 @@
 import { afterEach, describe, it, expect, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { makeRpcClient } from './jsonrpc';
+import { makeRpcClient, type RpcEvent } from './jsonrpc';
 
 interface RecordedGatewayFixture {
   source: string;
@@ -235,5 +235,28 @@ describe('makeRpcClient', () => {
 
     expect(warn).toHaveBeenCalledWith('[Hermes PWA] Unknown gateway event type: future.event');
     expect(handler).toHaveBeenCalledWith({ type: 'future.event', payload: { ok: true } });
+  });
+});
+
+describe('event sequence tracking', () => {
+  it('records the highest seq per session, replays event objects, and resets on a new replay epoch', () => {
+    const rpc = makeRpcClient(() => undefined);
+    const seen: RpcEvent[] = [];
+    rpc.events.addEventListener('message.delta', (event) => seen.push(event));
+
+    rpc.onFrame(JSON.stringify({ jsonrpc: '2.0', method: 'event', params: { type: 'gateway.ready', payload: { replay_epoch: 'a' } } }));
+    rpc.onFrame(JSON.stringify({ jsonrpc: '2.0', method: 'event', params: { type: 'message.delta', session_id: 's1', payload: { text: 'x' }, seq: 4 } }));
+    rpc.onFrame(JSON.stringify({ jsonrpc: '2.0', method: 'event', params: { type: 'message.delta', session_id: 's1', payload: { text: 'y' }, seq: 3 } }));
+    expect(rpc.lastSeq('s1')).toBe(4);
+    expect(rpc.lastSeq('other')).toBe(0);
+    expect(rpc.replayEpoch()).toBe('a');
+
+    rpc.replayEvent({ type: 'message.delta', session_id: 's1', payload: { text: 'z' }, seq: 9 });
+    expect(seen.map((e) => (e.payload as { text: string }).text)).toEqual(['x', 'y', 'z']);
+    expect(seen[2]?.seq).toBe(9);
+    expect(rpc.lastSeq('s1')).toBe(9);
+
+    rpc.onFrame(JSON.stringify({ jsonrpc: '2.0', method: 'event', params: { type: 'gateway.ready', payload: { replay_epoch: 'b' } } }));
+    expect(rpc.lastSeq('s1')).toBe(0);
   });
 });

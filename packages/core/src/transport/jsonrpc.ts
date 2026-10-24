@@ -47,6 +47,8 @@ export interface JsonRpcEvent {
     type: string;
     session_id?: string;
     payload?: unknown;
+    /** Server-owned per-session sequence number; the replay ring is keyed on it. */
+    seq?: number;
   };
 }
 
@@ -56,6 +58,7 @@ export interface RpcEvent {
   type: string;
   sessionId?: string;
   payload?: unknown;
+  seq?: number;
 }
 
 export type RpcEventHandler = (event: RpcEvent) => void;
@@ -102,6 +105,12 @@ export interface RpcClient {
   onFrame(line: string): void;
   events: RpcEvents;
   disconnect(): void;
+  /** Highest event sequence seen for a session (0 when none); the watermark for `session.events.since`. */
+  lastSeq(sessionId: string): number;
+  /** Feed one replayed event object (the frame's `params`) through the normal event path. */
+  replayEvent(raw: unknown): void;
+  /** `replay_epoch` from the last gateway.ready; a change means the gateway restarted and watermarks are void. */
+  replayEpoch(): string | undefined;
 }
 
 export function makeRpcEvents(): RpcEvents {
@@ -131,6 +140,30 @@ export function makeRpcClient(send: RpcSend, options: RpcClientOptions = {}): Rp
   const pending = new Map<string, { resolve: (result: unknown) => void; reject: (err: Error) => void; timeoutId?: ReturnType<typeof setTimeout> }>();
   const events = makeRpcEvents();
   let counter = 0;
+  const lastSeqBySession = new Map<string, number>();
+  let epoch: string | undefined;
+
+  function dispatchEventParams(params: JsonRpcEvent['params']): void {
+    if (!isKnownGatewayEventType(params.type)) {
+      console.warn(`[Hermes PWA] Unknown gateway event type: ${params.type}`);
+    }
+    if (params.type === 'gateway.ready') {
+      const next = (params.payload as { replay_epoch?: unknown } | undefined)?.replay_epoch;
+      if (typeof next === 'string' && next !== epoch) {
+        if (epoch !== undefined) lastSeqBySession.clear();
+        epoch = next;
+      }
+    }
+    const event: RpcEvent = { type: params.type, payload: params.payload };
+    if (typeof params.session_id === 'string') {
+      event.sessionId = params.session_id;
+      if (typeof params.seq === 'number' && Number.isFinite(params.seq)) {
+        event.seq = params.seq;
+        if (params.seq > (lastSeqBySession.get(params.session_id) ?? 0)) lastSeqBySession.set(params.session_id, params.seq);
+      }
+    }
+    events.dispatchEvent(event);
+  }
 
   function settle(id: string, action: (entry: { resolve: (result: unknown) => void; reject: (err: Error) => void }) => void): void {
     const entry = pending.get(id);
@@ -189,16 +222,17 @@ export function makeRpcClient(send: RpcSend, options: RpcClientOptions = {}): Rp
 
     if ('method' in frame && frame.method === 'event' && 'params' in frame) {
       const evt = frame as JsonRpcEvent;
-      const params = evt.params;
-      if (!isKnownGatewayEventType(params.type)) {
-        console.warn(`[Hermes PWA] Unknown gateway event type: ${params.type}`);
+      if (evt.params && typeof evt.params === 'object' && typeof evt.params.type === 'string') {
+        dispatchEventParams(evt.params);
       }
-      const event: RpcEvent = { type: params.type, payload: params.payload };
-      if (typeof params.session_id === 'string') {
-        event.sessionId = params.session_id;
-      }
-      events.dispatchEvent(event);
     }
+  }
+
+  function replayEvent(raw: unknown): void {
+    if (!raw || typeof raw !== 'object') return;
+    const params = raw as JsonRpcEvent['params'];
+    if (typeof params.type !== 'string') return;
+    dispatchEventParams(params);
   }
 
   function disconnect(): void {
@@ -207,5 +241,13 @@ export function makeRpcClient(send: RpcSend, options: RpcClientOptions = {}): Rp
     }
   }
 
-  return { request, onFrame, events, disconnect };
+  return {
+    request,
+    onFrame,
+    events,
+    disconnect,
+    lastSeq: (sessionId) => lastSeqBySession.get(sessionId) ?? 0,
+    replayEvent,
+    replayEpoch: () => epoch,
+  };
 }

@@ -167,6 +167,22 @@ export function Chat({ rpc, rest }: ChatProps) {
     }
   }, [enqueuePrompt, markLocalInputShouldScroll, rpc, submit, profileForSubmit]);
 
+  // Every return from the background on iOS drops and re-opens the socket.
+  // Re-attach to the live session so a turn that kept running on the Mac
+  // picks up where the stream left off instead of going quiet.
+  const previousConnectionRef = useRef(connection.state);
+  useEffect(() => {
+    const previous = previousConnectionRef.current;
+    previousConnectionRef.current = connection.state;
+    if (connection.state !== 'connected' || previous === 'connected' || !restoredRef.current) return;
+    if (activeName && activeName !== currentName) return;
+    void useChatStore.getState().resyncLiveSession(rest, rpc, activeName).then((outcome) => {
+      // The parked runtime was reaped while the phone was away: reopen the
+      // stored session so the chat keeps working.
+      if (outcome === 'lost') void useChatStore.getState().restore(rest, rpc, activeName);
+    });
+  }, [connection.state, rest, rpc, activeName, currentName]);
+
   useEffect(() => {
     if (connection.state !== 'connected' || restoredRef.current) return;
     restoredRef.current = true;

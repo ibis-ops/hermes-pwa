@@ -52,6 +52,11 @@ export function __setLiveEventAge(ageMs: number | undefined): void {
   lastLiveEventAt = ageMs === undefined ? 0 : Date.now() - ageMs;
 }
 
+/** The live stream is known to be stale (socket was down): let the next refresh reconcile freely. */
+function markLiveStreamStale(): void {
+  lastLiveEventAt = 0;
+}
+
 function nextAssistantMessageId(): string {
   assistantMessageSequence += 1;
   return `a-${Date.now()}-${assistantMessageSequence}`;
@@ -141,6 +146,13 @@ export interface ChatStore {
   loadHistory(rest: RestClient, sessionId: string): Promise<void>;
   refreshHistory(rest: RestClient, profile?: string): Promise<void>;
   restore(rest: RestClient, rpc: RpcClient, profile?: string): Promise<void>;
+  /**
+   * After the WebSocket comes back (every return from the background on iOS):
+   * re-attach to the parked live session, replay the events missed meanwhile
+   * (or refetch when the replay ring no longer holds them), and take the
+   * running flag from the gateway so a turn still in progress shows as such.
+   */
+  resyncLiveSession(rest: RestClient, rpc: RpcClient, profile?: string): Promise<'attached' | 'lost' | 'skipped'>;
   resumeSessionIntoChat(rest: RestClient, rpc: RpcClient, storedSessionId: string, profile?: string): Promise<void>;
   startNewSession(profile?: string): void;
   ensureLiveSession(rpc: RpcClient, profile?: string): Promise<{ sessionId: string; storedSessionId?: string | undefined }>;
@@ -1239,6 +1251,64 @@ export const useChatStore = create<ChatStore>((set, get) => ({
     }
   },
 
+  async resyncLiveSession(rest, rpc, profile) {
+    const { sessionId } = get();
+    if (!sessionId) return 'skipped';
+    const cacheProfile = resolveCacheProfile(profile, get().cacheProfile);
+    let running = false;
+    try {
+      const live = await rpc.request<Record<string, unknown>>(
+        'session.activate',
+        { session_id: sessionId, omit_messages: true },
+        { timeoutMs: 15_000 },
+      );
+      if (!live || typeof live !== 'object' || live.session_id !== sessionId) {
+        throw new Error('session.activate did not return the live session');
+      }
+      running = live.running === true;
+    } catch {
+      // The parked session was reaped while the app was away. Drop the dead
+      // runtime id; the caller reopens the durable session (restore).
+      if (get().sessionId === sessionId) {
+        const next = { sessionId: undefined, streaming: false };
+        set(next);
+        persistActiveSession({ ...get(), ...next });
+      }
+      return 'lost';
+    }
+    if (get().sessionId !== sessionId) return 'skipped';
+
+    const lastSeen = typeof rpc.lastSeq === 'function' ? rpc.lastSeq(sessionId) : 0;
+    let replayed = false;
+    if (lastSeen > 0 && typeof rpc.replayEvent === 'function') {
+      try {
+        const result = await rpc.request<{ events?: unknown[]; truncated?: boolean }>(
+          'session.events.since',
+          { session_id: sessionId, last_seen: lastSeen },
+          { timeoutMs: 15_000 },
+        );
+        if (result?.truncated !== true && Array.isArray(result?.events)) {
+          for (const event of result.events) rpc.replayEvent(event);
+          replayed = true;
+        }
+      } catch {
+        // Fall through to the REST snapshot.
+      }
+    }
+    if (!replayed) {
+      // No watermark (fresh app) or the ring moved on: the stored transcript is the record.
+      markLiveStreamStale();
+      await get().refreshHistory(rest, cacheProfile).catch(() => undefined);
+    }
+    if (get().sessionId !== sessionId) return 'skipped';
+    if (running) {
+      get().beginAssistant();
+    } else if (get().streaming) {
+      get().markIdle();
+    }
+    return 'attached';
+  },
+
   async restore(rest, rpc, profile) {
     const cacheProfile = normalizeCacheProfile(profile);
     const cached = readActiveSessionCache(cacheProfile);
@@ -1273,30 +1343,15 @@ export const useChatStore = create<ChatStore>((set, get) => ({
       state.messages.length > 0 &&
       !durableAliasChanged
     ) {
-      const usageAnchor = get();
-      try {
-        await rpc.request('session.usage', { session_id: liveSessionId });
-        if (!isSameChatState(get(), usageAnchor)) return;
-        let refreshed: Awaited<ReturnType<typeof refreshDurableHistory>> | undefined;
-        try {
-          refreshed = await refreshDurableHistory(rest, durableSessionId, state.messages, cacheProfile);
-        } catch {
-          // Keep the validated live runtime and cached transcript; restore should
-          // not fail just because a passive REST refresh is temporarily stale.
-        }
-        if (!isSameChatState(get(), usageAnchor)) return;
-        const next = {
-          streaming: false,
-          error: undefined,
-          ...(refreshed ? { storedSessionId: refreshed.storedSessionId, messages: refreshed.messages } : {}),
-        };
-        set(next);
-        persistActiveSession({ ...get(), ...next });
+      // Re-attach to the cached live runtime: this also tells us whether a turn
+      // is still running on the Mac (the app may have been closed mid-task).
+      // A reaped runtime falls through to a full durable resume below.
+      const outcome = await get().resyncLiveSession(rest, rpc, cacheProfile);
+      if (outcome === 'attached') {
+        set({ error: undefined });
         return;
-      } catch {
-        // Cached runtime id belongs to a dead/restarted gateway. Fall through to
-        // a full durable resume to mint a fresh live runtime id.
       }
+      if (outcome === 'skipped') return;
     }
 
     if (durableSessionId) {

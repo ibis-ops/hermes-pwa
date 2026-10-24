@@ -254,9 +254,8 @@ export const useConnectionStore = create<ConnectionStore>((set, get) => {
           clearReadyWatchdog();
           rpc.disconnect();
           removeReadyListener();
-          if (useChatStore.getState().streaming) {
-            useChatStore.getState().markIdle();
-          }
+          // A dropped socket does not stop the turn on the Mac: the chat keeps
+          // its working state and resyncLiveSession settles it on reconnect.
           if (isUnsupportedWsTicketTransport(event)) {
             clearReconnect();
             set({ state: 'incompatible-transport', error: wsTicketTransportError() });

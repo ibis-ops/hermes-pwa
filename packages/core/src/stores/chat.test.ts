@@ -809,7 +809,7 @@ describe('useChatStore', () => {
       error: undefined,
       pinnedIds: [],
     });
-    vi.mocked(rpcMock.request).mockResolvedValue({ total: 0 });
+    vi.mocked(rpcMock.request).mockResolvedValue({ session_id: 'live-ok', running: false });
     vi.mocked(restMock.sessionMessages).mockResolvedValue({
       session_id: 'stored-ok',
       messages: [
@@ -820,7 +820,7 @@ describe('useChatStore', () => {
 
     await useChatStore.getState().restore(restMock, rpcMock, 'dev');
 
-    expect(rpcMock.request).toHaveBeenCalledWith('session.usage', { session_id: 'live-ok' });
+    expect(rpcMock.request).toHaveBeenCalledWith('session.activate', { session_id: 'live-ok', omit_messages: true }, { timeoutMs: 15_000 });
     expect(rpcMock.request).not.toHaveBeenCalledWith('session.resume', expect.anything());
     expect(restMock.sessionMessages).toHaveBeenCalledWith('stored-ok', 'dev');
     expect(useChatStore.getState().sessionId).toBe('live-ok');
@@ -1593,6 +1593,109 @@ describe('useChatStore', () => {
       const messages = useChatStore.getState().messages;
       expect(messages.map((m) => m.text)).toEqual(['/obsidian find my notes on ApoB', 'Here are your notes.']);
       expect(messages[0]?.displayKind).toBe('skill_invocation');
+    });
+  });
+  describe('resyncLiveSession (socket came back)', () => {
+    function reconnectFixture() {
+      useSessionsStore.setState({
+        sessions: [{ id: 'stored-r', title: 'Long task', updatedAt: 2, messageCount: 2, profile: 'default' }],
+        loading: false,
+        error: undefined,
+        pinnedIds: [],
+      });
+      useChatStore.setState({
+        sessionId: 'live-r',
+        storedSessionId: 'stored-r',
+        messages: [
+          { id: 'u-1', role: 'user', text: 'do the long thing', createdAt: 1 },
+          { id: 'a-1', role: 'assistant', text: 'Starting.', createdAt: 2 },
+        ],
+        streaming: true,
+        error: undefined,
+      });
+    }
+
+    it('re-attaches, replays the missed events, and keeps the turn working while the gateway says running', async () => {
+      reconnectFixture();
+      const replayed: unknown[] = [];
+      const rpc = {
+        request: vi.fn(async (method: string) => {
+          if (method === 'session.activate') return { session_id: 'live-r', running: true };
+          if (method === 'session.events.since') {
+            return { events: [{ type: 'message.delta', session_id: 'live-r', payload: { text: ' Still going.' }, seq: 8 }], truncated: false, latest_seq: 8 };
+          }
+          return {};
+        }),
+        onFrame: vi.fn(),
+        events: new EventTarget(),
+        disconnect: vi.fn(),
+        lastSeq: () => 7,
+        replayEvent: (raw: unknown) => replayed.push(raw),
+        replayEpoch: () => 'e1',
+      } as unknown as RpcClient;
+
+      const outcome = await useChatStore.getState().resyncLiveSession(restMock, rpc, 'default');
+
+      expect(outcome).toBe('attached');
+      expect(rpc.request).toHaveBeenCalledWith('session.activate', { session_id: 'live-r', omit_messages: true }, { timeoutMs: 15_000 });
+      expect(rpc.request).toHaveBeenCalledWith('session.events.since', { session_id: 'live-r', last_seen: 7 }, { timeoutMs: 15_000 });
+      expect(replayed).toHaveLength(1);
+      expect(restMock.sessionMessages).not.toHaveBeenCalled();
+      expect(useChatStore.getState().streaming).toBe(true);
+    });
+
+    it('falls back to the stored transcript when the replay ring moved on, and goes idle when the turn finished', async () => {
+      reconnectFixture();
+      vi.mocked(restMock.sessionMessages).mockResolvedValue({
+        session_id: 'stored-r',
+        messages: [
+          { id: 'u-1', role: 'user', text: 'do the long thing', created_at: 1 },
+          { id: 'a-1', role: 'assistant', text: 'Starting. All done, here is the result.', created_at: 2 },
+        ],
+      });
+      const rpc = {
+        request: vi.fn(async (method: string) => {
+          if (method === 'session.activate') return { session_id: 'live-r', running: false };
+          if (method === 'session.events.since') return { events: [], truncated: true };
+          return {};
+        }),
+        onFrame: vi.fn(),
+        events: new EventTarget(),
+        disconnect: vi.fn(),
+        lastSeq: () => 3,
+        replayEvent: vi.fn(),
+        replayEpoch: () => 'e1',
+      } as unknown as RpcClient;
+
+      const outcome = await useChatStore.getState().resyncLiveSession(restMock, rpc, 'default');
+
+      expect(outcome).toBe('attached');
+      expect(restMock.sessionMessages).toHaveBeenCalledTimes(1);
+      expect(useChatStore.getState().messages.at(-1)?.text).toBe('Starting. All done, here is the result.');
+      expect(useChatStore.getState().streaming).toBe(false);
+    });
+
+    it('reports a reaped runtime so the caller can reopen the stored session', async () => {
+      reconnectFixture();
+      const rpc = {
+        request: vi.fn(async (method: string) => {
+          if (method === 'session.activate') throw new Error('4001 session not found');
+          return {};
+        }),
+        onFrame: vi.fn(),
+        events: new EventTarget(),
+        disconnect: vi.fn(),
+        lastSeq: () => 0,
+        replayEvent: vi.fn(),
+        replayEpoch: () => 'e1',
+      } as unknown as RpcClient;
+
+      const outcome = await useChatStore.getState().resyncLiveSession(restMock, rpc, 'default');
+
+      expect(outcome).toBe('lost');
+      expect(useChatStore.getState().sessionId).toBeUndefined();
+      expect(useChatStore.getState().storedSessionId).toBe('stored-r');
+      expect(useChatStore.getState().streaming).toBe(false);
     });
   });
 });

@@ -227,7 +227,7 @@ describe('useConnectionStore', () => {
     expect(restMock.wsTicket).toHaveBeenCalledTimes(2);
   });
 
-  it('marks a streaming chat idle when the websocket closes mid-turn', async () => {
+  it('keeps a streaming chat working when the websocket closes mid-turn (the Mac is still running it)', async () => {
     vi.useFakeTimers();
     vi.mocked(restMock.status).mockResolvedValue({ authRequired: false, authProviders: [] });
     vi.mocked(restMock.wsTicket).mockResolvedValue({ ticket: 't-1', ttlSeconds: 30 });
@@ -249,7 +249,7 @@ describe('useConnectionStore', () => {
     onClose?.({ code: 1006, reason: 'network reset', wasClean: false } as CloseEvent);
 
     expect(useConnectionStore.getState().state).toBe('reconnecting');
-    expect(useChatStore.getState().streaming).toBe(false);
+    expect(useChatStore.getState().streaming).toBe(true);
   });
 
   it('init purges private cache when the authenticated dashboard user changed silently', async () => {

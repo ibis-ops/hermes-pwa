@@ -801,7 +801,7 @@ describe('Chat', () => {
       { id: 'stored-1', title: 'Local stored', updatedAt: 1, messageCount: 1, profile: 'default' },
     ] as core.Session[]);
     vi.mocked(rpcMock.request).mockImplementation(async (method: string) => {
-      if (method === 'session.usage') throw new Error('4001 session not found');
+      if (method === 'session.usage' || method === 'session.activate') throw new Error('4001 session not found');
       if (method === 'session.resume') return { session_id: 'live-2', session_key: 'stored-1', messages: [] };
       if (method === 'prompt.submit') return { status: 'streaming' };
       if (method === 'session.most_recent') return {};

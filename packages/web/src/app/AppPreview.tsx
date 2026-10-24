@@ -160,6 +160,9 @@ const noopRpc: RpcClient = {
   onFrame: () => () => {},
   disconnect: () => {},
   events: makeRpcEvents(),
+  lastSeq: () => 0,
+  replayEvent: () => undefined,
+  replayEpoch: () => undefined,
 };
 
 const PREVIEW_STATUSES: TaskStatus[] = [
