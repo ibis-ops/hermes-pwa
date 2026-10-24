@@ -8,6 +8,8 @@ interface MessageMetaProps {
   active?: boolean | undefined;
   /** Epoch seconds of the prompt the reply answers. */
   elapsedFrom?: number | undefined;
+  /** An inline action shown after the stamp, e.g. interrupting the turn a steered message went into. */
+  action?: { label: string; onClick: () => void } | undefined;
 }
 
 function elapsedSeconds(startMs: number | undefined, endMs: number | undefined): number | undefined {
@@ -20,7 +22,7 @@ function elapsedSeconds(startMs: number | undefined, endMs: number | undefined):
  * The line under a bubble: when it was sent, and for Hermes's replies how long
  * they took, counted from the prompt. A reply in progress ticks live.
  */
-export function MessageMeta({ message, active = false, elapsedFrom }: MessageMetaProps) {
+export function MessageMeta({ message, active = false, elapsedFrom, action }: MessageMetaProps) {
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
     if (!active) return undefined;
@@ -37,7 +39,7 @@ export function MessageMeta({ message, active = false, elapsedFrom }: MessageMet
   const stampMs = isAssistant ? (toMillis(message.completedAt) ?? createdMs) : createdMs;
   const time = stampMs !== undefined && !active ? formatClockTime(stampMs) : undefined;
 
-  if (time === undefined && elapsed === undefined) return null;
+  if (time === undefined && elapsed === undefined && !action) return null;
   const label = active ? 'Reply in progress' : 'Sent';
   const steered = message.role === 'user' && message.displayKind === 'steer';
   return (
@@ -50,6 +52,14 @@ export function MessageMeta({ message, active = false, elapsedFrom }: MessageMet
           {formatElapsed(elapsed)}
           {active ? '…' : ''}
         </span>
+      ) : null}
+      {action ? (
+        <>
+          {time || elapsed !== undefined ? ' · ' : ''}
+          <button type="button" className="hm-message__meta-action" onClick={action.onClick}>
+            {action.label}
+          </button>
+        </>
       ) : null}
     </div>
   );

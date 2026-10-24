@@ -962,6 +962,15 @@ describe('Chat', () => {
     expect(screen.getByText(/Added to the running task/)).toBeInTheDocument();
     expect(core.useChatStore.getState().messages.at(-1)?.role).toBe('assistant');
     expect(core.useChatStore.getState().streaming).toBe(true);
+
+    // The steered message carries a way out: stop the turn and send it as a fresh prompt.
+    fireEvent.click(screen.getByRole('button', { name: 'Interrupt and send now' }));
+    await waitFor(() => expect(rpcMock.request).toHaveBeenCalledWith('session.interrupt', { session_id: 's-1' }));
+    expect(screen.getByTestId('queued-prompt')).toHaveTextContent('also check the logs');
+    rpcMock.events.dispatchEvent({ type: 'session.info', sessionId: 's-1', payload: { running: false } });
+    await waitFor(() => {
+      expect(rpcMock.request).toHaveBeenCalledWith('prompt.submit', { session_id: 's-1', text: 'also check the logs' }, { timeoutMs: 90_000 });
+    });
   });
 
   it('interrupts the current turn and sends busy input after idle event in interrupt mode', async () => {

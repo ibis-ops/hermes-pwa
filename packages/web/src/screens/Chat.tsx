@@ -506,6 +506,20 @@ export function Chat({ rpc, rest }: ChatProps) {
   }, [rpc, rest, activeName, drainQueuedPrompt]);
 
   const lastMessage = messages[messages.length - 1];
+  // The steered message of the turn in progress gets an inline way out:
+  // stop the turn and send that text as a fresh prompt.
+  const lastUserIndex = (() => {
+    for (let i = messages.length - 1; i >= 0; i -= 1) if (messages[i]?.role === 'user') return i;
+    return -1;
+  })();
+  const steeredMessage = lastUserIndex >= 0 ? messages[lastUserIndex] : undefined;
+  const interruptSteer = useCallback(() => {
+    if (!steeredMessage) return;
+    markLocalInputShouldScroll();
+    enqueuePrompt(steeredMessage.text, { front: true });
+    void interrupt(rpc, { keepStreaming: true });
+  }, [steeredMessage, enqueuePrompt, interrupt, markLocalInputShouldScroll, rpc]);
+  const interruptSteerIndex = streaming && steeredMessage?.displayKind === 'steer' ? lastUserIndex : -1;
   const lastToolSignal = lastMessage?.toolCalls
     ?.map((tool) => `${tool.id}:${tool.name}:${typeof tool.output === 'string' ? tool.output.length : 0}`)
     .join('|') ?? '';
@@ -821,6 +835,7 @@ export function Chat({ rpc, rest }: ChatProps) {
                   pendingApprovals={pendingApprovalsForMessage(pendingApprovals, index, messages.length)}
                   activeSessionIds={activeSessionIds}
                   elapsedFrom={promptAt}
+                  onInterruptSteer={index === interruptSteerIndex ? interruptSteer : undefined}
                 />
               </div>
             );

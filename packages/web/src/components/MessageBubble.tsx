@@ -67,7 +67,7 @@ function recoveredApprovalTool(
   };
 }
 
-function MessageBubbleView({ message, rpc, rest, isLast, streaming, liveStatus, liveFace, pendingApprovals, activeSessionIds, elapsedFrom }: MessageBubbleProps) {
+function MessageBubbleView({ message, rpc, rest, isLast, streaming, liveStatus, liveFace, pendingApprovals, activeSessionIds, elapsedFrom, onInterruptSteer }: MessageBubbleProps) {
   if (message.role === 'tool') {
     return null;
   }
@@ -85,7 +85,10 @@ function MessageBubbleView({ message, rpc, rest, isLast, streaming, liveStatus, 
           </div>
         ) : null}
         <FileCards refs={attachments} rest={rest} tone="user" />
-        <MessageMeta message={message} />
+        <MessageMeta
+          message={message}
+          action={onInterruptSteer ? { label: 'Interrupt and send now', onClick: onInterruptSteer } : undefined}
+        />
       </div>
     );
   }

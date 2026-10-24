@@ -18,6 +18,8 @@ export interface MessageBubbleProps {
   activeSessionIds?: string[] | undefined;
   /** Epoch seconds of the prompt this reply answers; the elapsed time counts from it. */
   elapsedFrom?: number | undefined;
+  /** For a message steered into a turn that is still running: stop the turn and send this as a fresh prompt. */
+  onInterruptSteer?: (() => void) | undefined;
 }
 
 export function areMessageBubblePropsEqual(prev: MessageBubbleProps, next: MessageBubbleProps): boolean {
@@ -31,7 +33,8 @@ export function areMessageBubblePropsEqual(prev: MessageBubbleProps, next: Messa
     prev.liveFace === next.liveFace &&
     prev.pendingApprovals === next.pendingApprovals &&
     prev.activeSessionIds === next.activeSessionIds &&
-    prev.elapsedFrom === next.elapsedFrom
+    prev.elapsedFrom === next.elapsedFrom &&
+    prev.onInterruptSteer === next.onInterruptSteer
   );
 }
 
