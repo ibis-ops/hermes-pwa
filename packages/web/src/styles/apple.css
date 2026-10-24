@@ -3509,6 +3509,14 @@ html.hm-keyboard-open .hm-login {
   flex-direction: column;
 }
 
+/* Column flex parent: only the body may shrink, or the title folds to 1px. */
+.hm-sheet--note .hm-sheet__grabber,
+.hm-sheet--note .hm-sheet__title,
+.hm-sheet--note .hm-note-view__meta,
+.hm-sheet--note .hm-note-view__footer {
+  flex: none;
+}
+
 .hm-sheet--note .hm-sheet__title {
   text-align: left;
   margin-bottom: 2px;
