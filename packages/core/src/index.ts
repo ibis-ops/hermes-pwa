@@ -21,7 +21,7 @@ export { useModelStore, type ModelStore } from './stores/model';
 export { useProjectsStore, type ProjectsStore } from './stores/projects';
 export { useAgentsStore, type AgentsStore } from './stores/agents';
 export { useProfilesStore, type ProfilesStore } from './stores/profiles';
-export { useSpawnStore, type SpawnStore } from './stores/spawnStore';
+export { useSpawnStore, SPAWN_EVENT_TYPES, type SpawnStore } from './stores/spawnStore';
 export { explainConnectionError, connectionStateLabel, type ConnectionDiagnostics } from './diagnostics';
 
 // Domain types

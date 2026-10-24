@@ -18,6 +18,8 @@ export interface Message {
   toolCalls?: ToolCall[];
   thinking?: string;
   createdAt: number | undefined;
+  /** Epoch seconds when an assistant reply finished (its last row, or message.complete). */
+  completedAt?: number;
   /** Display-only typing from Hermes, e.g. 'skill_invocation' for a /skill turn shown as typed. */
   displayKind?: string;
 }

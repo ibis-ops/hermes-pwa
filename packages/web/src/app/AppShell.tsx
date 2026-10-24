@@ -1,6 +1,6 @@
 import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Approval, Clarify, ConnectionState, RpcClient, RestClient, RpcEvent, Session, UpdateCheck } from '@hermes-pwa/core';
-import { connectionStateLabel, sessionSourceId, sessionSourceLabel, useActivityStore, useProfilesStore, useSessionsStore, useChatStore, useConnectionStore, useProjectsStore } from '@hermes-pwa/core';
+import { SPAWN_EVENT_TYPES, connectionStateLabel, sessionSourceId, sessionSourceLabel, useActivityStore, useProfilesStore, useSessionsStore, useChatStore, useConnectionStore, useProjectsStore, useSpawnStore } from '@hermes-pwa/core';
 import { Home } from '../screens/Home';
 import { ConnectionBanner } from '../components/ConnectionBanner';
 import { Icon, type IconName } from '../components/Icon';
@@ -493,6 +493,26 @@ export function AppShell({ connectionState, rpc, rest, onRetry }: AppShellProps)
       rpc.events.removeEventListener('status.update', onStatusUpdate);
     };
   }, [rpc, addActivityItem]);
+
+  // Subagent frames feed the spawn store from here, whatever screen is open,
+  // so the chat can show delegated agents as they run and the Agents screen
+  // opens with the full picture.
+  const chatSessionId = useChatStore((s) => s.sessionId);
+  useEffect(() => {
+    if (chatSessionId) useSpawnStore.getState().setSession(chatSessionId);
+  }, [chatSessionId]);
+  useEffect(() => {
+    const handlers = SPAWN_EVENT_TYPES.map((type) => {
+      const handler = (event: RpcEvent) => {
+        useSpawnStore.getState().handleEvent(type, (event.payload ?? {}) as Record<string, unknown>);
+      };
+      rpc.events.addEventListener(type, handler);
+      return { type, handler };
+    });
+    return () => {
+      for (const { type, handler } of handlers) rpc.events.removeEventListener(type, handler);
+    };
+  }, [rpc]);
 
 
   useEffect(() => {

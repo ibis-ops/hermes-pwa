@@ -329,6 +329,9 @@ function toPublicMessage(m: InternalMessage): Message {
   if (m.toolCalls) msg.toolCalls = m.toolCalls;
   if (m.thinking) msg.thinking = m.thinking;
   if (m.displayKind) msg.displayKind = m.displayKind;
+  // Hermes writes an assistant row when that segment is done, so a stored
+  // row's timestamp is when it finished; a collapsed run keeps the last one.
+  if (m.role === 'assistant' && m.createdAt !== undefined) msg.completedAt = m.createdAt;
   return msg;
 }
 
@@ -424,6 +427,10 @@ function collapseAssistantRuns(messages: Message[]): Message[] {
     const merged: Message = { ...last, text };
     if (toolCalls.length > 0) merged.toolCalls = toolCalls;
     if (thinking) merged.thinking = thinking;
+    const completedAt = message.completedAt ?? message.createdAt;
+    if (completedAt !== undefined && (merged.completedAt === undefined || completedAt > merged.completedAt)) {
+      merged.completedAt = completedAt;
+    }
     out[out.length - 1] = merged;
   }
   return out;
@@ -664,6 +671,7 @@ function sameMessage(a: Message, b: Message): boolean {
     a.text === b.text &&
     a.thinking === b.thinking &&
     a.createdAt === b.createdAt &&
+    a.completedAt === b.completedAt &&
     a.displayKind === b.displayKind &&
     sameToolCalls(a.toolCalls, b.toolCalls)
   );
@@ -1719,7 +1727,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
         // the fuller record; otherwise the final text wins.
         const streamedCoversFinal = final.length > 0 && last.text.trimEnd().endsWith(final);
         const text = final && !streamedCoversFinal ? final : last.text.trimEnd();
-        const nextLast = { ...last, text };
+        const nextLast: Message = { ...last, text, completedAt: Date.now() / 1000 };
         if (isDuplicateReasoning(nextLast.thinking, text)) {
           delete nextLast.thinking;
         }
@@ -1736,8 +1744,12 @@ export const useChatStore = create<ChatStore>((set, get) => ({
       const message = error || 'Hermes reported an error.';
       const msgs = [...state.messages];
       const last = msgs[msgs.length - 1];
-      if (last && last.role === 'assistant' && !last.text.trim()) {
-        msgs[msgs.length - 1] = { ...last, text: `Error: ${message}` };
+      if (last && last.role === 'assistant') {
+        msgs[msgs.length - 1] = {
+          ...last,
+          text: last.text.trim() ? last.text : `Error: ${message}`,
+          completedAt: Date.now() / 1000,
+        };
       }
       const next = { streaming: false, error: message, messages: msgs };
       persistActiveSession({ ...state, ...next });

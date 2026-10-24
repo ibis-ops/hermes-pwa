@@ -3062,3 +3062,146 @@ html.hm-keyboard-open .hm-login {
   font-family: var(--hm-font-mono);
   font-size: 15px;
 }
+
+/* ── Per-message time and reply duration ───────────────────────────── */
+.hm-message__meta {
+  margin: 2px 4px 0;
+  font-size: 11px;
+  font-weight: var(--hm-fw-medium);
+  color: var(--hm-color-text-faint);
+  letter-spacing: 0.1px;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.hm-message__meta--user {
+  align-self: flex-end;
+  margin-right: 6px;
+}
+
+.hm-message__meta--assistant {
+  margin-left: 2px;
+}
+
+.hm-message__elapsed[data-live='true'] {
+  color: var(--hm-color-text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Subagents inside the reply that spawned them ───────────────────── */
+.hm-subagents {
+  margin: 0 0 8px;
+  border-radius: 12px;
+  background: var(--hm-color-surface);
+  overflow: hidden;
+}
+
+.hm-subagents__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 36px;
+  padding: 0 12px;
+  font-size: var(--hm-fs-small);
+  font-weight: var(--hm-fw-medium);
+  color: var(--hm-color-text-muted);
+}
+
+.hm-subagents__meta {
+  font-size: var(--hm-fs-label);
+  font-weight: var(--hm-fw-regular);
+}
+
+.hm-subagent {
+  display: flex;
+  gap: 10px;
+  padding: 10px 12px 12px;
+  border-top: 1px solid var(--hm-color-border);
+}
+
+.hm-subagent__dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  margin-top: 6px;
+  border-radius: 50%;
+  background: var(--hm-color-text-faint);
+}
+
+.hm-subagent--running .hm-subagent__dot {
+  background: var(--hm-color-running);
+  animation: hm-pulse 1.6s infinite;
+}
+
+.hm-subagent--queued .hm-subagent__dot {
+  background: var(--hm-color-warning);
+}
+
+.hm-subagent--completed .hm-subagent__dot {
+  background: var(--hm-color-success);
+}
+
+.hm-subagent--failed .hm-subagent__dot,
+.hm-subagent--interrupted .hm-subagent__dot {
+  background: var(--hm-color-danger);
+}
+
+.hm-subagent__body {
+  display: flex;
+  min-width: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.hm-subagent__line {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.hm-subagent__who {
+  font-size: var(--hm-fs-small);
+  font-weight: var(--hm-fw-semibold);
+  color: var(--hm-color-text);
+}
+
+.hm-subagent__elapsed {
+  flex: none;
+  font-size: var(--hm-fs-label);
+  font-variant-numeric: tabular-nums;
+  color: var(--hm-color-text-muted);
+}
+
+.hm-subagent__elapsed[data-live='true'] {
+  color: var(--hm-color-accent);
+}
+
+.hm-subagent__goal {
+  font-size: var(--hm-fs-small);
+  line-height: 1.35;
+  color: var(--hm-color-text);
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+}
+
+.hm-subagent__status {
+  font-size: var(--hm-fs-label);
+  line-height: 1.35;
+  color: var(--hm-color-text-muted);
+  overflow-wrap: anywhere;
+}
+
+.hm-subagent__now--error {
+  color: var(--hm-color-danger-strong);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hm-subagent--running .hm-subagent__dot {
+    animation: none;
+  }
+}

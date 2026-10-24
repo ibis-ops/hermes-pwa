@@ -16,6 +16,8 @@ export interface MessageBubbleProps {
   liveFace?: string | undefined;
   pendingApprovals?: Approval[] | undefined;
   activeSessionIds?: string[] | undefined;
+  /** Epoch seconds of the prompt this reply answers; the elapsed time counts from it. */
+  elapsedFrom?: number | undefined;
 }
 
 export function areMessageBubblePropsEqual(prev: MessageBubbleProps, next: MessageBubbleProps): boolean {
@@ -28,7 +30,8 @@ export function areMessageBubblePropsEqual(prev: MessageBubbleProps, next: Messa
     prev.liveStatus === next.liveStatus &&
     prev.liveFace === next.liveFace &&
     prev.pendingApprovals === next.pendingApprovals &&
-    prev.activeSessionIds === next.activeSessionIds
+    prev.activeSessionIds === next.activeSessionIds &&
+    prev.elapsedFrom === next.elapsedFrom
   );
 }
 

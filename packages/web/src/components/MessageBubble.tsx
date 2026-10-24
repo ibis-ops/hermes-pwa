@@ -5,6 +5,8 @@ import { FileCards } from './FileCards';
 import { ToolGroup } from './ToolGroup';
 import { TodoPanel } from './TodoPanel';
 import { ThinkingDisclosure } from './ThinkingDisclosure';
+import { MessageMeta } from './MessageMeta';
+import { SubagentPanel } from './SubagentPanel';
 import { MARKDOWN_COMPONENTS, REHYPE_PLUGINS, REMARK_PLUGINS, areMessageBubblePropsEqual, type MessageBubbleProps } from './MessageBubble.helpers';
 
 const APPROVAL_TOOL_NAMES = new Set(['terminal', 'execute_code']);
@@ -65,7 +67,7 @@ function recoveredApprovalTool(
   };
 }
 
-function MessageBubbleView({ message, rpc, rest, isLast, streaming, liveStatus, liveFace, pendingApprovals, activeSessionIds }: MessageBubbleProps) {
+function MessageBubbleView({ message, rpc, rest, isLast, streaming, liveStatus, liveFace, pendingApprovals, activeSessionIds, elapsedFrom }: MessageBubbleProps) {
   if (message.role === 'tool') {
     return null;
   }
@@ -83,6 +85,7 @@ function MessageBubbleView({ message, rpc, rest, isLast, streaming, liveStatus, 
           </div>
         ) : null}
         <FileCards refs={attachments} rest={rest} tone="user" />
+        <MessageMeta message={message} />
       </div>
     );
   }
@@ -95,6 +98,9 @@ function MessageBubbleView({ message, rpc, rest, isLast, streaming, liveStatus, 
     ...(message.toolCalls?.filter((t) => t.name !== 'todo') ?? []),
     ...(recoveredTool ? [recoveredTool] : []),
   ];
+  // Delegated agents belong to the latest reply; the panel hides itself when
+  // the spawn store holds nothing for this turn.
+  const showSubagents = isLast !== false;
   const hasActions = Boolean(message.thinking?.trim()) || Boolean(completedTodoTool) || otherTools.length > 0;
   const showHeaderStatus = active && Boolean(liveStatus?.trim());
   const statusFace = liveFace?.trim();
@@ -146,6 +152,8 @@ function MessageBubbleView({ message, rpc, rest, isLast, streaming, liveStatus, 
         </div>
       )}
 
+      {showSubagents ? <SubagentPanel since={elapsedFrom ?? message.createdAt} /> : null}
+
       {message.text ? (
         <div className="hm-message__text">
           <ReactMarkdown remarkPlugins={REMARK_PLUGINS} rehypePlugins={REHYPE_PLUGINS} components={MARKDOWN_COMPONENTS}>
@@ -156,6 +164,7 @@ function MessageBubbleView({ message, rpc, rest, isLast, streaming, liveStatus, 
       ) : null}
 
       {!active && <FileCards refs={extractFileRefs(message.text)} rest={rest} tone="assistant" />}
+      <MessageMeta message={message} active={active} elapsedFrom={elapsedFrom} />
     </div>
   );
 }

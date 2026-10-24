@@ -5,7 +5,6 @@ interface AgentsProps {
   rpc: RpcClient;
 }
 
-const SPAWN_EVENTS = ['subagent.started', 'subagent.update', 'subagent.progress', 'subagent.finished', 'subagent.completed', 'subagent.failed'] as const;
 
 function fmtDuration(s: number | undefined): string {
   if (!s || s <= 0) return '';
@@ -127,28 +126,16 @@ function SpawnRow({ node, depth = 0, nowMs }: { node: SpawnNode; depth?: number;
 }
 
 export function Agents({ rpc }: AgentsProps) {
-  const { tree, agents, handleEvent } = useSpawnStore();
+  const { tree, agents } = useSpawnStore();
   const sessionId = useChatStore((s) => s.sessionId);
   const [nowMs, setNowMs] = useState(() => Date.now());
 
+  // The shell feeds the spawn store from the live events; this screen only
+  // renders it. A session switch while open still binds the store here.
   useEffect(() => {
     if (sessionId) useSpawnStore.getState().setSession(sessionId);
   }, [sessionId]);
-
-  useEffect(() => {
-    const handlers = SPAWN_EVENTS.map((type) => {
-      const handler = (e: import('@hermes-pwa/core').RpcEvent) => {
-        handleEvent(type, (e.payload ?? {}) as Record<string, unknown>);
-      };
-      rpc.events.addEventListener(type, handler);
-      return { type, handler };
-    });
-    return () => {
-      for (const { type, handler } of handlers) {
-        rpc.events.removeEventListener(type, handler);
-      }
-    };
-  }, [rpc, handleEvent]);
+  void rpc;
 
   const hasActive = agents.some((a) => a.status === 'running' || a.status === 'queued');
   useEffect(() => {

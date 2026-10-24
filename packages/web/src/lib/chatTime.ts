@@ -43,3 +43,14 @@ export function formatDividerTime(ms: number, nowMs = Date.now()): string {
 export function formatClockTime(ms: number): string {
   return TIME.format(ms);
 }
+
+/** "12s", "1m 05s", "1h 02m": how long a reply took. */
+export function formatElapsed(seconds: number): string {
+  const total = Math.max(0, Math.round(seconds));
+  if (total < 60) return `${total}s`;
+  const minutes = Math.floor(total / 60);
+  const rest = total % 60;
+  if (minutes < 60) return `${minutes}m ${rest.toString().padStart(2, '0')}s`;
+  const hours = Math.floor(minutes / 60);
+  return `${hours}h ${(minutes % 60).toString().padStart(2, '0')}m`;
+}

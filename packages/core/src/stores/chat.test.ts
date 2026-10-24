@@ -1512,7 +1512,7 @@ describe('useChatStore', () => {
       });
       const messages = [
         { id: '1', role: 'user' as const, text: 'hi', createdAt: 1 },
-        { id: '2', role: 'assistant' as const, text: 'hello', createdAt: 2 },
+        { id: '2', role: 'assistant' as const, text: 'hello', createdAt: 2, completedAt: 2 },
       ];
       useChatStore.setState({ sessionId: 'live-idle', storedSessionId: 'stored-idle', messages, streaming: false, error: undefined });
       vi.mocked(restMock.sessionMessages).mockResolvedValue({

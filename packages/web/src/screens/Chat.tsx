@@ -87,6 +87,17 @@ function isNonChatStatus(kind: string, payload: Record<string, unknown> | undefi
   return NON_CHAT_STATUS_TEXT.test(rawText);
 }
 
+/** Epoch seconds of the user prompt a reply at `index` answers, when known. */
+function promptTimeBefore(messages: import('@hermes-pwa/core').Message[], index: number): number | undefined {
+  for (let i = index - 1; i >= 0; i -= 1) {
+    const candidate = messages[i];
+    if (!candidate) continue;
+    if (candidate.role === 'user') return candidate.createdAt;
+    if (candidate.role === 'assistant') return undefined;
+  }
+  return undefined;
+}
+
 export function Chat({ rpc, rest }: ChatProps) {
   const {
     messages,
@@ -759,6 +770,7 @@ export function Chat({ rpc, rest }: ChatProps) {
             const at = toMillis(m.createdAt);
             const previousAt = index > 0 ? toMillis(messages[index - 1]?.createdAt) : undefined;
             const divider = needsTimeDivider(previousAt, at) && at !== undefined ? formatDividerTime(at) : undefined;
+            const promptAt = m.role === 'assistant' ? promptTimeBefore(messages, index) : undefined;
             return (
               <div key={m.id} className="hm-chat__entry">
                 {divider ? (
@@ -776,6 +788,7 @@ export function Chat({ rpc, rest }: ChatProps) {
                   liveFace={undefined}
                   pendingApprovals={pendingApprovalsForMessage(pendingApprovals, index, messages.length)}
                   activeSessionIds={activeSessionIds}
+                  elapsedFrom={promptAt}
                 />
               </div>
             );
