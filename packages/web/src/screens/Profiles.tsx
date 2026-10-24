@@ -178,7 +178,7 @@ export function Profiles({ rest }: ProfilesProps) {
   return (
     <div className="hm-agents">
       <p className="hm-agents__subtitle hm-muted">
-        Profiles — each has its own model, soul &amp; skills.
+        Each profile has its own model, personality and skills.
       </p>
 
       {error && <div className="hm-warning-banner hm-warning-banner--error">{error}</div>}

@@ -31,8 +31,7 @@ export function Activity({ rpc }: ActivityProps) {
   return (
     <div className="hm-activity">
       <p className="hm-activity__lead">
-        Actions the agent paused on. Respond here or from the live chat —{' '}
-        <span className="hm-activity__code">approval.respond</span> over WS.
+        Actions Hermes paused on. Approve or deny them here, or reply in the chat.
       </p>
 
       {error && <div className="hm-warning-banner hm-warning-banner--error">{error}</div>}

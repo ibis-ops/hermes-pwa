@@ -16,6 +16,7 @@ export function Login({ store, error }: LoginProps) {
     ?? (statusProviders.includes('basic') ? 'basic' : undefined)
     ?? (detailedProviders.length === 0 && statusProviders.length === 0 ? 'basic' : undefined);
   const passwordSignInUnsupported = store.status?.authRequired === true && !passwordProvider;
+  const submitDisabled = loading || !username || !password || !passwordProvider;
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -26,58 +27,59 @@ export function Login({ store, error }: LoginProps) {
   }
 
   return (
-    <main className="hm-app-shell">
-      <section className="hm-hero">
-        <h1>Sign in to Hermes</h1>
-        <p className="hm-subtitle">Use your Dashboard credentials. Hermes Mobile shares the same session.</p>
-      </section>
+    <main className="hm-login">
+      <div className="hm-login__brand">
+        <img className="hm-login__logo" src="./icons/icon-192.png" alt="" aria-hidden="true" />
+        <h1 className="hm-login__title">Sign in to Hermes</h1>
+        <p className="hm-login__subtitle">Same login as the Hermes dashboard.</p>
+      </div>
 
       {passwordSignInUnsupported ? (
-        <div className="hm-card-list">
-          <div className="hm-warning-banner hm-warning-banner--error" role="alert">
-            <strong>Password sign-in unavailable</strong>
-            <p>This Hermes server does not support password sign-in in the mobile PWA.</p>
-          </div>
+        <div className="hm-login__error" role="alert">
+          <strong>Password sign-in unavailable</strong>
+          <span>This Hermes server does not support password sign-in in the mobile PWA.</span>
         </div>
       ) : (
-        <form className="hm-card-list" onSubmit={onSubmit}>
+        <form className="hm-login__form" onSubmit={onSubmit} noValidate>
+          <div className="hm-login__group">
+            <label className="hm-login__field" htmlFor="username">
+              <span className="hm-login__label">Username</span>
+              <input
+                id="username"
+                className="hm-login__input"
+                type="text"
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                placeholder="Username"
+                autoComplete="username"
+                autoCapitalize="none"
+                autoCorrect="off"
+                spellCheck={false}
+                enterKeyHint="next"
+                required
+              />
+            </label>
+            <label className="hm-login__field" htmlFor="password">
+              <span className="hm-login__label">Password</span>
+              <input
+                id="password"
+                className="hm-login__input"
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="Password"
+                autoComplete="current-password"
+                enterKeyHint="go"
+                required
+              />
+            </label>
+          </div>
+
           {error ? (
-            <div className="hm-warning-banner hm-warning-banner--error" role="alert">
-              <strong>Login failed</strong>
-              <p>{error}</p>
-            </div>
+            <p className="hm-login__error" role="alert">{error}</p>
           ) : null}
 
-          <label className="hm-check-card" htmlFor="username">
-            <span className="hm-status-label">Username</span>
-            <input
-              id="username"
-              type="text"
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
-              placeholder="your-username"
-              autoComplete="username"
-              autoCapitalize="none"
-              autoCorrect="off"
-              spellCheck={false}
-              required
-            />
-          </label>
-
-          <label className="hm-check-card" htmlFor="password">
-            <span className="hm-status-label">Password</span>
-            <input
-              id="password"
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder="••••••••"
-              autoComplete="current-password"
-              required
-            />
-          </label>
-
-          <button className="hm-primary" type="submit" disabled={loading}>
+          <button className="hm-primary hm-login__submit" type="submit" disabled={submitDisabled} aria-busy={loading}>
             {loading ? 'Signing in…' : 'Sign in'}
           </button>
         </form>
