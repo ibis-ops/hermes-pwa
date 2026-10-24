@@ -38,7 +38,7 @@ describe('Profiles', () => {
     render(<Profiles rest={makeRest()} />);
     await waitFor(() => expect(screen.getByText('Default', { selector: '.hm-agent-card__name' })).toBeInTheDocument());
     expect(screen.getByText('Research', { selector: '.hm-agent-card__name' })).toBeInTheDocument();
-    expect(screen.getByText('ACTIVE')).toBeInTheDocument();
+    expect(screen.getByText('Active')).toBeInTheDocument();
   });
 
   it('keeps the new profile action above the profile list', async () => {

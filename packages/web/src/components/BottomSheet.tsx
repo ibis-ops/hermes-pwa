@@ -108,6 +108,7 @@ export function BottomSheet({
     >
       <div className="hm-sheet__overlay" onClick={closeDisabled ? undefined : onClose} aria-hidden="true" />
       <div className={contentClassName ? `hm-sheet__content ${contentClassName}` : 'hm-sheet__content'}>
+        <span className="hm-sheet__grabber" aria-hidden="true" />
         <h3 id={titleId} className="hm-sheet__title">
           {title}
         </h3>

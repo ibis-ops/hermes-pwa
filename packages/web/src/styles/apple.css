@@ -2199,3 +2199,196 @@ textarea {
   font-size: var(--hm-fs-label);
   color: var(--hm-color-text-muted);
 }
+
+/* ════════════════════════════════════════════════════════════════════
+   Pass 3: sheets, forms, switches, remaining labels
+   ════════════════════════════════════════════════════════════════════ */
+
+.hm-sheet__content {
+  border-radius: 16px 16px 0 0;
+  padding: 8px 16px max(20px, env(safe-area-inset-bottom));
+  max-height: 92vh;
+  max-height: 92dvh;
+}
+
+.hm-sheet__grabber {
+  display: block;
+  width: 36px;
+  height: 5px;
+  margin: 0 auto 12px;
+  border-radius: 3px;
+  background: var(--hm-color-text-faint);
+}
+
+.hm-sheet__title {
+  font-size: var(--hm-fs-heading);
+  font-weight: var(--hm-fw-semibold);
+  text-align: center;
+  margin: 0 0 14px;
+}
+
+.hm-sheet__body {
+  gap: 0;
+}
+
+/* Form fields inside sheets and screens */
+.hm-projects__field {
+  margin-bottom: 14px;
+}
+
+.hm-projects__label {
+  font-size: var(--hm-fs-label);
+  font-weight: var(--hm-fw-regular);
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--hm-color-text-muted);
+  margin: 0 0 6px 4px;
+}
+
+.hm-projects__field .hm-input,
+.hm-projects__field .hm-select,
+.hm-projects__field .hm-textarea,
+.hm-projects__field input:not([type='checkbox']):not([type='radio']),
+.hm-projects__field select,
+.hm-projects__field textarea {
+  width: 100%;
+  min-height: 46px;
+  padding: 11px 14px;
+  border: 0;
+  border-radius: 10px;
+  background: var(--hm-color-fill);
+  color: var(--hm-color-text);
+  font-size: var(--hm-fs-body);
+}
+
+.hm-projects__field textarea {
+  min-height: 96px;
+  line-height: 1.35;
+}
+
+.hm-projects__hint {
+  font-size: var(--hm-fs-label);
+  color: var(--hm-color-text-muted);
+  margin: 6px 4px 0;
+}
+
+/* Sheet footer buttons: primary stretches, cancel is quiet text. */
+.hm-projects__inline-actions {
+  gap: 10px;
+  padding-top: 6px;
+}
+
+.hm-projects__inline-actions .hm-primary,
+.hm-projects__inline-actions .hm-projects__inline-save {
+  flex: 1;
+  min-height: 48px;
+  padding: 0 18px;
+  font-size: var(--hm-fs-heading);
+}
+
+.hm-projects__inline-actions .hm-ghost {
+  flex: 0 0 auto;
+  min-height: 48px;
+  background: transparent;
+  color: var(--hm-color-primary);
+}
+
+/* iOS switch for checkbox rows */
+.hm-settings-row--checkbox {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 48px;
+  padding: 10px 14px;
+  border: 0;
+  border-radius: 10px;
+  background: var(--hm-color-fill);
+  font-size: var(--hm-fs-body);
+}
+
+.hm-settings-row--checkbox input[type='checkbox'] {
+  order: 2;
+  appearance: none;
+  -webkit-appearance: none;
+  position: relative;
+  width: 51px;
+  height: 31px;
+  margin: 0;
+  flex-shrink: 0;
+  border-radius: 16px;
+  background: rgba(120, 120, 128, 0.32);
+  transition: background var(--hm-duration-fast);
+}
+
+.hm-settings-row--checkbox input[type='checkbox']::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 27px;
+  height: 27px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 3px 8px rgba(0, 0, 0, 0.15), 0 1px 1px rgba(0, 0, 0, 0.16);
+  transition: transform var(--hm-duration-fast) var(--hm-ease-out);
+}
+
+.hm-settings-row--checkbox input[type='checkbox']:checked {
+  background: var(--hm-color-success);
+}
+
+.hm-settings-row--checkbox input[type='checkbox']:checked::after {
+  transform: translateX(20px);
+}
+
+.hm-settings-row--checkbox input[type='checkbox']:disabled {
+  opacity: 0.5;
+}
+
+.hm-profile-thinking-toggle {
+  border: 0;
+  margin-bottom: 14px;
+}
+
+/* Profiles card odds and ends */
+.hm-agent-card__active-label {
+  display: none;
+}
+
+.hm-profile-actions {
+  margin-left: auto;
+}
+
+/* System: op icons on surface tints that work in both schemes */
+.hm-command__op-icon {
+  background: var(--hm-color-fill);
+  color: var(--hm-color-text);
+}
+
+.hm-command__op-row:first-child .hm-command__op-icon {
+  background: var(--hm-color-success-bg);
+  color: var(--hm-color-success);
+}
+
+.hm-command__op-row:nth-child(2) .hm-command__op-icon {
+  background: var(--hm-color-warning-bg);
+  color: var(--hm-color-warning);
+}
+
+.hm-command__op-row .hm-muted,
+.hm-command__op-body span:last-child {
+  font-size: var(--hm-fs-label);
+}
+
+/* Section labels in Kanban board selector and similar */
+.hm-projects__topbar {
+  min-height: 52px;
+  padding: 6px 16px;
+}
+
+.hm-projects__board-selector-toggle,
+.hm-projects__board-toggle {
+  font-size: var(--hm-fs-heading);
+  font-weight: var(--hm-fw-semibold);
+}
