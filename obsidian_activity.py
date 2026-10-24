@@ -29,6 +29,7 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Iterable
+from urllib.parse import unquote
 
 NOTE_SUFFIXES = frozenset({".md", ".canvas", ".base"})
 CREATE_TOOLS = frozenset({"write_file", "create_file"})
@@ -39,6 +40,12 @@ _PATH_KEYS = ("path", "file_path", "filename", "file", "target_file")
 
 _SHELL_SPLIT = re.compile(r"\s*(?:&&|\|\||[;|\n])\s*")
 _SHELL_WRITERS = frozenset({"mv", "cp", "touch", "tee"})
+# Obsidian's Local REST API plugin: PUT/POST/PATCH http://127.0.0.1:27124/vault/<path>
+# writes a note straight into the open vault without touching the file tools.
+_REST_API_WRITE = re.compile(
+    r"""(?is)(?:-X\s*|--request\s*|method\s*[=:]\s*['"]?)(PUT|POST|PATCH)\b.*?https?://(?:127\.0\.0\.1|localhost)(?::\d+)?/vault/([^\s'"?#]+)"""
+    r"""|https?://(?:127\.0\.0\.1|localhost)(?::\d+)?/vault/([^\s'"?#]+).*?(?:-X\s*|--request\s*|method\s*[=:]\s*['"]?)(PUT|POST|PATCH)\b"""
+)
 _BIRTHTIME_SLACK_S = 300.0
 
 
@@ -238,8 +245,25 @@ def _candidate_paths(name: str, arguments: object) -> list[tuple[str, str]]:
         command = arguments.get("command") or arguments.get("cmd")
         if not isinstance(command, str):
             return []
-        return [(target, "edited") for target in shell_write_targets(command)]
+        found = [(target, "edited") for target in shell_write_targets(command)]
+        found.extend(rest_api_write_targets(command))
+        return found
     return []
+
+
+def rest_api_write_targets(command: str) -> list[tuple[str, str]]:
+    """``(vault-relative path, action)`` for Local REST API note writes in a shell command."""
+    targets: list[tuple[str, str]] = []
+    for match in _REST_API_WRITE.finditer(command):
+        method = (match.group(1) or match.group(4) or "").upper()
+        raw = match.group(2) or match.group(3) or ""
+        if not raw:
+            continue
+        path = unquote(raw).strip("/")
+        if not path:
+            continue
+        targets.append((f"{_REST_API_MARK}{path}", "created" if method == "PUT" else "edited"))
+    return targets
 
 
 def shell_write_targets(command: str) -> list[str]:
@@ -298,8 +322,16 @@ def _iter_tool_calls(raw: object) -> Iterable[tuple[str, object]]:
             yield name, function.get("arguments")
 
 
+_REST_API_MARK = "vault-relative:"
+
+
 def _resolve_note(raw_path: str, vaults: list[Vault]) -> tuple[str, Vault] | None:
     cleaned = html.unescape(raw_path).strip().strip('"').strip("'")
+    if cleaned.startswith(_REST_API_MARK):
+        # The REST API serves whichever vault the desktop app has open.
+        if not vaults:
+            return None
+        cleaned = os.path.join(vaults[0].path, cleaned[len(_REST_API_MARK):])
     if not cleaned or not os.path.isabs(os.path.expanduser(cleaned)):
         return None
     path = _norm(cleaned)
@@ -323,6 +355,8 @@ def collect_events(db_path: Path, profile: str, vaults: list[Vault], since: floa
         escaped = html.escape(vault.path, quote=False)
         if escaped != vault.path:
             patterns.append(f"%{escaped}%")
+    # Local REST API writes name the note by vault-relative URL, not by path.
+    patterns.append("%/vault/%")
     where = " OR ".join("tool_calls LIKE ?" for _ in patterns)
     events: list[NoteEvent] = []
     try:
@@ -449,6 +483,60 @@ def build_activity(
         "scanned_at": now,
         "total": len(entries),
         "notes": entries[:limit],
+    }
+
+
+MAX_NOTE_BYTES = 2 * 1024 * 1024
+
+
+class NoteAccessError(Exception):
+    def __init__(self, status: int, detail: str) -> None:
+        super().__init__(detail)
+        self.status = status
+        self.detail = detail
+
+
+def read_note(vault_name: str, relative_path: str, *, home: Path | None = None) -> dict[str, object]:
+    """The text of one note, for the phone's viewer. Only notes inside a known vault.
+
+    The path is resolved with ``realpath`` and must stay inside the vault; dot
+    segments (``.obsidian``, ``.trash``) and anything that is not a note file
+    are refused, as is anything over ``MAX_NOTE_BYTES``.
+    """
+    vault = next((v for v in discover_vaults(home) if v.name == vault_name), None)
+    if vault is None:
+        raise NoteAccessError(404, "unknown vault")
+    relative = (relative_path or "").replace("\\", "/").strip().strip("/")
+    if not relative or any(part in {"", ".", ".."} or part.startswith(".") for part in relative.split("/")):
+        raise NoteAccessError(400, "invalid note path")
+    if Path(relative).suffix.lower() not in NOTE_SUFFIXES:
+        raise NoteAccessError(400, "not a note")
+    root = os.path.realpath(vault.path)
+    full = os.path.realpath(os.path.join(root, relative))
+    if full != root and not full.startswith(root + os.sep):
+        raise NoteAccessError(403, "outside the vault")
+    try:
+        stat = os.stat(full)
+    except FileNotFoundError:
+        raise NoteAccessError(404, "note not found") from None
+    except OSError as exc:
+        raise NoteAccessError(500, "could not read the note") from exc
+    if not os.path.isfile(full):
+        raise NoteAccessError(404, "note not found")
+    if stat.st_size > MAX_NOTE_BYTES:
+        raise NoteAccessError(413, "note too large")
+    try:
+        text = Path(full).read_text(encoding="utf-8", errors="replace")
+    except OSError as exc:
+        raise NoteAccessError(500, "could not read the note") from exc
+    return {
+        "vault": vault.name,
+        "phone_vault": vault.phone_name,
+        "path": relative,
+        "name": Path(relative).stem,
+        "text": text,
+        "size": stat.st_size,
+        "modified_at": stat.st_mtime,
     }
 
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { groupNotesByDay, obsidianOpenUrl, resolveLinkVault, toObsidianActivity, type ObsidianNote } from './obsidian';
+import { groupNotesByDay, obsidianOpenUrl, parseObsidianNote, resolveLinkVault, toObsidianActivity, toObsidianNoteContent, type ObsidianNote } from './obsidian';
 
 const note = (over: Partial<ObsidianNote> = {}): ObsidianNote => ({
   path: 'Clients/Ann Lee/Ann Lee.md',
@@ -91,5 +91,33 @@ describe('groupNotesByDay', () => {
     expect(groups[0]?.notes.map((n) => n.path)).toEqual(['c.md', 'b.md']);
     expect(groups[1]?.notes.map((n) => n.path)).toEqual(['a.md']);
     expect(new Date(groups[0]!.day).getHours()).toBe(0);
+  });
+});
+
+describe('parseObsidianNote', () => {
+  it('splits frontmatter into properties and converts wikilinks', () => {
+    const parsed = parseObsidianNote(
+      '---\ntype: note\ntags: [client, check-in]\nsources:\n  - Signal\n  - "Kahunas"\ncreated: 2026-10-24\n---\n\n# Ann\n\nSee [[Clients/Ann Lee/Ann Lee|Ann]] and [[Orders — MOC]] and ![[photo.png]].\n',
+    );
+    expect(parsed.properties).toEqual([
+      { key: 'type', value: 'note' },
+      { key: 'tags', value: 'client, check-in' },
+      { key: 'sources', value: 'Signal, Kahunas' },
+      { key: 'created', value: '2026-10-24' },
+    ]);
+    expect(parsed.body.trim()).toBe('# Ann\n\nSee **Ann** and **Orders — MOC** and *photo.png*.');
+  });
+
+  it('passes a note without frontmatter through', () => {
+    const parsed = parseObsidianNote('# Plain\n\ntext');
+    expect(parsed.properties).toEqual([]);
+    expect(parsed.body).toBe('# Plain\n\ntext');
+  });
+});
+
+describe('toObsidianNoteContent', () => {
+  it('maps the note payload', () => {
+    const content = toObsidianNoteContent({ vault: 'General', phone_vault: 'Vault 1', path: 'Inbox/Idea.md', name: 'Idea', text: '# Idea', size: 6, modified_at: 1_761_000_000 });
+    expect(content).toEqual({ vault: 'General', phoneVault: 'Vault 1', path: 'Inbox/Idea.md', name: 'Idea', text: '# Idea', size: 6, modifiedAt: 1_761_000_000_000 });
   });
 });

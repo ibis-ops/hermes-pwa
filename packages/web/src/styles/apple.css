@@ -3500,3 +3500,104 @@ html.hm-keyboard-open .hm-login {
 .hm-vault-sheet__use:disabled {
   opacity: 0.4;
 }
+
+/* Note viewer: the note itself, read from the Mac, with the Obsidian hand-off below */
+.hm-sheet--note .hm-sheet__content {
+  height: 92dvh;
+  max-height: 92dvh;
+  display: flex;
+  flex-direction: column;
+}
+
+.hm-sheet--note .hm-sheet__title {
+  text-align: left;
+  margin-bottom: 2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hm-sheet--note .hm-sheet__body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+}
+
+.hm-note-view__meta {
+  margin: 0 0 12px;
+  font-size: var(--hm-fs-small);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hm-note-view__props {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 4px 12px;
+  margin: 0 0 16px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--hm-color-fill);
+  font-size: var(--hm-fs-small);
+}
+
+.hm-note-view__prop {
+  display: contents;
+}
+
+.hm-note-view__prop dt {
+  color: var(--hm-color-text-muted);
+}
+
+.hm-note-view__prop dd {
+  margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.hm-note-view__body {
+  padding-bottom: 12px;
+  font-size: var(--hm-fs-body);
+  line-height: 1.5;
+}
+
+.hm-note-view__body h1 {
+  font-size: var(--hm-fs-title);
+}
+
+.hm-note-view__footer {
+  flex: none;
+  padding-top: 10px;
+  border-top: 1px solid var(--hm-color-border);
+}
+
+.hm-note-view__open {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 46px;
+  border-radius: 12px;
+  background: var(--hm-color-primary);
+  color: #fff;
+  font-weight: var(--hm-fw-semibold);
+  text-decoration: none;
+}
+
+.hm-note-view__hint {
+  margin: 8px 0 0;
+  font-size: var(--hm-fs-label);
+  line-height: 1.4;
+  text-align: center;
+}
+
+.hm-note {
+  width: 100%;
+  border: 0;
+  background: transparent;
+  font: inherit;
+  text-align: left;
+}

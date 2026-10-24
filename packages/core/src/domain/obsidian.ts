@@ -147,3 +147,90 @@ export function groupNotesByDay(notes: ObsidianNote[]): ObsidianDayGroup[] {
   }
   return [...groups.entries()].sort(([a], [b]) => b - a).map(([day, dayNotes]) => ({ day, notes: dayNotes }));
 }
+
+export interface ObsidianNoteContent {
+  vault: string;
+  phoneVault: string | undefined;
+  path: string;
+  name: string;
+  text: string;
+  size: number | undefined;
+  /** Epoch ms. */
+  modifiedAt: number | undefined;
+}
+
+export function toObsidianNoteContent(raw: unknown): ObsidianNoteContent {
+  const record = typeof raw === 'object' && raw !== null ? (raw as Record<string, unknown>) : {};
+  const path = str(record.path) ?? '';
+  return {
+    vault: str(record.vault) ?? '',
+    phoneVault: str(record.phone_vault),
+    path,
+    name: str(record.name) ?? path.replace(/\.[^./]+$/u, '').split('/').pop() ?? '',
+    text: typeof record.text === 'string' ? record.text : '',
+    size: typeof record.size === 'number' ? record.size : undefined,
+    modifiedAt: epochMs(record.modified_at),
+  };
+}
+
+export interface ParsedNote {
+  /** Frontmatter keys in file order, values as written (lists flattened to "a, b"). */
+  properties: { key: string; value: string }[];
+  /** Markdown body with Obsidian-only syntax turned into plain Markdown. */
+  body: string;
+}
+
+function flattenYamlValue(value: string): string {
+  const trimmed = value.trim();
+  const list = /^\[(.*)\]$/su.exec(trimmed);
+  if (list) {
+    return list[1]!
+      .split(',')
+      .map((item) => item.trim().replace(/^["']|["']$/gu, ''))
+      .filter(Boolean)
+      .join(', ');
+  }
+  return trimmed.replace(/^["']|["']$/gu, '');
+}
+
+/**
+ * Split a note into its YAML frontmatter (properties) and body. The parser
+ * covers what the agent writes: `key: value` lines, inline lists and simple
+ * block lists; anything else stays as the raw value text.
+ */
+export function parseObsidianNote(text: string): ParsedNote {
+  const normalized = text.replace(/\r\n?/gu, '\n');
+  const match = /^---\n([\s\S]*?)\n---(?:\n|$)/u.exec(normalized);
+  if (!match) return { properties: [], body: obsidianToMarkdown(normalized) };
+  const properties: { key: string; value: string }[] = [];
+  let current: { key: string; value: string } | undefined;
+  const items: string[] = [];
+  const flush = () => {
+    if (!current) return;
+    if (items.length) current.value = items.join(', ');
+    properties.push(current);
+    current = undefined;
+    items.length = 0;
+  };
+  for (const line of match[1]!.split('\n')) {
+    const item = /^\s+-\s+(.*)$/u.exec(line);
+    if (item && current) {
+      items.push(item[1]!.trim().replace(/^["']|["']$/gu, ''));
+      continue;
+    }
+    const pair = /^([A-Za-z0-9_-]+):\s*(.*)$/u.exec(line);
+    if (!pair) continue;
+    flush();
+    current = { key: pair[1]!, value: flattenYamlValue(pair[2] ?? '') };
+  }
+  flush();
+  return { properties, body: obsidianToMarkdown(normalized.slice(match[0].length)) };
+}
+
+/** `[[Note|Alias]]` → Alias, `[[Folder/Note]]` → Note, `![[file]]` → file name; the rest is Markdown already. */
+export function obsidianToMarkdown(body: string): string {
+  return body
+    .replace(/!\[\[([^\]|]+)(?:\|[^\]]*)?\]\]/gu, (_, target: string) => `*${target.split('/').pop() ?? target}*`)
+    .replace(/\[\[([^\]|]+)\|([^\]]+)\]\]/gu, (_, _target: string, alias: string) => `**${alias.trim()}**`)
+    .replace(/\[\[([^\]|#]+)(?:#[^\]]*)?\]\]/gu, (_, target: string) => `**${(target.split('/').pop() ?? target).trim()}**`);
+}

@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   groupNotesByDay,
-  obsidianOpenUrl,
   resolveLinkVault,
   type ObsidianActivity,
   type ObsidianNote,
@@ -9,6 +8,7 @@ import {
 } from '@hermes-pwa/core';
 import { BottomSheet } from '../components/BottomSheet';
 import { Icon } from '../components/Icon';
+import { NoteViewer } from '../components/NoteViewer';
 import { formatClockTime, formatDayLabel } from '../lib/chatTime';
 
 interface ObsidianProps {
@@ -132,16 +132,17 @@ function VaultSheet({ activity, current, onPick, onClose }: VaultSheetProps) {
   );
 }
 
-function NoteRow({ note, linkVault }: { note: ObsidianNote; linkVault: string | undefined }) {
+function NoteRow({ note, onOpen }: { note: ObsidianNote; onOpen: (note: ObsidianNote) => void }) {
   const bot = botLabel(note.profile);
   const editedLater = note.action === 'created' && note.editedAt !== undefined && note.editedAt > note.at + 60_000;
   return (
-    <a
+    <button
+      type="button"
       className={`hm-note hm-note--${note.action}`}
-      href={obsidianOpenUrl(linkVault, note.path)}
+      onClick={() => onOpen(note)}
       data-testid="obsidian-note"
       data-action={note.action}
-      aria-label={`${note.name}, ${note.action === 'created' ? 'new' : 'edited'} ${formatClockTime(note.at)}, opens in Obsidian`}
+      aria-label={`${note.name}, ${note.action === 'created' ? 'new' : 'edited'} ${formatClockTime(note.at)}`}
     >
       <span className="hm-note__icon" aria-hidden="true">
         <Icon name="note" size={18} />
@@ -163,17 +164,18 @@ function NoteRow({ note, linkVault }: { note: ObsidianNote; linkVault: string | 
       <span className="hm-note__chevron" aria-hidden="true">
         <Icon name="chevR" size={14} />
       </span>
-    </a>
+    </button>
   );
 }
 
-/** Notes Hermes wrote in the Obsidian vault, by day, each a link into the Obsidian app. */
+/** Notes Hermes wrote in the Obsidian vault, by day; a tap reads the note, with a link into the Obsidian app. */
 export function Obsidian({ rest }: ObsidianProps) {
   const [activity, setActivity] = useState<ObsidianActivity | undefined>(undefined);
   const [error, setError] = useState<string | undefined>(undefined);
   const [filter, setFilter] = useState<Filter>('created');
   const [phoneVault, setPhoneVault] = useState<string | undefined>(() => readPhoneVault());
   const [sheetOpen, setSheetOpen] = useState(false);
+  const [openNote, setOpenNote] = useState<ObsidianNote | undefined>(undefined);
   const [nowMs, setNowMs] = useState(() => Date.now());
 
   const load = useCallback(async () => {
@@ -230,8 +232,8 @@ export function Obsidian({ rest }: ObsidianProps) {
     <div className="hm-obsidian hm-scroll">
       <p className="hm-obsidian__lead hm-muted">
         {vault
-          ? `Notes your bots wrote in the ${vault.name} vault over the last ${DAYS} days. Tap one to open it in Obsidian.`
-          : 'Notes your bots write in Obsidian show here. Tap one to open it in the Obsidian app.'}
+          ? `Notes your bots wrote in the ${vault.name} vault over the last ${DAYS} days. Tap one to read it or open it in Obsidian.`
+          : 'Notes your bots write in Obsidian show here. Tap one to read it or open it in the Obsidian app.'}
       </p>
 
       {error ? <div className="hm-warning-banner hm-warning-banner--error">{error}</div> : null}
@@ -285,7 +287,7 @@ export function Obsidian({ rest }: ObsidianProps) {
           </h3>
           <div className="hm-obsidian__list">
             {group.notes.map((note) => (
-              <NoteRow key={`${note.vault}/${note.path}`} note={note} linkVault={resolveLinkVault(note, phoneVault)} />
+              <NoteRow key={`${note.vault}/${note.path}`} note={note} onOpen={setOpenNote} />
             ))}
           </div>
         </section>
@@ -293,6 +295,9 @@ export function Obsidian({ rest }: ObsidianProps) {
 
       {sheetOpen && activity ? (
         <VaultSheet activity={activity} current={phoneVault} onPick={pickVault} onClose={() => setSheetOpen(false)} />
+      ) : null}
+      {openNote ? (
+        <NoteViewer rest={rest} note={openNote} linkVault={resolveLinkVault(openNote, phoneVault)} onClose={() => setOpenNote(undefined)} />
       ) : null}
     </div>
   );

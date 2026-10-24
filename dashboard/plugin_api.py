@@ -30,7 +30,11 @@ from local_files import (  # noqa: E402
     resolve_served_file,
     response_headers as local_file_headers,
 )
-from obsidian_activity import cached_activity as obsidian_cached_activity  # noqa: E402
+from obsidian_activity import (  # noqa: E402
+    NoteAccessError,
+    cached_activity as obsidian_cached_activity,
+    read_note as obsidian_read_note,
+)
 from push_common import (  # noqa: E402
     load_pending_approvals,
     load_push_subscriptions,
@@ -921,6 +925,16 @@ def obsidian_activity(days: int = 60, limit: int = 300) -> JSONResponse:
     except Exception as exc:  # pragma: no cover - defensive: a corrupt DB must not 500 the tab
         _file_log.warning("obsidian activity scan failed: %s", sanitize_error_text(str(exc)))
         payload = {"available": False, "vaults": [], "profiles": [], "notes": [], "total": 0, "error": "scan failed"}
+    return JSONResponse(payload, headers={"Cache-Control": "private, no-store"})
+
+
+@router.get("/obsidian/note", dependencies=[Depends(_require_dashboard_auth)])
+def obsidian_note(vault: str = "", path: str = "") -> JSONResponse:
+    """One note's text for the in-app viewer; only files inside a known vault."""
+    try:
+        payload = obsidian_read_note(vault, path)
+    except NoteAccessError as exc:
+        raise HTTPException(status_code=exc.status, detail=exc.detail) from None
     return JSONResponse(payload, headers={"Cache-Control": "private, no-store"})
 
 

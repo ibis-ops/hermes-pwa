@@ -192,6 +192,46 @@ class ObsidianActivityTests(unittest.TestCase):
         self.assertFalse(result["available"])
         self.assertEqual(result["notes"], [])
 
+    def test_rest_api_writes_land_in_the_open_vault(self):
+        note = self._write_note("Inbox/Idea.md")
+        conn = _make_state_db(self.hermes / "state.db")
+        conn.execute(
+            "INSERT INTO messages (session_id, role, tool_calls, timestamp) VALUES ('s', 'assistant', ?, ?)",
+            (
+                _call("terminal", {"command": 'curl -s -X PUT -H "Content-Type: text/markdown" --data-binary @/tmp/n.md "http://127.0.0.1:27124/vault/Inbox/Idea.md"'}),
+                1_700_000_000.0,
+            ),
+        )
+        conn.commit()
+        conn.close()
+        result = obsidian_activity.build_activity(home=self.home, hermes_root=self.hermes, days=30, now=1_700_000_100.0)
+        self.assertEqual([(n["path"], n["action"]) for n in result["notes"]], [("Inbox/Idea.md", "created")])
+        self.assertTrue(note.exists())
+
+    def test_read_note_serves_only_notes_inside_the_vault(self):
+        self._write_note("Clients/Ann Lee/Ann Lee.md", "---\ntags: [client]\n---\n# Ann\n")
+        (self.home / "Desktop" / "secret.md").write_text("no", encoding="utf-8")
+        payload = obsidian_activity.read_note("General", "Clients/Ann Lee/Ann Lee.md", home=self.home)
+        self.assertEqual(payload["name"], "Ann Lee")
+        self.assertEqual(payload["phone_vault"], "Vault 1")
+        self.assertTrue(payload["text"].startswith("---\ntags"))
+        for vault, path, status in [
+            ("General", "../secret.md", 400),
+            ("General", "Clients/../../secret.md", 400),
+            ("General", ".obsidian/app.json", 400),
+            ("General", "Clients/Ann Lee/photo.png", 400),
+            ("General", "Clients/Missing.md", 404),
+            ("Nope", "Clients/Ann Lee/Ann Lee.md", 404),
+        ]:
+            with self.assertRaises(obsidian_activity.NoteAccessError) as ctx:
+                obsidian_activity.read_note(vault, path, home=self.home)
+            self.assertEqual(ctx.exception.status, status, (vault, path))
+        link = self.vault / "Clients" / "Link.md"
+        link.symlink_to(self.home / "Desktop" / "secret.md")
+        with self.assertRaises(obsidian_activity.NoteAccessError) as ctx:
+            obsidian_activity.read_note("General", "Clients/Link.md", home=self.home)
+        self.assertEqual(ctx.exception.status, 403)
+
     def test_shell_write_targets(self):
         targets = obsidian_activity.shell_write_targets(
             'echo hi > "/v/Business & Ops/a.md" && cat b >>/v/c.md; tee -a /v/d.md < in; mv /tmp/x.md "/v/e.md"\ncp a.md /v/f.md | grep x; touch /v/g.md /v/h.md'
@@ -210,6 +250,23 @@ class ObsidianActivityRouteTests(unittest.TestCase):
     def test_requires_dashboard_auth(self):
         response = self.client.get("/api/plugins/hermes-pwa/obsidian/activity")
         self.assertEqual(response.status_code, 401)
+
+    def test_note_route_maps_access_errors(self):
+        with patch("dashboard.plugin_api.obsidian_read_note", side_effect=obsidian_activity.NoteAccessError(403, "outside the vault")):
+            response = self.client.get(
+                "/api/plugins/hermes-pwa/obsidian/note?vault=General&path=x.md",
+                headers={_SESSION_HEADER_NAME: _SESSION_TOKEN},
+            )
+        self.assertEqual(response.status_code, 403)
+        with patch("dashboard.plugin_api.obsidian_read_note", return_value={"name": "x", "text": "# x"}):
+            response = self.client.get(
+                "/api/plugins/hermes-pwa/obsidian/note?vault=General&path=x.md",
+                headers={_SESSION_HEADER_NAME: _SESSION_TOKEN},
+            )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["text"], "# x")
+        self.assertEqual(response.headers["cache-control"], "private, no-store")
+        self.assertEqual(self.client.get("/api/plugins/hermes-pwa/obsidian/note?vault=General&path=x.md").status_code, 401)
 
     def test_returns_payload_and_clamps_parameters(self):
         seen = {}

@@ -16,7 +16,7 @@ import type { EnvVar } from '../domain/env';
 import { toEnvVar } from '../domain/env';
 import type { MessagingOverview } from '../domain/messaging';
 import { toMessagingOverview } from '../domain/messaging';
-import { toObsidianActivity, type ObsidianActivity } from '../domain/obsidian';
+import { toObsidianActivity, toObsidianNoteContent, type ObsidianActivity, type ObsidianNoteContent } from '../domain/obsidian';
 import type {
   AuxiliaryModels,
   ModelAssignment,
@@ -314,6 +314,8 @@ export interface RestClient {
   messagingPlatforms(): Promise<MessagingOverview>;
   /** Obsidian notes the agent created or edited on the Mac, newest first. */
   obsidianActivity(days?: number): Promise<ObsidianActivity>;
+  /** One note's text, read from the vault on the Mac. */
+  obsidianNote(vault: string, path: string): Promise<ObsidianNoteContent>;
 }
 
 export function makeRestClient(http: Http): RestClient {
@@ -799,6 +801,14 @@ export function makeRestClient(http: Http): RestClient {
     async obsidianActivity(days = 60): Promise<ObsidianActivity> {
       return toObsidianActivity(
         await http<unknown>(`/api/plugins/hermes-pwa/obsidian/activity?days=${encodeURIComponent(String(days))}`),
+      );
+    },
+
+    async obsidianNote(vault: string, path: string): Promise<ObsidianNoteContent> {
+      return toObsidianNoteContent(
+        await http<unknown>(
+          `/api/plugins/hermes-pwa/obsidian/note?vault=${encodeURIComponent(vault)}&path=${encodeURIComponent(path)}`,
+        ),
       );
     },
   };

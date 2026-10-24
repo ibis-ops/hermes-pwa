@@ -10,8 +10,11 @@ All notable changes are documented here. The format follows
 - **Obsidian tab.** Lists the notes Hermes created or edited in the Obsidian vault, grouped by
   day with New/Edited badges and the bot that did the work, and opens each one in the Obsidian
   app through an `obsidian://` link. The plugin's new `/obsidian/activity` route reads the vault
-  registry and every profile's tool-call history (paths and times only, never note text); the
-  vault name the links carry is detected from the phone's iCloud copy and can be changed on the tab.
+  registry and every profile's tool-call history (paths and times only); the vault name the links
+  carry is detected from the phone's iCloud copy and can be changed on the tab. Tapping a note reads
+  it straight from the Mac (`/obsidian/note`, vault-scoped) so it is readable before the phone's
+  Obsidian has synced it, with "Open in Obsidian" below. Notes written through the Local REST API
+  plugin are picked up too.
 - **Bots.** Profiles are presented as bots: Activate now really switches the chat to that profile
   (messages used to go to the gateway's launch profile) and opens a new chat with it.
 

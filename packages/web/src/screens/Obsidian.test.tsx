@@ -22,7 +22,20 @@ const activity: ObsidianActivity = {
 };
 
 function makeRest(payload: ObsidianActivity = activity): RestClient {
-  return { obsidianActivity: vi.fn().mockResolvedValue(payload) } as unknown as RestClient;
+  return {
+    obsidianActivity: vi.fn().mockResolvedValue(payload),
+    obsidianNote: vi.fn().mockImplementation((vault: string, path: string) =>
+      Promise.resolve({
+        vault,
+        phoneVault: 'Vault 1',
+        path,
+        name: path.split('/').pop()?.replace(/\.md$/u, '') ?? path,
+        text: '---\ntype: note\ntags: [client]\n---\n\n# Heading\n\nBody with [[Other|a link]].',
+        size: 60,
+        modifiedAt: today(9, 0),
+      }),
+    ),
+  } as unknown as RestClient;
 }
 
 describe('Obsidian', () => {
@@ -36,20 +49,30 @@ describe('Obsidian', () => {
     vi.useRealTimers();
   });
 
-  it('lists new notes by day with Obsidian deep links into the phone vault', async () => {
-    render(<Obsidian rest={makeRest()} />);
+  it('lists new notes by day and opens one in the viewer with an Obsidian link into the phone vault', async () => {
+    const rest = makeRest();
+    render(<Obsidian rest={rest} />);
     await waitFor(() => expect(screen.getAllByTestId('obsidian-day')).toHaveLength(2));
     const [first, second] = screen.getAllByTestId('obsidian-day');
     expect(within(first!).getByText('Today')).toBeInTheDocument();
     expect(within(second!).getByText('Yesterday')).toBeInTheDocument();
 
     // The New filter is the default, so the edited client note is not listed yet.
-    const links = screen.getAllByTestId('obsidian-note');
-    expect(links.map((link) => link.getAttribute('data-action'))).toEqual(['created', 'created']);
-    expect(links[0]).toHaveAttribute('href', 'obsidian://open?vault=Vault%201&file=Clients/_Check-in%20Prep%20%E2%80%94%202026-10-24');
-    expect(links[1]).toHaveAttribute('href', 'obsidian://open?vault=Vault%201&file=Business%20%26%20Ops/Orders/India%20Drug%20List');
+    const rows = screen.getAllByTestId('obsidian-note');
+    expect(rows.map((row) => row.getAttribute('data-action'))).toEqual(['created', 'created']);
     expect(screen.getByText('obsidian-vault-manager')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Change which vault/ })).toHaveTextContent('Opens in Vault 1');
+
+    fireEvent.click(rows[1]!);
+    expect(rest.obsidianNote).toHaveBeenCalledWith('General', 'Business & Ops/Orders/India Drug List.md');
+    await waitFor(() => expect(screen.getByTestId('note-body')).toBeInTheDocument());
+    expect(screen.getByRole('heading', { name: 'Heading' })).toBeInTheDocument();
+    expect(screen.getByText('a link')).toBeInTheDocument();
+    expect(within(screen.getByTestId('note-properties')).getByText('client')).toBeInTheDocument();
+    expect(screen.getByTestId('note-open-link')).toHaveAttribute(
+      'href',
+      'obsidian://open?vault=Vault%201&file=Business%20%26%20Ops/Orders/India%20Drug%20List',
+    );
   });
 
   it('filters to edited notes and to everything', async () => {
@@ -67,13 +90,24 @@ describe('Obsidian', () => {
     await waitFor(() => expect(screen.getAllByTestId('obsidian-note')).toHaveLength(2));
     fireEvent.click(screen.getByRole('button', { name: /Change which vault/ }));
     fireEvent.click(screen.getByRole('button', { name: 'General' }));
-    expect(screen.getAllByTestId('obsidian-note')[0]).toHaveAttribute('href', expect.stringContaining('vault=General&'));
+    expect(screen.getByRole('button', { name: /Change which vault/ })).toHaveTextContent('Opens in General');
     expect(window.localStorage.getItem('hermes-pwa.obsidian.phoneVault.v1')).toBe('General');
 
     fireEvent.click(screen.getByRole('button', { name: /Change which vault/ }));
     fireEvent.change(screen.getByLabelText('Vault name on this phone'), { target: { value: 'My Notes' } });
     fireEvent.click(screen.getByRole('button', { name: 'Use' }));
-    expect(screen.getAllByTestId('obsidian-note')[0]).toHaveAttribute('href', expect.stringContaining('vault=My%20Notes&'));
+    fireEvent.click(screen.getAllByTestId('obsidian-note')[0]!);
+    await waitFor(() => expect(screen.getByTestId('note-open-link')).toHaveAttribute('href', expect.stringContaining('vault=My%20Notes&')));
+  });
+
+  it('shows the read error inside the viewer', async () => {
+    const rest = makeRest();
+    (rest.obsidianNote as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('note not found'));
+    render(<Obsidian rest={rest} />);
+    await waitFor(() => expect(screen.getAllByTestId('obsidian-note')).toHaveLength(2));
+    fireEvent.click(screen.getAllByTestId('obsidian-note')[0]!);
+    await waitFor(() => expect(screen.getByText('note not found')).toBeInTheDocument());
+    expect(screen.getByTestId('note-open-link')).toBeInTheDocument();
   });
 
   it('explains when no vault was found or nothing was written', async () => {

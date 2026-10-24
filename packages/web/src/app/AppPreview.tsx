@@ -325,6 +325,7 @@ const noopRest: RestClient = {
     total: 2,
     error: undefined,
   }),
+  obsidianNote:        () => Promise.resolve({ vault: 'General', phoneVault: 'Vault 1', path: 'Clients/Ann Lee/Ann Lee.md', name: 'Ann Lee', text: '---\ntype: note\ntags: [client]\n---\n\n# Ann Lee\n\nCheck-in prep for Friday.', size: 80, modifiedAt: Date.now() - 3_600_000 }),
   messagingPlatforms:  () => Promise.resolve({
     gatewayRunning: true,
     platforms: [
