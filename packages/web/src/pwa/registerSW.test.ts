@@ -71,7 +71,7 @@ describe('registerServiceWorker', () => {
     expect(confirm).not.toHaveBeenCalled();
   });
 
-  it('prompts and reloads when an updated service worker takes control', async () => {
+  it('reloads quietly, once, when an updated service worker takes control', async () => {
     mockServiceWorkerContainer({ controller: {} });
     const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
     const reload = mockLocationReload();
@@ -80,20 +80,27 @@ describe('registerServiceWorker', () => {
     controllerChangeHandler?.();
     controllerChangeHandler?.();
 
-    expect(confirm).toHaveBeenCalledTimes(1);
+    expect(confirm).not.toHaveBeenCalled();
     expect(reload).toHaveBeenCalledTimes(1);
   });
 
-  it('keeps the current page when the user declines the service worker reload prompt', async () => {
+  it('waits for the person to finish typing before reloading', async () => {
     mockServiceWorkerContainer({ controller: {} });
-    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
     const reload = mockLocationReload();
+    const field = document.createElement('textarea');
+    field.value = 'half a message';
+    document.body.appendChild(field);
+    field.focus();
+    Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true });
 
     await registerServiceWorker();
     controllerChangeHandler?.();
-
-    expect(confirm).toHaveBeenCalledTimes(1);
     expect(reload).not.toHaveBeenCalled();
+
+    field.blur();
+    document.dispatchEvent(new Event('focusout'));
+    expect(reload).toHaveBeenCalledTimes(1);
+    field.remove();
   });
 
   it('silently checks for service worker updates on startup, focus and visible return', async () => {

@@ -49,15 +49,34 @@ function installControllerChangeReloadPrompt(): void {
     return;
   }
 
-  const onControllerChange = () => {
+  // The new version is already controlling the page; a reload picks up its
+  // assets. A blocking confirm here froze the page on every update, so the
+  // reload is quiet: at once when nothing would be lost, otherwise as soon as
+  // the person is between things (field blurred, app hidden).
+  const busyTyping = () => {
+    const el = document.activeElement;
+    if (!(el instanceof HTMLTextAreaElement || el instanceof HTMLInputElement)) return false;
+    return el.value.trim().length > 0;
+  };
+  const reload = () => {
     if (reloadPromptShown) return;
     reloadPromptShown = true;
-    const shouldReload = typeof window.confirm === 'function'
-      ? window.confirm('A new Hermes Mobile version is ready. Reload now?')
-      : true;
-    if (shouldReload) {
-      window.location.reload();
+    window.location.reload();
+  };
+  const onControllerChange = () => {
+    if (reloadPromptShown) return;
+    if (!busyTyping()) {
+      reload();
+      return;
     }
+    const whenFree = () => {
+      if (busyTyping() && document.visibilityState === 'visible') return;
+      document.removeEventListener('focusout', whenFree);
+      document.removeEventListener('visibilitychange', whenFree);
+      reload();
+    };
+    document.addEventListener('focusout', whenFree);
+    document.addEventListener('visibilitychange', whenFree);
   };
 
   const serviceWorker = navigator.serviceWorker;
