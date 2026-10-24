@@ -5,10 +5,9 @@
   "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",
-  "orientation": "portrait",
-  "background_color": "#0e1116",
-  "theme_color": "#0e1116",
-  "description": "Mobile control plane for Hermes Agent.",
+  "background_color": "#000000",
+  "theme_color": "#000000",
+  "description": "Hermes on your phone: chat, approvals, sessions and files from your Mac.",
   "icons": [
     {
       "src": "icons/icon-192.png",
