@@ -1698,4 +1698,26 @@ describe('useChatStore', () => {
       expect(useChatStore.getState().streaming).toBe(false);
     });
   });
+  it('addSteeredMessage shows the steered text and continues the reply in a fresh row', () => {
+    useChatStore.setState({
+      sessionId: 's',
+      messages: [
+        { id: 'u', role: 'user', text: 'long task', createdAt: 1 },
+        { id: 'a', role: 'assistant', text: 'Working on it.', createdAt: 1 },
+      ],
+      streaming: true,
+    });
+    useChatStore.getState().addSteeredMessage('  also check the logs ');
+    useChatStore.getState().appendDelta('Checking the logs too.');
+
+    const messages = useChatStore.getState().messages;
+    expect(messages.map((m) => `${m.role}:${m.text}`)).toEqual([
+      'user:long task',
+      'assistant:Working on it.',
+      'user:also check the logs',
+      'assistant:Checking the logs too.',
+    ]);
+    expect(messages[2]?.displayKind).toBe('steer');
+    expect(useChatStore.getState().streaming).toBe(true);
+  });
 });

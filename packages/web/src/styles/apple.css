@@ -3205,3 +3205,23 @@ html.hm-keyboard-open .hm-login {
     animation: none;
   }
 }
+
+/* ── Messages waiting on Hermes: visible, cancellable, clearly not sent yet ── */
+.hm-message-group--queued .hm-message--user {
+  background: var(--hm-color-surface-2);
+  color: var(--hm-color-text);
+  border: 1px dashed var(--hm-color-border);
+}
+
+.hm-message__meta--queued {
+  color: var(--hm-color-text-muted);
+}
+
+.hm-message__meta-action {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--hm-color-accent);
+  font: inherit;
+  font-weight: var(--hm-fw-medium);
+}

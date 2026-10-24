@@ -128,6 +128,10 @@ export function Chat({ rpc, rest }: ChatProps) {
   const initialRestoreDoneRef = useRef(false);
   const refreshInFlightRef = useRef(false);
   const queuedPromptsRef = useRef<string[]>([]);
+  // Mirror of the queue for rendering: a message waiting on Hermes shows as a
+  // pending bubble at the end of the chat instead of vanishing until it sends.
+  const [queuedPrompts, setQueuedPrompts] = useState<string[]>([]);
+  const syncQueueView = useCallback(() => setQueuedPrompts([...queuedPromptsRef.current]), []);
   const voiceAudioRef = useRef<HTMLAudioElement | null>(null);
   const voiceAudioSequenceRef = useRef(0);
   const [liveStatus, setLiveStatus] = useState<LiveStatus>({ text: '' });
@@ -144,7 +148,13 @@ export function Chat({ rpc, rest }: ChatProps) {
     } else {
       queuedPromptsRef.current.push(text);
     }
-  }, []);
+    syncQueueView();
+  }, [syncQueueView]);
+
+  const cancelQueuedPrompt = useCallback((index: number) => {
+    queuedPromptsRef.current.splice(index, 1);
+    syncQueueView();
+  }, [syncQueueView]);
 
   const handleComposerLayoutChange = useCallback(() => {
     setComposerLayoutVersion((value) => value + 1);
@@ -157,6 +167,7 @@ export function Chat({ rpc, rest }: ChatProps) {
 
   const drainQueuedPrompt = useCallback(() => {
     const next = queuedPromptsRef.current.shift();
+    syncQueueView();
     if (next) {
       markLocalInputShouldScroll();
       void submit(rpc, next, profileForSubmit).then((result) => {
@@ -165,7 +176,7 @@ export function Chat({ rpc, rest }: ChatProps) {
         }
       });
     }
-  }, [enqueuePrompt, markLocalInputShouldScroll, rpc, submit, profileForSubmit]);
+  }, [enqueuePrompt, markLocalInputShouldScroll, rpc, submit, profileForSubmit, syncQueueView]);
 
   // Every return from the background on iOS drops and re-opens the socket.
   // Re-attach to the live session so a turn that kept running on the Mac
@@ -505,6 +516,7 @@ export function Chat({ rpc, rest }: ChatProps) {
     lastMessage?.thinking?.length ?? 0,
     lastMessage?.toolCalls?.length ?? 0,
     lastToolSignal,
+    queuedPrompts.length,
   ].join(':');
 
   useEffect(() => {
@@ -580,7 +592,11 @@ export function Chat({ rpc, rest }: ChatProps) {
         return;
       }
       void steer(rpc, text).then((accepted) => {
-        if (!accepted) {
+        if (accepted) {
+          // Steered text joins the running turn: show it in the chat now, and
+          // let the rest of the reply land in a fresh row after it.
+          useChatStore.getState().addSteeredMessage(text);
+        } else {
           enqueuePrompt(text, { front });
         }
       });
@@ -810,6 +826,23 @@ export function Chat({ rpc, rest }: ChatProps) {
             );
           })
         )}
+
+        {queuedPrompts.map((text, index) => (
+          <div key={`queued-${index}-${text.slice(0, 24)}`} className="hm-chat__entry">
+            <div className="hm-message-group hm-message-group--user hm-message-group--queued" data-testid="queued-prompt">
+              <div className="hm-message hm-message--user">
+                <p>{text}</p>
+              </div>
+              <div className="hm-message__meta hm-message__meta--user hm-message__meta--queued">
+                {busyInputMode === 'interrupt' ? 'Sends once the current task stops' : 'Queued, sends when Hermes finishes'}
+                {' · '}
+                <button type="button" className="hm-message__meta-action" onClick={() => cancelQueuedPrompt(index)}>
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </div>
+        ))}
 
         {error ? <div className="hm-warning-banner hm-warning-banner--error">{error}</div> : null}
       </div>

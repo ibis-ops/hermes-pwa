@@ -39,8 +39,10 @@ export function MessageMeta({ message, active = false, elapsedFrom }: MessageMet
 
   if (time === undefined && elapsed === undefined) return null;
   const label = active ? 'Reply in progress' : 'Sent';
+  const steered = message.role === 'user' && message.displayKind === 'steer';
   return (
     <div className={`hm-message__meta hm-message__meta--${message.role}`} data-testid="message-meta" aria-label={label}>
+      {steered ? <span className="hm-message__meta-note">Added to the running task · </span> : null}
       {time ? <time dateTime={new Date(stampMs ?? 0).toISOString()}>{time}</time> : null}
       {elapsed !== undefined ? (
         <span className="hm-message__elapsed" data-live={active ? 'true' : 'false'}>

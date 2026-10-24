@@ -912,11 +912,56 @@ describe('Chat', () => {
     fireEvent.click(screen.getByRole('button', { name: /Queue message/i }));
 
     expect(rpcMock.request).not.toHaveBeenCalledWith('prompt.submit', { session_id: 's-1', text: 'next prompt' });
+    // The waiting message is visible in the chat, marked as queued.
+    const queued = screen.getByTestId('queued-prompt');
+    expect(queued).toHaveTextContent('next prompt');
+    expect(queued).toHaveTextContent(/Queued, sends when Hermes finishes/);
+
     rpcMock.events.dispatchEvent({ type: 'message.complete', sessionId: 's-1', payload: { text: 'done' } });
 
     await waitFor(() => {
       expect(rpcMock.request).toHaveBeenCalledWith('prompt.submit', { session_id: 's-1', text: 'next prompt' }, { timeoutMs: 90_000 });
     });
+    await waitFor(() => expect(screen.queryByTestId('queued-prompt')).toBeNull());
+  });
+
+  it('lets a queued message be cancelled before it sends', async () => {
+    core.useChatStore.setState({ streaming: true, sessionId: 's-1' });
+    core.useConfigStore.setState({ config: { display: { busy_input_mode: 'queue' } } });
+    vi.mocked(rpcMock.request).mockResolvedValue({ status: 'streaming' });
+    render(<Chat rpc={rpcMock} rest={restMock} />);
+
+    fireEvent.change(screen.getByPlaceholderText(/Send after this reply/i), { target: { value: 'never mind' } });
+    fireEvent.click(screen.getByRole('button', { name: /Queue message/i }));
+    expect(screen.getByTestId('queued-prompt')).toHaveTextContent('never mind');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    expect(screen.queryByTestId('queued-prompt')).toBeNull();
+    rpcMock.events.dispatchEvent({ type: 'message.complete', sessionId: 's-1', payload: { text: 'done' } });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(rpcMock.request).not.toHaveBeenCalledWith('prompt.submit', expect.objectContaining({ text: 'never mind' }), expect.anything());
+  });
+
+  it('shows a steered message in the chat as part of the running task', async () => {
+    core.useChatStore.setState({
+      streaming: true,
+      sessionId: 's-1',
+      messages: [
+        { id: 'u-1', role: 'user', text: 'long task', createdAt: 1 },
+        { id: 'a-1', role: 'assistant', text: 'Working.', createdAt: 1 },
+      ],
+    });
+    core.useConfigStore.setState({ config: { display: { busy_input_mode: 'steer' } } });
+    vi.mocked(rpcMock.request).mockImplementation(async (method: string) => (method === 'session.steer' ? { status: 'queued' } : { status: 'streaming' }));
+    render(<Chat rpc={rpcMock} rest={restMock} />);
+
+    fireEvent.change(screen.getByPlaceholderText(/Steer the reply/i), { target: { value: 'also check the logs' } });
+    fireEvent.click(screen.getByRole('button', { name: /Steer agent/i }));
+
+    await waitFor(() => expect(screen.getByText('also check the logs')).toBeInTheDocument());
+    expect(screen.getByText(/Added to the running task/)).toBeInTheDocument();
+    expect(core.useChatStore.getState().messages.at(-1)?.role).toBe('assistant');
+    expect(core.useChatStore.getState().streaming).toBe(true);
   });
 
   it('interrupts the current turn and sends busy input after idle event in interrupt mode', async () => {

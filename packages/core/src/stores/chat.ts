@@ -159,6 +159,13 @@ export interface ChatStore {
   submit(rpc: RpcClient, text: string, profile?: string, options?: SubmitOptions): Promise<SubmitResult>;
   executeSlashCommand(rpc: RpcClient, text: string, profile?: string): Promise<SubmitResult>;
   steer(rpc: RpcClient, text: string): Promise<boolean>;
+  /**
+   * Show a message that was steered into the running turn: a user bubble at
+   * the end of the transcript, followed by a fresh assistant row that the rest
+   * of the stream lands in (Hermes stores a steer the same way: the reply
+   * continues in a new row after it).
+   */
+  addSteeredMessage(text: string): void;
   interrupt(rpc: RpcClient, options?: InterruptOptions): Promise<void>;
   appendDelta(text: string): void;
   finishAssistant(finalText?: string | undefined): void;
@@ -1721,6 +1728,24 @@ export const useChatStore = create<ChatStore>((set, get) => ({
       set({ error: userFacingChatError(err, 'Steer failed.') });
       return false;
     }
+  },
+
+  addSteeredMessage(text) {
+    const trimmed = text.trim();
+    if (!trimmed) return;
+    touchLiveEvent();
+    set((state) => {
+      const now = Date.now();
+      const steered: Message = { id: `u-steer-${now}`, role: 'user', text: trimmed, createdAt: now / 1000, displayKind: 'steer' };
+      const msgs = [
+        ...state.messages,
+        steered,
+        { id: nextAssistantMessageId(), role: 'assistant' as const, text: '', createdAt: now / 1000 },
+      ];
+      const next = { messages: msgs, streaming: true, error: undefined };
+      persistActiveSession({ ...state, ...next });
+      return next;
+    });
   },
 
   async interrupt(rpc, options) {
