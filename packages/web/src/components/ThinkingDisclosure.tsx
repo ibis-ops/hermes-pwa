@@ -46,7 +46,7 @@ export function ThinkingDisclosure({ text, streaming }: ThinkingDisclosureProps)
       {open ? (
         <div id={bodyId} className="hm-thinking__body" data-mode={mode}>
           <pre className="hm-thinking__text">
-            <code>{text}</code>
+            <code>{text.replace(/\s+$/u, '')}</code>
           </pre>
         </div>
       ) : null}

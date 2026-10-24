@@ -2765,6 +2765,10 @@ html.hm-keyboard-open .hm-login {
   line-height: 1.4;
 }
 
+.hm-messaging .hm-settings__section + .hm-settings__section {
+  margin-top: 22px;
+}
+
 .hm-bot-list {
   padding: 0;
 }
@@ -2928,18 +2932,20 @@ html.hm-keyboard-open .hm-login {
   max-height: 80dvh;
 }
 
-.hm-skill-picker {
-  padding: 0 0 16px;
+.hm-sheet--skills .hm-sheet__title {
+  text-align: center;
 }
 
+/* The sheet body is a column flex scroller: nothing in it may shrink. */
 .hm-skill-picker__search {
   position: sticky;
   top: 0;
   z-index: 1;
   display: flex;
+  flex: none;
   align-items: center;
   gap: 8px;
-  margin: 0 16px 8px;
+  margin: 0 0 4px;
   padding: 0 12px;
   min-height: 38px;
   border-radius: 12px;
@@ -2965,10 +2971,17 @@ html.hm-keyboard-open .hm-login {
 }
 
 .hm-skill-picker__group {
-  margin: 0 16px 14px;
+  flex: none;
+  margin: 0 0 2px;
   border-radius: 12px;
-  background: var(--hm-color-surface);
+  background: var(--hm-color-surface-2);
   overflow: hidden;
+}
+
+.hm-skill-picker__empty,
+.hm-skill-picker .hm-loading,
+.hm-skill-picker .hm-warning-banner {
+  flex: none;
 }
 
 .hm-skill-picker__heading {
@@ -3028,7 +3041,7 @@ html.hm-keyboard-open .hm-login {
 }
 
 .hm-skill-picker__empty {
-  margin: 8px 16px;
+  margin: 8px 0;
 }
 
 .hm-empty-state__skill {
