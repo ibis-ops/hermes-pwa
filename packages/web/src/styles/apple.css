@@ -2509,3 +2509,37 @@ textarea {
   font-size: var(--hm-fs-label);
   color: var(--hm-color-text-muted);
 }
+
+/* ── Wide screens (iPad, Mac, a car display): keep a phone-width column ── */
+@media (min-width: 760px) {
+  body {
+    background: var(--hm-color-surface-2);
+  }
+
+  .hm-app-shell {
+    left: 50%;
+    right: auto;
+    width: 640px;
+    max-width: 640px;
+    transform: translateX(-50%);
+    border-left: 1px solid var(--hm-color-border);
+    border-right: 1px solid var(--hm-color-border);
+    background: var(--hm-color-bg);
+  }
+
+  .hm-login {
+    max-width: 640px;
+    margin: 0 auto;
+  }
+
+  /* Drawer and sheets are positioned against the viewport; keep them on the column. */
+  .hm-drawer,
+  .hm-sheet {
+    left: calc(50% - 320px);
+    right: calc(50% - 320px);
+  }
+
+  .hm-lightbox__img {
+    max-width: 90vw;
+  }
+}
