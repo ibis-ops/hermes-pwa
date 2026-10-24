@@ -189,6 +189,14 @@ function toPushStatus(raw: Record<string, unknown>): PushStatus {
   return status;
 }
 
+export interface LocalFileInfo {
+  name: string;
+  size: number | undefined;
+  mime: string | undefined;
+  inline: boolean;
+  image: boolean;
+}
+
 export interface RestClient {
   status(): Promise<GatewayStatus>;
   providers(): Promise<AuthProvider[]>;
@@ -297,6 +305,8 @@ export interface RestClient {
   audioTranscribe(dataUrl: string, mimeType?: string): Promise<string>;
   audioSpeak(text: string): Promise<{ dataUrl: string; mimeType?: string | undefined; provider?: string | undefined }>;
   fileUpload(path: string, dataUrl: string, overwrite?: boolean): Promise<unknown>;
+  /** Name, size and type of a file on the Hermes host, via the plugin's allowlisted file route. */
+  localFileInfo(path: string): Promise<LocalFileInfo>;
 }
 
 export function makeRestClient(http: Http): RestClient {
@@ -762,6 +772,17 @@ export function makeRestClient(http: Http): RestClient {
         method: 'POST',
         body: JSON.stringify({ path, data_url: dataUrl, overwrite }),
       });
+    },
+
+    async localFileInfo(path: string): Promise<LocalFileInfo> {
+      const raw = await http<Record<string, unknown>>(`/api/plugins/hermes-pwa/file/info?path=${encodeURIComponent(path)}`);
+      return {
+        name: typeof raw.name === 'string' ? raw.name : path.split('/').pop() ?? path,
+        size: typeof raw.size === 'number' ? raw.size : undefined,
+        mime: typeof raw.mime === 'string' ? raw.mime : undefined,
+        inline: raw.inline === true,
+        image: raw.image === true,
+      };
     },
   };
 }

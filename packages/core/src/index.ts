@@ -69,3 +69,5 @@ export type {
 export type { SystemStats, Checkpoint, OpsRunResult, SystemActionStatus } from './domain/system';
 export type { Artifact } from './domain/artifact';
 export type { HermesConfig } from './domain/config';
+export { extractFileRefs, stripAttachmentRefs, attachmentRefs, localFileUrl, localFileInfoUrl, MAX_FILE_REFS_PER_MESSAGE, type FileRef, type FileRefKind } from './domain/file-refs';
+export type { LocalFileInfo } from './transport/rest';

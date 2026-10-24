@@ -690,6 +690,7 @@ export function Chat({ rpc, rest }: ChatProps) {
               key={m.id}
               message={m}
               rpc={rpc}
+              rest={rest}
               isLast={index === messages.length - 1}
               streaming={streaming}
               liveStatus={index === messages.length - 1 && streaming ? liveStatus.text : ''}

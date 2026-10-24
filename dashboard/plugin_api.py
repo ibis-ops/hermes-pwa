@@ -19,6 +19,12 @@ _PLUGIN_ROOT = Path(__file__).resolve().parent.parent
 if str(_PLUGIN_ROOT) not in sys.path:
     sys.path.insert(0, str(_PLUGIN_ROOT))
 
+from local_files import (  # noqa: E402
+    FileAccessError,
+    describe as describe_local_file,
+    resolve_served_file,
+    response_headers as local_file_headers,
+)
 from push_common import (  # noqa: E402
     load_pending_approvals,
     load_push_subscriptions,
@@ -817,6 +823,30 @@ async def push_test(request: Request, profile: str = "default") -> JSONResponse:
 @router.get("/update/check", dependencies=[Depends(_require_dashboard_auth)])
 def update_check() -> JSONResponse:
     return JSONResponse(_build_update_check_response())
+
+
+@router.api_route("/file", methods=["GET", "HEAD"], dependencies=[Depends(_require_dashboard_auth)])
+def local_file(path: str = "") -> Response:
+    """Serve one file from the host for the phone client (inline image/PDF or download).
+
+    Access is limited to the allowlisted roots in ``local_files`` and every
+    response is sandboxed; see that module for the full policy.
+    """
+    try:
+        served = resolve_served_file(path)
+    except FileAccessError as exc:
+        raise HTTPException(status_code=exc.status, detail=exc.detail) from None
+    return FileResponse(served.path, media_type=served.media_type, headers=local_file_headers(served))
+
+
+@router.get("/file/info", dependencies=[Depends(_require_dashboard_auth)])
+def local_file_info(path: str = "") -> JSONResponse:
+    """Describe a host file (name, size, type) without sending its bytes."""
+    try:
+        served = resolve_served_file(path)
+    except FileAccessError as exc:
+        raise HTTPException(status_code=exc.status, detail=exc.detail) from None
+    return JSONResponse(describe_local_file(served), headers={"Cache-Control": "private, no-store"})
 
 
 @router.get("/health")

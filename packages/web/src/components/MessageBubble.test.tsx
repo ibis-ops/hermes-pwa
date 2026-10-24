@@ -356,7 +356,11 @@ describe('MessageBubble', () => {
     );
 
     expect(screen.getByText('Check manually:')).toBeInTheDocument();
-    expect(screen.getByText(/\[x\] item stays as regular markdown/)).toBeInTheDocument();
+    // GitHub-flavored markdown renders the checklist as a read-only checkbox.
+    const checkbox = screen.getByRole('checkbox') as HTMLInputElement;
+    expect(checkbox.checked).toBe(true);
+    expect(checkbox.disabled).toBe(true);
+    expect(screen.getByText(/item stays as regular markdown/)).toBeInTheDocument();
   });
 
   it('renders app icon and inline live status with animated activity dots', () => {

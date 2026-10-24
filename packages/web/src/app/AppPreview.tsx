@@ -309,6 +309,7 @@ const noopRest: RestClient = {
   audioTranscribe:     () => Promise.resolve(''),
   audioSpeak:          () => Promise.resolve({ dataUrl: 'data:audio/wav;base64,UklGRigAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQQAAAAAAA==', mimeType: 'audio/wav' }),
   fileUpload:          () => Promise.resolve({ path: 'preview.txt' }),
+  localFileInfo:       () => Promise.resolve({ name: 'preview.png', size: 1024, mime: 'image/png', inline: true, image: true }),
 };
 
 export function AppPreview() {

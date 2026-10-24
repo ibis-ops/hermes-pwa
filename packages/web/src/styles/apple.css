@@ -1528,3 +1528,505 @@ textarea {
   color: var(--hm-color-text-muted);
   margin: 0;
 }
+
+/* ════════════════════════════════════════════════════════════════════
+   Files, images and code in chat
+   ════════════════════════════════════════════════════════════════════ */
+
+/* ── Message groups (user text + attachments) ────────────────────────── */
+.hm-message-group--user {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+  max-width: 100%;
+}
+
+.hm-message-group--user .hm-message--user {
+  align-self: flex-end;
+}
+
+/* ── File cards ──────────────────────────────────────────────────────── */
+.hm-file-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+}
+
+.hm-file-cards--assistant {
+  max-width: 92%;
+}
+
+.hm-file-cards--user {
+  align-items: flex-end;
+  max-width: 84%;
+}
+
+.hm-file-images {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+}
+
+.hm-file-images--grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.hm-file-image {
+  position: relative;
+  display: block;
+  overflow: hidden;
+  border-radius: 16px;
+  background: var(--hm-color-surface);
+  color: inherit;
+  text-decoration: none;
+  -webkit-touch-callout: default;
+}
+
+.hm-file-image img {
+  display: block;
+  width: 100%;
+  max-height: 360px;
+  object-fit: cover;
+  background: var(--hm-color-surface-2);
+}
+
+.hm-file-images--grid .hm-file-image img {
+  aspect-ratio: 1;
+  max-height: none;
+}
+
+.hm-file-image__name {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  padding: 18px 12px 8px;
+  font-size: var(--hm-fs-label);
+  color: #fff;
+  background: linear-gradient(to top, rgba(0, 0, 0, 0.55), rgba(0, 0, 0, 0));
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hm-file-cards--user .hm-file-image {
+  width: min(100%, 260px);
+}
+
+.hm-file-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 56px;
+  padding: 10px 12px 10px 12px;
+  border-radius: 14px;
+  background: var(--hm-color-surface);
+  color: var(--hm-color-text);
+  text-decoration: none;
+}
+
+.hm-file-cards--user .hm-file-row {
+  width: min(100%, 300px);
+}
+
+.hm-file-row:active {
+  background: var(--hm-color-surface-2);
+}
+
+.hm-file-row--unavailable {
+  color: var(--hm-color-text-muted);
+}
+
+.hm-file-row__icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 9px;
+  background: var(--hm-color-primary-tint);
+  color: var(--hm-color-primary);
+  flex-shrink: 0;
+}
+
+.hm-file-row--unavailable .hm-file-row__icon {
+  background: var(--hm-color-fill);
+  color: var(--hm-color-text-muted);
+}
+
+.hm-file-row__body {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+  flex: 1;
+}
+
+.hm-file-row__name {
+  font-size: var(--hm-fs-small);
+  font-weight: var(--hm-fw-medium);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hm-file-row__meta {
+  font-size: var(--hm-fs-label);
+  color: var(--hm-color-text-muted);
+  min-height: 1.2em;
+}
+
+.hm-file-row__action {
+  color: var(--hm-color-text-faint);
+  flex-shrink: 0;
+}
+
+/* ── Composer chips with thumbnails ──────────────────────────────────── */
+.hm-composer__attachments {
+  gap: 8px;
+}
+
+.hm-composer__chip {
+  gap: 8px;
+  min-height: 36px;
+  padding: 4px 10px 4px 4px;
+  border-radius: 12px;
+  background: var(--hm-color-fill);
+  color: var(--hm-color-text);
+  font-size: var(--hm-fs-small);
+}
+
+.hm-composer__chip-thumb {
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  object-fit: cover;
+}
+
+.hm-composer__chip-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  background: var(--hm-color-primary-tint);
+  color: var(--hm-color-primary);
+}
+
+.hm-composer__chip-remove {
+  width: 24px;
+  height: 24px;
+  border-radius: 12px;
+  background: var(--hm-color-fill);
+  color: var(--hm-color-text-muted);
+}
+
+/* ── Attach menu ─────────────────────────────────────────────────────── */
+.hm-attach-overlay {
+  background: rgba(0, 0, 0, 0.25);
+}
+
+.hm-attach-menu {
+  min-width: 260px;
+  padding: 6px;
+  border: 0;
+  border-radius: 14px;
+  background: var(--hm-color-surface);
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.25);
+}
+
+.hm-attach-item {
+  gap: 12px;
+  min-height: 52px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  color: var(--hm-color-text);
+}
+
+.hm-attach-item:active {
+  background: var(--hm-color-fill);
+}
+
+.hm-attach-item__icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 9px;
+  background: var(--hm-color-primary);
+  color: #fff;
+  font-size: inherit;
+}
+
+.hm-attach-item__body {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+  text-align: left;
+}
+
+.hm-attach-item__label {
+  font-size: var(--hm-fs-body);
+  font-weight: var(--hm-fw-medium);
+}
+
+.hm-attach-item__hint {
+  font-size: var(--hm-fs-label);
+  color: var(--hm-color-text-muted);
+}
+
+/* ── Code blocks ─────────────────────────────────────────────────────── */
+.hm-code {
+  margin: 4px 0;
+  border-radius: 12px;
+  background: var(--hm-color-surface);
+  overflow: hidden;
+}
+
+.hm-message--assistant .hm-message__text .hm-code {
+  /* Code reads better full width than inside the bubble's fit-content box. */
+  width: 100%;
+}
+
+.hm-code__bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 6px 6px 12px;
+  border-bottom: 1px solid var(--hm-color-border);
+}
+
+.hm-code__lang {
+  font-size: var(--hm-fs-label);
+  font-weight: var(--hm-fw-medium);
+  color: var(--hm-color-text-muted);
+}
+
+.hm-code__copy {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 30px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--hm-color-primary);
+  font-size: var(--hm-fs-label);
+  font-weight: var(--hm-fw-semibold);
+}
+
+.hm-code__copy:active {
+  background: var(--hm-color-fill);
+}
+
+.hm-code pre,
+.hm-message__text .hm-code pre {
+  margin: 0;
+  padding: 12px 14px;
+  border-radius: 0;
+  background: transparent;
+  overflow-x: auto;
+  font-family: var(--hm-font-mono);
+  font-size: var(--hm-fs-mono);
+  line-height: 1.5;
+  -webkit-overflow-scrolling: touch;
+  tab-size: 2;
+}
+
+.hm-code pre code {
+  display: block;
+  min-width: max-content;
+  padding: 0;
+  background: none;
+  font-size: inherit;
+  white-space: pre;
+}
+
+/* Assistant bubble width: a message with a code block should take the full width. */
+.hm-message--assistant .hm-message__text:has(.hm-code),
+.hm-message--assistant .hm-message__text:has(table) {
+  width: 100%;
+  max-width: 100%;
+}
+
+/* Tables from GFM */
+.hm-message__text table {
+  width: 100%;
+  margin: 4px 0;
+  border-radius: 10px;
+  background: var(--hm-color-surface);
+}
+
+.hm-message__text th {
+  font-weight: var(--hm-fw-semibold);
+  color: var(--hm-color-text-muted);
+  font-size: var(--hm-fs-label);
+}
+
+.hm-message__text tr:last-child td {
+  border-bottom: 0;
+}
+
+.hm-message__text ul,
+.hm-message__text ol {
+  padding-left: 22px;
+}
+
+.hm-message__text li + li {
+  margin-top: 4px;
+}
+
+.hm-message__text input[type='checkbox'] {
+  width: 16px;
+  height: 16px;
+  margin: 0 6px 0 -22px;
+  vertical-align: -2px;
+  accent-color: var(--hm-color-primary);
+}
+
+.hm-message__text hr {
+  border: 0;
+  border-top: 1px solid var(--hm-color-border);
+  margin: 10px 0;
+}
+
+.hm-message__text img {
+  max-width: 100%;
+  border-radius: 12px;
+}
+
+/* ── Syntax colors (highlight.js classes), tuned per scheme ──────────── */
+.hljs {
+  color: var(--hm-color-text);
+}
+.hljs-comment,
+.hljs-quote {
+  color: var(--hm-color-text-muted);
+  font-style: italic;
+}
+.hljs-keyword,
+.hljs-selector-tag,
+.hljs-literal,
+.hljs-type,
+.hljs-built_in {
+  color: #ad3da4;
+}
+.hljs-string,
+.hljs-regexp,
+.hljs-template-tag,
+.hljs-addition {
+  color: #c41a16;
+}
+.hljs-number,
+.hljs-symbol,
+.hljs-bullet,
+.hljs-link {
+  color: #1c00cf;
+}
+.hljs-title,
+.hljs-section,
+.hljs-name,
+.hljs-selector-id,
+.hljs-selector-class {
+  color: #326d74;
+}
+.hljs-attr,
+.hljs-attribute,
+.hljs-variable,
+.hljs-template-variable,
+.hljs-params,
+.hljs-meta {
+  color: #5c2699;
+}
+.hljs-deletion {
+  color: #c41a16;
+  background: var(--hm-color-danger-bg);
+}
+.hljs-emphasis {
+  font-style: italic;
+}
+.hljs-strong {
+  font-weight: var(--hm-fw-semibold);
+}
+
+:root[data-theme='dark'] .hljs-keyword,
+:root[data-theme='dark'] .hljs-selector-tag,
+:root[data-theme='dark'] .hljs-literal,
+:root[data-theme='dark'] .hljs-type,
+:root[data-theme='dark'] .hljs-built_in {
+  color: #fc5fa3;
+}
+:root[data-theme='dark'] .hljs-string,
+:root[data-theme='dark'] .hljs-regexp,
+:root[data-theme='dark'] .hljs-template-tag,
+:root[data-theme='dark'] .hljs-addition {
+  color: #fc6a5d;
+}
+:root[data-theme='dark'] .hljs-number,
+:root[data-theme='dark'] .hljs-symbol,
+:root[data-theme='dark'] .hljs-bullet,
+:root[data-theme='dark'] .hljs-link {
+  color: #d0bf69;
+}
+:root[data-theme='dark'] .hljs-title,
+:root[data-theme='dark'] .hljs-section,
+:root[data-theme='dark'] .hljs-name,
+:root[data-theme='dark'] .hljs-selector-id,
+:root[data-theme='dark'] .hljs-selector-class {
+  color: #67b7a4;
+}
+:root[data-theme='dark'] .hljs-attr,
+:root[data-theme='dark'] .hljs-attribute,
+:root[data-theme='dark'] .hljs-variable,
+:root[data-theme='dark'] .hljs-template-variable,
+:root[data-theme='dark'] .hljs-params,
+:root[data-theme='dark'] .hljs-meta {
+  color: #a167e6;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme]) .hljs-keyword,
+  :root:not([data-theme]) .hljs-selector-tag,
+  :root:not([data-theme]) .hljs-literal,
+  :root:not([data-theme]) .hljs-type,
+  :root:not([data-theme]) .hljs-built_in {
+    color: #fc5fa3;
+  }
+  :root:not([data-theme]) .hljs-string,
+  :root:not([data-theme]) .hljs-regexp,
+  :root:not([data-theme]) .hljs-template-tag,
+  :root:not([data-theme]) .hljs-addition {
+    color: #fc6a5d;
+  }
+  :root:not([data-theme]) .hljs-number,
+  :root:not([data-theme]) .hljs-symbol,
+  :root:not([data-theme]) .hljs-bullet,
+  :root:not([data-theme]) .hljs-link {
+    color: #d0bf69;
+  }
+  :root:not([data-theme]) .hljs-title,
+  :root:not([data-theme]) .hljs-section,
+  :root:not([data-theme]) .hljs-name,
+  :root:not([data-theme]) .hljs-selector-id,
+  :root:not([data-theme]) .hljs-selector-class {
+    color: #67b7a4;
+  }
+  :root:not([data-theme]) .hljs-attr,
+  :root:not([data-theme]) .hljs-attribute,
+  :root:not([data-theme]) .hljs-variable,
+  :root:not([data-theme]) .hljs-template-variable,
+  :root:not([data-theme]) .hljs-params,
+  :root:not([data-theme]) .hljs-meta {
+    color: #a167e6;
+  }
+}

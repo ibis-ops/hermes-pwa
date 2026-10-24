@@ -19,6 +19,8 @@ export interface AttachmentDraft {
   path: string;
   uploading?: boolean;
   error?: string;
+  /** Object URL for an image thumbnail while the draft is in the composer. */
+  previewUrl?: string;
 }
 
 interface SlashCommandItem {
@@ -335,7 +337,10 @@ export function Composer({
     }
     setText('');
     setSlashSuppressedText(undefined);
-    setAttachments([]);
+    setAttachments((prev) => {
+      prev.forEach(releasePreview);
+      return [];
+    });
     closeSlashPalette();
   }
 
@@ -378,9 +383,13 @@ export function Composer({
             : !isAllowedAttachmentMime(file)
               ? unsupportedAttachmentTypeMessage(file.name, file.type)
               : undefined;
+      const previewUrl =
+        !error && file.type.startsWith('image/') && typeof URL !== 'undefined' && typeof URL.createObjectURL === 'function'
+          ? URL.createObjectURL(file)
+          : undefined;
       const draft: AttachmentDraft = error
         ? { id: makeId(), name: file.name, path: '', uploading: false, error }
-        : { id: makeId(), name: file.name, path: '', uploading: true };
+        : { id: makeId(), name: file.name, path: '', uploading: true, ...(previewUrl ? { previewUrl } : {}) };
       return {
         file,
         draft,
@@ -413,8 +422,17 @@ export function Composer({
     );
   }
 
+  function releasePreview(draft: AttachmentDraft | undefined) {
+    if (draft?.previewUrl && typeof URL !== 'undefined' && typeof URL.revokeObjectURL === 'function') {
+      URL.revokeObjectURL(draft.previewUrl);
+    }
+  }
+
   function removeAttachment(id: string) {
-    setAttachments((prev) => prev.filter((a) => a.id !== id));
+    setAttachments((prev) => {
+      releasePreview(prev.find((a) => a.id === id));
+      return prev.filter((a) => a.id !== id);
+    });
   }
 
   const isRecording = voiceRecorder.status === 'recording';
@@ -431,7 +449,17 @@ export function Composer({
       {attachments.length > 0 && (
         <div className="hm-composer__attachments">
           {attachments.map((a) => (
-            <span key={a.id} className={`hm-composer__chip ${a.error ? 'hm-composer__chip--error' : ''}`}>
+            <span
+              key={a.id}
+              className={`hm-composer__chip ${a.error ? 'hm-composer__chip--error' : ''} ${a.previewUrl ? 'hm-composer__chip--image' : ''}`}
+            >
+              {a.previewUrl ? (
+                <img className="hm-composer__chip-thumb" src={a.previewUrl} alt="" aria-hidden="true" />
+              ) : (
+                <span className="hm-composer__chip-icon" aria-hidden="true">
+                  <Icon name="file" size={13} />
+                </span>
+              )}
               <span className="hm-composer__chip-name">{a.name}</span>
               {a.uploading && <span className="hm-composer__chip-spin" />}
               {a.error && <span className="hm-composer__chip-error" aria-label={a.error} />}

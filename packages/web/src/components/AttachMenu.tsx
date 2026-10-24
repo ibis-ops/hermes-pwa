@@ -1,4 +1,5 @@
 import { useRef } from 'react';
+import { Icon } from './Icon';
 
 interface AttachMenuProps {
   open: boolean;
@@ -6,6 +7,11 @@ interface AttachMenuProps {
   onFiles: (files: FileList | null) => void;
 }
 
+/**
+ * Attachment picker. One entry on purpose: a bare file input (no `accept`, no
+ * `capture`) is the one combination where iOS offers Photo Library, Take Photo
+ * and Choose File together, and Android/desktop show their normal picker.
+ */
 export function AttachMenu({ open, onClose, onFiles }: AttachMenuProps) {
   const filesInputRef = useRef<HTMLInputElement>(null);
 
@@ -21,8 +27,13 @@ export function AttachMenu({ open, onClose, onFiles }: AttachMenuProps) {
           role="menuitem"
           onClick={() => filesInputRef.current?.click()}
         >
-          <span className="hm-attach-item__icon" aria-hidden>📁</span>
-          <span className="hm-attach-item__label">File</span>
+          <span className="hm-attach-item__icon" aria-hidden="true">
+            <Icon name="paperclip" size={18} />
+          </span>
+          <span className="hm-attach-item__body">
+            <span className="hm-attach-item__label">Photo or file</span>
+            <span className="hm-attach-item__hint">Photos, screenshots, PDFs, text and CSV, up to 16 MB</span>
+          </span>
         </button>
       </div>
 
@@ -31,6 +42,7 @@ export function AttachMenu({ open, onClose, onFiles }: AttachMenuProps) {
         type="file"
         multiple
         className="hm-composer__file-input"
+        aria-label="Choose photos or files"
         onChange={(e) => {
           onFiles(e.target.files);
           onClose();

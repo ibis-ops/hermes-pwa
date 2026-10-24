@@ -37,7 +37,12 @@ export type IconName =
   | 'alert'
   | 'sparkle'
   | 'archive'
-  | 'logout';
+  | 'logout'
+  | 'download'
+  | 'copy'
+  | 'image'
+  | 'camera'
+  | 'paperclip';
 
 interface IconProps extends Omit<SVGProps<SVGSVGElement>, 'ref'> {
   name: IconName;
@@ -127,6 +132,21 @@ const ICONS: Record<IconName, IconPart[]> = {
   shield: ['M12 2.5 4.5 5.5v6c0 4.8 3.3 8.3 7.5 10.5 4.2-2.2 7.5-5.7 7.5-10.5v-6z'],
   terminal: ['M5 6l5 5-5 5', 'M12 18h7'],
   alert: ['M12 3 2.5 20h19z', 'M12 10v4', 'M12 16.5h.01'],
+  download: ['M12 4v11', 'M7.5 10.5 12 15l4.5-4.5', 'M4 17v2a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-2'],
+  copy: [
+    ['rect', { x: 9, y: 9, width: 11, height: 11, rx: 2 }],
+    'M5 15H4.5A1.5 1.5 0 0 1 3 13.5v-9A1.5 1.5 0 0 1 4.5 3h9A1.5 1.5 0 0 1 15 4.5V5',
+  ],
+  image: [
+    ['rect', { x: 3, y: 4, width: 18, height: 16, rx: 2.5 }],
+    ['circle', { cx: 8.5, cy: 9.5, r: 1.6 }],
+    'M21 16l-5-5-9 9',
+  ],
+  camera: [
+    'M4 8.5A1.5 1.5 0 0 1 5.5 7H8l1.5-2h5L16 7h2.5A1.5 1.5 0 0 1 20 8.5v9a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 4 17.5z',
+    ['circle', { cx: 12, cy: 13, r: 3.2 }],
+  ],
+  paperclip: ['M21 11.5 12.3 20.2a5 5 0 0 1-7.1-7.1l8.5-8.5a3.3 3.3 0 0 1 4.7 4.7l-8.5 8.5a1.7 1.7 0 0 1-2.4-2.4L15.4 7.5'],
   sparkle: ['M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9z'],
   archive: [
     ['rect', { x: 3, y: 4, width: 18, height: 5, rx: 1.2 }],

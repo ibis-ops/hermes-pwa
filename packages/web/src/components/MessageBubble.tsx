@@ -1,10 +1,11 @@
 import ReactMarkdown from 'react-markdown';
 import { memo } from 'react';
-import type { Approval, Message, ToolCall } from '@hermes-pwa/core';
+import { attachmentRefs, extractFileRefs, stripAttachmentRefs, type Approval, type Message, type ToolCall } from '@hermes-pwa/core';
+import { FileCards } from './FileCards';
 import { ToolGroup } from './ToolGroup';
 import { TodoPanel } from './TodoPanel';
 import { ThinkingDisclosure } from './ThinkingDisclosure';
-import { MARKDOWN_COMPONENTS, areMessageBubblePropsEqual, type MessageBubbleProps } from './MessageBubble.helpers';
+import { MARKDOWN_COMPONENTS, REHYPE_PLUGINS, REMARK_PLUGINS, areMessageBubblePropsEqual, type MessageBubbleProps } from './MessageBubble.helpers';
 
 const APPROVAL_TOOL_NAMES = new Set(['terminal', 'execute_code']);
 const APPROVAL_INLINE_TIME_WINDOW_MS = 5 * 60_000;
@@ -64,7 +65,7 @@ function recoveredApprovalTool(
   };
 }
 
-function MessageBubbleView({ message, rpc, isLast, streaming, liveStatus, liveFace, pendingApprovals, activeSessionIds }: MessageBubbleProps) {
+function MessageBubbleView({ message, rpc, rest, isLast, streaming, liveStatus, liveFace, pendingApprovals, activeSessionIds }: MessageBubbleProps) {
   if (message.role === 'tool') {
     return null;
   }
@@ -72,9 +73,16 @@ function MessageBubbleView({ message, rpc, isLast, streaming, liveStatus, liveFa
   const isUser = message.role === 'user';
 
   if (isUser) {
+    const attachments = attachmentRefs(message.text);
+    const visibleText = attachments.length > 0 ? stripAttachmentRefs(message.text) : message.text;
     return (
-      <div className="hm-message hm-message--user">
-        <p>{message.text}</p>
+      <div className="hm-message-group hm-message-group--user">
+        {visibleText ? (
+          <div className="hm-message hm-message--user">
+            <p>{visibleText}</p>
+          </div>
+        ) : null}
+        <FileCards refs={attachments} rest={rest} tone="user" />
       </div>
     );
   }
@@ -140,10 +148,14 @@ function MessageBubbleView({ message, rpc, isLast, streaming, liveStatus, liveFa
 
       {message.text ? (
         <div className="hm-message__text">
-          <ReactMarkdown components={MARKDOWN_COMPONENTS}>{message.text}</ReactMarkdown>
+          <ReactMarkdown remarkPlugins={REMARK_PLUGINS} rehypePlugins={REHYPE_PLUGINS} components={MARKDOWN_COMPONENTS}>
+            {message.text}
+          </ReactMarkdown>
           {showCaret && <span className="hm-message__caret" />}
         </div>
       ) : null}
+
+      {!active && <FileCards refs={extractFileRefs(message.text)} rest={rest} tone="assistant" />}
     </div>
   );
 }
