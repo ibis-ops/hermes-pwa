@@ -78,7 +78,7 @@ function MessageBubbleView({ message, rpc, rest, isLast, streaming, liveStatus, 
     return (
       <div className="hm-message-group hm-message-group--user">
         {visibleText ? (
-          <div className="hm-message hm-message--user">
+          <div className="hm-message hm-message--user" data-kind={message.displayKind ?? undefined}>
             <p>{visibleText}</p>
           </div>
         ) : null}

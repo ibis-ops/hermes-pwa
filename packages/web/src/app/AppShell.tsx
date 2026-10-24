@@ -7,6 +7,8 @@ import { Icon, type IconName } from '../components/Icon';
 import { UpdateNotification } from '../components/UpdateNotification';
 import { LazyScreenErrorBoundary } from './LazyScreenErrorBoundary';
 import { usePresence } from '../hooks/usePresence';
+import { useVisualViewport } from '../hooks/useVisualViewport';
+import { useSettledConnectionState } from '../hooks/useSettledConnectionState';
 import { getInitialScreen, persistScreen } from '../lib/screenStorage';
 import { disablePushNotifications, syncPushSubscription } from '../pwa/push';
 
@@ -17,6 +19,7 @@ export type Screen =
   | 'approvals'
   | 'kanban'
   | 'agents'
+  | 'messaging'
   | 'profiles'
   | 'cron'
   | 'artifacts'
@@ -38,6 +41,7 @@ const Chat = lazy(() => import('../screens/Chat').then((module) => ({ default: m
 const Activity = lazy(() => import('../screens/Activity').then((module) => ({ default: module.Activity })));
 const Projects = lazy(() => import('../screens/Projects').then((module) => ({ default: module.Projects })));
 const Agents = lazy(() => import('../screens/Agents').then((module) => ({ default: module.Agents })));
+const Messaging = lazy(() => import('../screens/Messaging').then((module) => ({ default: module.Messaging })));
 const Profiles = lazy(() => import('../screens/Profiles').then((module) => ({ default: module.Profiles })));
 const Sessions = lazy(() => import('../screens/Sessions').then((module) => ({ default: module.Sessions })));
 const CommandCenter = lazy(() => import('../screens/CommandCenter').then((module) => ({ default: module.CommandCenter })));
@@ -145,6 +149,7 @@ const DRAWER_ITEMS: { key: Screen; label: string; icon: IconName }[] = [
   { key: 'kanban', label: 'Kanban', icon: 'kanban' },
   { key: 'cron', label: 'Cron', icon: 'cron' },
   { key: 'agents', label: 'Agents', icon: 'agents' },
+  { key: 'messaging', label: 'Messaging', icon: 'messaging' },
   // TODO: Skills/Tools is temporarily hidden from the PWA menu until we decide
   // whether this administrative surface belongs in the mobile app.
   // { key: 'skills', label: 'Skills & Tools', icon: 'skills' },
@@ -167,6 +172,7 @@ const SCREEN_TITLES: Record<Screen, string> = {
   approvals: 'Approvals',
   kanban: 'Kanban',
   agents: 'Agents',
+  messaging: 'Messaging',
   profiles: 'Profiles',
   cron: 'Cron',
   artifacts: 'Artifacts',
@@ -240,6 +246,9 @@ function DrawerSessionRow({
 }
 
 export function AppShell({ connectionState, rpc, rest, onRetry }: AppShellProps) {
+  useVisualViewport();
+  // Header status follows the connection only once a drop has lasted a moment.
+  const settledConnectionState = useSettledConnectionState(connectionState);
   const [screen, setScreen] = useState<Screen>(() => getInitialScreen());
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [drawerSourceFilter, setDrawerSourceFilter] = useState<SourceFilter>('all');
@@ -433,10 +442,9 @@ export function AppShell({ connectionState, rpc, rest, onRetry }: AppShellProps)
     let timer: number | undefined;
 
     async function probeGateway() {
-      if (connectionState !== 'connected') {
-        if (!cancelled) setGatewayHealth('checking');
-        return;
-      }
+      // A brief reconnect keeps the last known gateway health; the probe runs
+      // again as soon as the socket is back.
+      if (connectionState !== 'connected') return;
       try {
         await rest.systemStats();
         if (!cancelled) setGatewayHealth('running');
@@ -564,7 +572,7 @@ export function AppShell({ connectionState, rpc, rest, onRetry }: AppShellProps)
   const activeProvider = activeProfile?.provider?.trim();
   const activeProfileLabel = activeProfile?.displayName ?? activeName ?? 'default';
   const modelDetail = activeProvider ? `${activeProvider} · ${activeProfileLabel}` : activeProfileLabel;
-  const gatewayLabel = gatewayStatusLabel(connectionState, gatewayHealth);
+  const gatewayLabel = gatewayStatusLabel(settledConnectionState, gatewayHealth);
   const gatewayTone = gatewayStatusTone(connectionState, gatewayHealth);
   const showUpdateNotification = updateCheck?.updateAvailable === true && updateCheck.latest !== updateDismissedVersion;
 
@@ -618,7 +626,7 @@ export function AppShell({ connectionState, rpc, rest, onRetry }: AppShellProps)
           aria-label="Open system status"
           aria-haspopup="dialog"
         >
-          <StatusChip state={connectionState} gatewayHealth={gatewayHealth} />
+          <StatusChip state={settledConnectionState} gatewayHealth={gatewayHealth} />
         </button>
       </header>
 
@@ -637,6 +645,7 @@ export function AppShell({ connectionState, rpc, rest, onRetry }: AppShellProps)
             {screen === 'approvals' && <Activity key={activeName ?? 'default'} rpc={rpc} />}
             {screen === 'kanban'    && <Projects key={activeName ?? 'default'} rest={rest} />}
             {screen === 'agents'    && <Agents key={activeName ?? 'default'} rpc={rpc} />}
+            {screen === 'messaging' && <Messaging key={activeName ?? 'default'} rest={rest} />}
             {screen === 'profiles'  && <Profiles key={activeName ?? 'default'} rest={rest} />}
             {screen === 'home'      && <Home key={activeName ?? 'default'} rpc={rpc} rest={rest} onNavigate={(s) => navigate(s as Screen)} />}
             {screen === 'command'   && <CommandCenter key={activeName ?? 'default'} rest={rest} />}

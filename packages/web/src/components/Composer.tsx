@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { Message, RpcClient } from '@hermes-pwa/core';
+import { skillCommandSlug, type Message, type RestClient, type RpcClient, type Skill } from '@hermes-pwa/core';
 import { Icon } from './Icon';
 import { AttachMenu } from './AttachMenu';
+import { SkillPicker } from './SkillPicker';
 import { useVoiceRecorder } from '../hooks/useVoiceRecorder';
 import { useVoiceConversation } from '../hooks/useVoiceConversation';
 import {
@@ -145,6 +146,8 @@ interface ComposerProps {
   onPrimeVoiceAudio?: () => void;
   onUploadFile?: (file: File) => Promise<{ path: string } | string | undefined>;
   onLayoutChange?: () => void;
+  /** Enables "Use a skill" in the plus menu; the picker lists Hermes's skills through it. */
+  rest?: RestClient | undefined;
 }
 
 function formatDuration(seconds: number): string {
@@ -172,11 +175,13 @@ export function Composer({
   onPrimeVoiceAudio,
   onUploadFile,
   onLayoutChange,
+  rest,
 }: ComposerProps) {
   const [text, setText] = useState('');
   const [attachments, setAttachments] = useState<AttachmentDraft[]>([]);
   const [voiceModeEnabled, setVoiceModeEnabled] = useState(false);
   const [attachMenuOpen, setAttachMenuOpen] = useState(false);
+  const [skillPickerOpen, setSkillPickerOpen] = useState(false);
   const [slashItems, setSlashItems] = useState<SlashCommandItem[]>([]);
   const [slashLoading, setSlashLoading] = useState(false);
   const [slashError, setSlashError] = useState<string | undefined>();
@@ -293,6 +298,24 @@ export function Composer({
     setSlashError(undefined);
     setSlashActiveIndex(0);
   }, []);
+
+  const applySkill = useCallback((skill: Skill | undefined) => {
+    setSkillPickerOpen(false);
+    if (!skill) return;
+    const slug = skillCommandSlug(skill.name);
+    if (!slug) return;
+    // Replace a leading slash command, keep anything already typed as the instruction.
+    const instruction = text.replace(/^\s*\/\S*\s*/u, '').trimStart();
+    const inserted = `/${slug} ${instruction}`;
+    setText(inserted);
+    setSlashSuppressedText(inserted);
+    window.requestAnimationFrame(() => {
+      const el = textareaRef.current;
+      if (!el) return;
+      el.focus();
+      el.setSelectionRange(inserted.length, inserted.length);
+    });
+  }, [text]);
 
   const selectSlashCommand = useCallback(
     (item: SlashCommandItem) => {
@@ -515,12 +538,20 @@ export function Composer({
           type="button"
           className="hm-composer__action hm-composer__action--attach"
           onClick={() => setAttachMenuOpen((v) => !v)}
-          disabled={isRecording || isVoiceBusy || !onUploadFile}
-          aria-label="Add attachment"
+          disabled={isRecording || isVoiceBusy || (!onUploadFile && !rest)}
+          aria-label="Add attachment or skill"
         >
           <Icon name="plus" size={19} />
         </button>
-        <AttachMenu open={attachMenuOpen} onClose={() => setAttachMenuOpen(false)} onFiles={handleFilesSelected} />
+        <AttachMenu
+          open={attachMenuOpen}
+          onClose={() => setAttachMenuOpen(false)}
+          onFiles={handleFilesSelected}
+          onSkill={rest ? () => setSkillPickerOpen(true) : undefined}
+        />
+        {skillPickerOpen && rest ? (
+          <SkillPicker rest={rest} title="Use a skill" onPick={applySkill} onClose={() => setSkillPickerOpen(false)} />
+        ) : null}
 
         <textarea
           ref={textareaRef}

@@ -310,6 +310,13 @@ const noopRest: RestClient = {
   audioSpeak:          () => Promise.resolve({ dataUrl: 'data:audio/wav;base64,UklGRigAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQQAAAAAAA==', mimeType: 'audio/wav' }),
   fileUpload:          () => Promise.resolve({ path: 'preview.txt' }),
   localFileInfo:       () => Promise.resolve({ name: 'preview.png', size: 1024, mime: 'image/png', inline: true, image: true }),
+  messagingPlatforms:  () => Promise.resolve({
+    gatewayRunning: true,
+    platforms: [
+      { id: 'signal', name: 'Signal', description: 'Connect through a signal-cli REST bridge.', docsUrl: undefined, enabled: true, configured: true, state: 'connected' as const, rawState: 'connected', errorMessage: undefined, updatedAt: Date.now() - 3_600_000, homeChannel: 'Home', requiredSet: 2, requiredTotal: 2 },
+      { id: 'telegram', name: 'Telegram', description: 'Run Hermes from Telegram DMs, groups, and topics.', docsUrl: undefined, enabled: false, configured: false, state: 'disabled' as const, rawState: 'disabled', errorMessage: undefined, updatedAt: undefined, homeChannel: undefined, requiredSet: 0, requiredTotal: 1 },
+    ],
+  }),
 };
 
 export function AppPreview() {

@@ -288,7 +288,7 @@ describe('Chat', () => {
     rpcMock.events.dispatchEvent({ type: 'thinking.delta', sessionId: 's-1', payload: { text: '(¬‿¬) computing...' } });
 
     await waitFor(() => expect(container.querySelectorAll('.hm-live-status')).toHaveLength(1));
-    expect(container.querySelector('.hm-message--assistant:first-of-type .hm-live-status')).toBeNull();
+    expect(container.querySelectorAll('.hm-message--assistant')[0]?.querySelector('.hm-live-status')).toBeNull();
     expect(container.querySelector('.hm-live-status__text')).toHaveTextContent('(¬‿¬) computing...');
     expect(container.querySelector('.hm-live-status__face')).toBeNull();
     expect(container.querySelector('.hm-live-status__dots')).toBeInTheDocument();

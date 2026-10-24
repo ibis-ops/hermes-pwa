@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react';
 import type { ConnectionState } from '@hermes-pwa/core';
 
 interface ConnectionBannerProps {
@@ -6,13 +7,29 @@ interface ConnectionBannerProps {
   onRetry?: (() => void) | undefined;
 }
 
-export function ConnectionBanner({ state, error, onRetry }: ConnectionBannerProps) {
-  if (state === 'connected') return null;
+/**
+ * Coming back from another app drops and re-opens the WebSocket in well under
+ * a second. A banner for that would just blink, so a reconnect only shows once
+ * it has lasted this long. Offline shows at once.
+ */
+const RECONNECT_GRACE_MS = 1500;
 
+export function ConnectionBanner({ state, error, onRetry }: ConnectionBannerProps) {
   const isOffline = state === 'offline';
   const isReconnecting = state === 'reconnecting' || state === 'ticketing';
+  const [reconnectVisible, setReconnectVisible] = useState(false);
 
-  if (!isOffline && !isReconnecting) return null;
+  useEffect(() => {
+    if (!isReconnecting) {
+      setReconnectVisible(false);
+      return undefined;
+    }
+    const timer = window.setTimeout(() => setReconnectVisible(true), RECONNECT_GRACE_MS);
+    return () => window.clearTimeout(timer);
+  }, [isReconnecting]);
+
+  if (state === 'connected') return null;
+  if (!isOffline && !(isReconnecting && reconnectVisible)) return null;
 
   const title = isOffline ? 'Offline' : 'Reconnecting…';
   const message = error ?? (isOffline ? 'Check your connection and try again.' : 'Live updates disconnected.');

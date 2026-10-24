@@ -10,6 +10,7 @@ import { JsonRpcError, type RpcClient } from '../transport/jsonrpc';
 import { HermesHttpError } from '../transport/http';
 import type { RestClient } from '../transport/rest';
 import { LONG_RPC_TIMEOUT_MS } from '../transport/timeouts';
+import { describeSkillInvocation, skillInvocationText } from '../domain/skill-invocation';
 
 const LEGACY_ACTIVE_SESSION_STORAGE_KEYS = ['hermes-pwa.activeSession.v1', 'hermes-pwa.activeSession.v2'] as const;
 const ACTIVE_SESSION_STORAGE_KEY = 'hermes-pwa.activeSession.v3';
@@ -18,11 +19,38 @@ const ANSI_ESCAPE_PATTERN = new RegExp(`${String.fromCharCode(27)}\\[[0-?]*[ -/]
 const PWA_UNSUPPORTED_SLASH_COMMANDS = new Set(['/whoami']);
 const MAX_ALIAS_DISPATCH_DEPTH = 8;
 const PROMPT_SUBMIT_TIMEOUT_MS = 90_000;
+/**
+ * While live events keep arriving, the local transcript is authoritative and a
+ * REST snapshot would only lag it. The periodic refresh waits this long after
+ * the last event before it reconciles a turn that is still marked streaming.
+ */
+export const LIVE_STREAM_QUIET_MS = 20_000;
+/**
+ * Past this much silence the turn is treated as possibly lost (the WebSocket
+ * died, the gateway restarted) and the REST snapshot decides `streaming` on its
+ * own, as it did before the quiet guard existed.
+ */
+export const LIVE_STREAM_STALE_MS = 120_000;
 let assistantMessageSequence = 0;
 let systemMessageSequence = 0;
+let lastLiveEventAt = 0;
 const submitInFlightKeys = new Set<string>();
 const interruptInFlightKeys = new Set<string>();
 const aliasDispatchStack: string[] = [];
+
+function touchLiveEvent(): void {
+  lastLiveEventAt = Date.now();
+}
+
+/** Test seam: how long ago the last live chat event arrived. */
+export function liveEventAgeMs(now = Date.now()): number {
+  return lastLiveEventAt === 0 ? Number.POSITIVE_INFINITY : now - lastLiveEventAt;
+}
+
+/** Test seam: pretend the last live event arrived `ageMs` ago. */
+export function __setLiveEventAge(ageMs: number | undefined): void {
+  lastLiveEventAt = ageMs === undefined ? 0 : Date.now() - ageMs;
+}
 
 function nextAssistantMessageId(): string {
   assistantMessageSequence += 1;
@@ -48,6 +76,14 @@ export type SubmitResult = 'submitted' | 'busy' | 'failed';
 
 export interface InterruptOptions {
   keepStreaming?: boolean;
+}
+
+export interface SubmitOptions {
+  /**
+   * What the user bubble shows when the sent text is a scaffold the person did
+   * not type (a /skill expansion): the invocation as typed.
+   */
+  displayText?: string | undefined;
 }
 
 interface SlashExecResponse {
@@ -108,7 +144,7 @@ export interface ChatStore {
   resumeSessionIntoChat(rest: RestClient, rpc: RpcClient, storedSessionId: string, profile?: string): Promise<void>;
   startNewSession(profile?: string): void;
   ensureLiveSession(rpc: RpcClient, profile?: string): Promise<{ sessionId: string; storedSessionId?: string | undefined }>;
-  submit(rpc: RpcClient, text: string, profile?: string): Promise<SubmitResult>;
+  submit(rpc: RpcClient, text: string, profile?: string, options?: SubmitOptions): Promise<SubmitResult>;
   executeSlashCommand(rpc: RpcClient, text: string, profile?: string): Promise<SubmitResult>;
   steer(rpc: RpcClient, text: string): Promise<boolean>;
   interrupt(rpc: RpcClient, options?: InterruptOptions): Promise<void>;
@@ -119,7 +155,11 @@ export interface ChatStore {
   appendToolCall(tool: ToolCall): void;
   updateToolCall(id: string, patch: Partial<ToolCall>): void;
   appendThinking(text: string, replace?: boolean): void;
+  /** Hermes closed a reply segment (interim commentary before tool calls). */
+  sealSegment(): void;
   beginAssistant(): void;
+  /** A live event arrived that carries no transcript change (a status line). */
+  noteLiveEvent(): void;
   clear(profile?: string): void;
 }
 
@@ -241,18 +281,33 @@ function messageCreatedAt(raw: Record<string, unknown>): number | undefined {
 
 function toInternalMessage(raw: Record<string, unknown>, index = 0): InternalMessage {
   const role = normalizeMessageRole(raw.role);
-  const text =
-    typeof raw.text === 'string'
-      ? raw.text
-      : role === 'tool'
-        ? toolMessageText(raw)
-        : messageContentText(raw.content ?? raw.message ?? raw.rendered);
+  // `display_content` is Hermes's display-only projection (compaction
+  // summaries, mid-turn steers): what its own clients show instead of the
+  // model-facing content.
+  let text =
+    typeof raw.display_content === 'string'
+      ? raw.display_content
+      : typeof raw.text === 'string'
+        ? raw.text
+        : role === 'tool'
+          ? toolMessageText(raw)
+          : messageContentText(raw.content ?? raw.message ?? raw.rendered);
+  let displayKind = typeof raw.display_kind === 'string' && raw.display_kind ? raw.display_kind : undefined;
+  if (role === 'user' && typeof raw.display_content !== 'string') {
+    // A /skill turn is stored as the expanded scaffold; show it as typed.
+    const invocation = describeSkillInvocation(text);
+    if (invocation) {
+      text = skillInvocationText(invocation);
+      displayKind = 'skill_invocation';
+    }
+  }
   const msg: InternalMessage = {
     id: String(raw.id ?? `m-${index}`),
     role,
     text,
     createdAt: messageCreatedAt(raw),
   };
+  if (displayKind) msg.displayKind = displayKind;
   if (role === 'tool') {
     msg.toolCallId = typeof raw.tool_call_id === 'string' ? raw.tool_call_id : undefined;
     msg.toolName = typeof raw.tool_name === 'string' ? raw.tool_name : typeof raw.name === 'string' ? raw.name : undefined;
@@ -273,6 +328,7 @@ function toPublicMessage(m: InternalMessage): Message {
   };
   if (m.toolCalls) msg.toolCalls = m.toolCalls;
   if (m.thinking) msg.thinking = m.thinking;
+  if (m.displayKind) msg.displayKind = m.displayKind;
   return msg;
 }
 
@@ -341,7 +397,10 @@ function messagesFromResult(raw: unknown): Message[] {
   }
   const internal = maybeMessages
     .filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === 'object')
-    .map(toInternalMessage);
+    .map(toInternalMessage)
+    // Rows Hermes types as hidden are scaffolding (recovery nudges, widget
+    // intents); its own clients never draw a bubble for them.
+    .filter((m) => m.displayKind !== 'hidden');
   return collapseAssistantRuns(mergeToolMessages(internal).map(toPublicMessage));
 }
 
@@ -571,6 +630,64 @@ function mergeHistoryWithLocal(history: Message[], local: Message[]): { messages
   }
 
   return { messages: merged, preservedLocalTail };
+}
+
+function sameInput(a: Record<string, unknown> | undefined, b: Record<string, unknown> | undefined): boolean {
+  if (a === b) return true;
+  if (!a || !b) return false;
+  try {
+    return JSON.stringify(a) === JSON.stringify(b);
+  } catch {
+    return false;
+  }
+}
+
+function sameToolCalls(a: ToolCall[] | undefined, b: ToolCall[] | undefined): boolean {
+  if (a === b) return true;
+  if (!a || !b || a.length !== b.length) return false;
+  return a.every((tool, index) => {
+    const other = b[index];
+    return (
+      other !== undefined &&
+      tool.id === other.id &&
+      tool.name === other.name &&
+      tool.output === other.output &&
+      sameInput(tool.input, other.input)
+    );
+  });
+}
+
+function sameMessage(a: Message, b: Message): boolean {
+  return (
+    a.id === b.id &&
+    a.role === b.role &&
+    a.text === b.text &&
+    a.thinking === b.thinking &&
+    a.createdAt === b.createdAt &&
+    a.displayKind === b.displayKind &&
+    sameToolCalls(a.toolCalls, b.toolCalls)
+  );
+}
+
+/**
+ * A REST refresh rebuilds every row. Hand back the previous object for each row
+ * it left unchanged (and the previous array when nothing changed at all) so the
+ * memoised bubbles skip re-rendering and nothing in the list remounts.
+ */
+export function stabilizeMessages(previous: Message[], next: Message[]): Message[] {
+  if (previous === next) return next;
+  const byId = new Map(previous.map((message) => [message.id, message]));
+  let identical = previous.length === next.length;
+  const out = next.map((message, index) => {
+    const candidate = byId.get(message.id) ?? previous[index];
+    if (candidate && sameMessage(candidate, message)) {
+      if (candidate !== previous[index]) identical = false;
+      return candidate;
+    }
+    identical = false;
+    return message;
+  });
+  return identical ? previous : out;
 }
 
 function dropPendingOptimisticTail(messages: Message[]): Message[] {
@@ -1027,7 +1144,7 @@ async function refreshDurableHistory(rest: RestClient, durableSessionId: string,
   const merged = openableSessionId === durableSessionId
     ? mergeHistoryWithLocal(history, localMessages)
     : { messages: history, preservedLocalTail: [] };
-  return { storedSessionId, messages: merged.messages };
+  return { storedSessionId, messages: merged.messages, preservedLocalTail: merged.preservedLocalTail };
 }
 
 const initialCache = readActiveSessionCache();
@@ -1075,14 +1192,17 @@ export const useChatStore = create<ChatStore>((set, get) => ({
     const cacheProfile = resolveCacheProfile(profile, get().cacheProfile);
     if (cacheProfile !== get().cacheProfile) set({ cacheProfile });
     const before = get();
-    // If the WebSocket died while the app was backgrounded, `streaming` can be
-    // stuck true with no live deltas arriving. Don't skip the REST refresh in
-    // that case — the backend snapshot is the only way to recover the assistant
-    // response. The refresh itself sets streaming: false.
-    if (before.streaming && typeof document !== 'undefined' && document.visibilityState === 'visible') {
-      // App is visible again; force a refresh to pick up missed responses.
-    } else if (before.streaming) {
-      return;
+    const quietFor = liveEventAgeMs();
+    if (before.streaming) {
+      // A turn that is still producing events is authoritative here: the REST
+      // snapshot lags it, and applying it would rebuild the rows and flip
+      // `streaming` off until the next event flipped it back on (the thinking
+      // card and composer visibly popping every few seconds).
+      if (quietFor < LIVE_STREAM_QUIET_MS) return;
+      // If the WebSocket died while the app was backgrounded, `streaming` can be
+      // stuck true with no live deltas arriving. The REST snapshot is the only
+      // way to recover the assistant response, so a visible app does refresh.
+      if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return;
     }
     const durableSessionId = before.storedSessionId ?? before.sessionId;
     if (!durableSessionId) return;
@@ -1090,10 +1210,17 @@ export const useChatStore = create<ChatStore>((set, get) => ({
     try {
       const refreshed = await refreshDurableHistory(rest, durableSessionId, before.messages, cacheProfile);
       if (!isSameChatState(get(), anchor)) return;
+      // A quiet but live turn (a long tool call) stays streaming while REST has
+      // no finished answer for it; once the silence is long enough to suspect a
+      // lost connection, the snapshot alone decides.
+      const keepStreaming =
+        before.streaming &&
+        quietFor < LIVE_STREAM_STALE_MS &&
+        refreshed.preservedLocalTail.some((m) => m.role === 'assistant');
       const next = {
         storedSessionId: refreshed.storedSessionId,
-        messages: refreshed.messages,
-        streaming: false,
+        messages: stabilizeMessages(before.messages, refreshed.messages),
+        streaming: keepStreaming,
         error: undefined,
       };
       set(next);
@@ -1383,13 +1510,13 @@ export const useChatStore = create<ChatStore>((set, get) => ({
       }
 
       if (dispatch.type === 'skill') {
-        renderSlashOutput(parsed.command, `⚡ loading skill: ${dispatch.name}`);
         const message = dispatch.message?.trim() ?? '';
         if (!message) {
           renderSlashOutput(parsed.command, `/${parsed.name}: skill payload missing message`);
           return 'failed';
         }
-        return get().submit(rpc, message, cacheProfile);
+        // The bubble shows the command as typed; the model gets the expansion.
+        return get().submit(rpc, message, cacheProfile, { displayText: parsed.command });
       }
 
       if (dispatch.type === 'send') {
@@ -1415,10 +1542,10 @@ export const useChatStore = create<ChatStore>((set, get) => ({
     }
   },
 
-  async submit(rpc, text, profile) {
+  async submit(rpc, text, profile, options) {
     const cacheProfile = resolveCacheProfile(profile, get().cacheProfile);
     if (cacheProfile !== get().cacheProfile) set({ cacheProfile });
-    if (isSlashCommandInput(text)) {
+    if (isSlashCommandInput(text) && !options?.displayText) {
       return get().executeSlashCommand(rpc, text, cacheProfile);
     }
     const initial = get();
@@ -1439,10 +1566,12 @@ export const useChatStore = create<ChatStore>((set, get) => ({
         }
 
         const now = Date.now();
+        const userRow: Message = { id: `u-${now}`, role: 'user', text: options?.displayText ?? text, createdAt: now / 1000 };
+        if (options?.displayText) userRow.displayKind = 'skill_invocation';
         const nextMessages = [
           ...messages,
-          { id: `u-${now}`, role: 'user' as const, text, createdAt: undefined },
-          { id: nextAssistantMessageId(), role: 'assistant' as const, text: '', createdAt: undefined },
+          userRow,
+          { id: nextAssistantMessageId(), role: 'assistant' as const, text: '', createdAt: now / 1000 },
         ];
 
         const optimistic = {
@@ -1549,6 +1678,8 @@ export const useChatStore = create<ChatStore>((set, get) => ({
   },
 
   appendDelta(text) {
+    touchLiveEvent();
+    if (!text) return;
     set((state) => {
       const msgs = [...state.messages];
       const last = msgs[msgs.length - 1];
@@ -1561,12 +1692,33 @@ export const useChatStore = create<ChatStore>((set, get) => ({
     });
   },
 
+  sealSegment() {
+    touchLiveEvent();
+    set((state) => {
+      const msgs = [...state.messages];
+      const last = msgs[msgs.length - 1];
+      if (!last || last.role !== 'assistant' || !last.text.trim() || /\n\s*\n\s*$/u.test(last.text)) {
+        return { messages: state.messages };
+      }
+      msgs[msgs.length - 1] = { ...last, text: `${last.text.replace(/\s+$/u, '')}\n\n` };
+      const next = { messages: msgs };
+      persistActiveSessionThrottled({ ...state, ...next });
+      return next;
+    });
+  },
+
   finishAssistant(finalText) {
+    touchLiveEvent();
     set((state) => {
       const msgs = [...state.messages];
       const last = msgs[msgs.length - 1];
       if (last && last.role === 'assistant') {
-        const text = typeof finalText === 'string' && finalText.trim() ? finalText.trim() : last.text;
+        const final = typeof finalText === 'string' ? finalText.trim() : '';
+        // `message.complete` carries the final segment only. When the stream
+        // already delivered it (after interim commentary), the streamed text is
+        // the fuller record; otherwise the final text wins.
+        const streamedCoversFinal = final.length > 0 && last.text.trimEnd().endsWith(final);
+        const text = final && !streamedCoversFinal ? final : last.text.trimEnd();
         const nextLast = { ...last, text };
         if (isDuplicateReasoning(nextLast.thinking, text)) {
           delete nextLast.thinking;
@@ -1602,6 +1754,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
   },
 
   appendToolCall(tool) {
+    touchLiveEvent();
     set((state) => {
       const msgs = [...state.messages];
       const last = msgs[msgs.length - 1];
@@ -1618,6 +1771,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
   },
 
   updateToolCall(id, patch) {
+    touchLiveEvent();
     set((state) => {
       const msgs = state.messages.map((m) => {
         if (m.role !== 'assistant' || !m.toolCalls) return m;
@@ -1631,6 +1785,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
   },
 
   appendThinking(text, replace = false) {
+    touchLiveEvent();
     if (!text) return;
     set((state) => {
       const msgs = [...state.messages];
@@ -1651,6 +1806,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
   },
 
   beginAssistant() {
+    touchLiveEvent();
     set((state) => {
       const last = state.messages[state.messages.length - 1];
       if (last?.role === 'assistant') {
@@ -1663,12 +1819,16 @@ export const useChatStore = create<ChatStore>((set, get) => ({
         error: undefined,
         messages: [
           ...state.messages,
-          { id: nextAssistantMessageId(), role: 'assistant' as const, text: '', createdAt: undefined },
+          { id: nextAssistantMessageId(), role: 'assistant' as const, text: '', createdAt: Date.now() / 1000 },
         ],
       };
       persistActiveSession({ ...state, ...next });
       return next;
     });
+  },
+
+  noteLiveEvent() {
+    touchLiveEvent();
   },
 
   clear(profile) {

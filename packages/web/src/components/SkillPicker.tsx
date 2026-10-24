@@ -1,0 +1,133 @@
+import { useEffect, useMemo, useState } from 'react';
+import { skillCommandSlug, type RestClient, type Skill } from '@hermes-pwa/core';
+import { BottomSheet } from './BottomSheet';
+import { Icon } from './Icon';
+
+interface SkillPickerProps {
+  rest: RestClient;
+  title?: string;
+  /** Slug of the skill shown as selected, if any. */
+  selected?: string | undefined;
+  /** Offer a "None" row (for clearing a default). */
+  allowNone?: boolean;
+  onPick: (skill: Skill | undefined) => void;
+  onClose: () => void;
+}
+
+function categoryLabel(category: string | undefined): string {
+  if (!category) return 'Other';
+  return category
+    .split(/[-_\s]+/u)
+    .filter(Boolean)
+    .map((part) => (part.length <= 3 ? part.toUpperCase() : part.charAt(0).toUpperCase() + part.slice(1)))
+    .join(' ');
+}
+
+/**
+ * The Hermes skills as a grouped, searchable list. Picking one hands back the
+ * skill; callers turn it into a `/slug` command.
+ */
+export function SkillPicker({ rest, title = 'Skills', selected, allowNone = false, onPick, onClose }: SkillPickerProps) {
+  const [skills, setSkills] = useState<Skill[] | undefined>(undefined);
+  const [error, setError] = useState<string | undefined>(undefined);
+  const [query, setQuery] = useState('');
+
+  useEffect(() => {
+    let cancelled = false;
+    rest
+      .skillsList()
+      .then((list) => {
+        if (cancelled) return;
+        setSkills(list.filter((skill) => skill.enabled).sort((a, b) => a.name.localeCompare(b.name)));
+      })
+      .catch((err: unknown) => {
+        if (cancelled) return;
+        setError(err instanceof Error && err.message ? err.message : 'Could not load the skills.');
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [rest]);
+
+  const groups = useMemo(() => {
+    const needle = query.trim().toLowerCase();
+    const matching = (skills ?? []).filter(
+      (skill) =>
+        !needle ||
+        skill.name.toLowerCase().includes(needle) ||
+        (skill.description ?? '').toLowerCase().includes(needle) ||
+        (skill.category ?? '').toLowerCase().includes(needle),
+    );
+    const byCategory = new Map<string, Skill[]>();
+    for (const skill of matching) {
+      const label = categoryLabel(skill.category);
+      const bucket = byCategory.get(label);
+      if (bucket) bucket.push(skill);
+      else byCategory.set(label, [skill]);
+    }
+    return [...byCategory.entries()].sort(([a], [b]) => (a === 'Other' ? 1 : b === 'Other' ? -1 : a.localeCompare(b)));
+  }, [skills, query]);
+
+  return (
+    <BottomSheet title={title} onClose={onClose} className="hm-sheet--skills" contentClassName="hm-skill-picker">
+      <div className="hm-skill-picker__search">
+        <Icon name="search" size={16} />
+        <input
+          type="search"
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+          placeholder="Search skills"
+          aria-label="Search skills"
+          autoCapitalize="none"
+          autoCorrect="off"
+          spellCheck={false}
+          enterKeyHint="search"
+        />
+      </div>
+      {error ? <div className="hm-warning-banner hm-warning-banner--error">{error}</div> : null}
+      {skills === undefined && !error ? <p className="hm-muted hm-loading">Loading…</p> : null}
+      {allowNone && !query ? (
+        <div className="hm-skill-picker__group">
+          <button
+            type="button"
+            className={`hm-skill-picker__row ${selected ? '' : 'hm-skill-picker__row--selected'}`}
+            onClick={() => onPick(undefined)}
+            aria-pressed={!selected}
+          >
+            <span className="hm-skill-picker__body">
+              <span className="hm-skill-picker__name">None</span>
+              <span className="hm-skill-picker__desc hm-muted">New chats start without a skill.</span>
+            </span>
+            {!selected ? <Icon name="check" size={16} /> : null}
+          </button>
+        </div>
+      ) : null}
+      {skills !== undefined && groups.length === 0 ? <p className="hm-muted hm-skill-picker__empty">No skill matches.</p> : null}
+      {groups.map(([label, items]) => (
+        <div key={label} className="hm-skill-picker__group">
+          <h3 className="hm-skill-picker__heading">{label}</h3>
+          {items.map((skill) => {
+            const slug = skillCommandSlug(skill.name);
+            const isSelected = selected !== undefined && selected === slug;
+            return (
+              <button
+                key={skill.id || skill.name}
+                type="button"
+                className={`hm-skill-picker__row ${isSelected ? 'hm-skill-picker__row--selected' : ''}`}
+                onClick={() => onPick(skill)}
+                aria-pressed={isSelected}
+                data-testid="skill-row"
+              >
+                <span className="hm-skill-picker__body">
+                  <span className="hm-skill-picker__name">/{slug}</span>
+                  {skill.description ? <span className="hm-skill-picker__desc hm-muted">{skill.description}</span> : null}
+                </span>
+                {isSelected ? <Icon name="check" size={16} /> : null}
+              </button>
+            );
+          })}
+        </div>
+      ))}
+    </BottomSheet>
+  );
+}

@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useConnectionStore, useProfilesStore, useModelStore, useConfigStore } from '@hermes-pwa/core';
+import { skillCommandSlug, useConnectionStore, useProfilesStore, useModelStore, useConfigStore } from '@hermes-pwa/core';
 import type { RestClient, SystemStats, ModelProvider, ReasoningEffort, PushStatus } from '@hermes-pwa/core';
 import { Icon } from '../components/Icon';
 import { BottomSheet } from '../components/BottomSheet';
+import { SkillPicker } from '../components/SkillPicker';
+import { readDefaultSkill, writeDefaultSkill } from '../lib/defaultSkill';
 import { HERMES_PWA_VERSION_LABEL } from '../app/version';
 import { disablePushNotifications, enablePushNotifications, getPushCapability } from '../pwa/push';
 import { canPromptInstall, INSTALL_PROMPT_CHANGED_EVENT, isIosSafari, promptInstall } from '../pwa/install';
@@ -74,6 +76,11 @@ export function Settings({ rest, onNavigate, onLogout }: SettingsProps) {
   const [statsLoading, setStatsLoading] = useState(true);
   const [statsError, setStatsError] = useState<string | undefined>();
   const [sheetOpen, setSheetOpen] = useState(false);
+  const [skillSheetOpen, setSkillSheetOpen] = useState(false);
+  const [defaultSkill, setDefaultSkill] = useState<string | undefined>(() => readDefaultSkill(activeName));
+  useEffect(() => {
+    setDefaultSkill(readDefaultSkill(activeName));
+  }, [activeName]);
   const [selectedProvider, setSelectedProvider] = useState('');
   const [selectedModel, setSelectedModel] = useState('');
   const [selectedEffort, setSelectedEffort] = useState<ReasoningEffort>('high');
@@ -378,6 +385,38 @@ export function Settings({ rest, onNavigate, onLogout }: SettingsProps) {
       </Section>
 
       <Section title="Chat behavior">
+        <button
+          type="button"
+          className="hm-settings-row hm-settings-row--link"
+          onClick={() => setSkillSheetOpen(true)}
+          aria-label="Default skill"
+        >
+          <span className="hm-settings-row__body">
+            <span className="hm-settings-row__label">Default skill</span>
+            <span className="hm-settings-row__sub hm-muted">
+              {defaultSkill ? `New chats on this profile start with /${defaultSkill}` : 'New chats start without a skill'}
+            </span>
+          </span>
+          <span className="hm-settings-row__value hm-muted">{defaultSkill ? `/${defaultSkill}` : 'None'}</span>
+          <span className="hm-settings-row__chevron" aria-hidden="true">
+            <Icon name="chevR" size={14} />
+          </span>
+        </button>
+        {skillSheetOpen ? (
+          <SkillPicker
+            rest={rest}
+            title="Default skill"
+            selected={defaultSkill}
+            allowNone
+            onPick={(skill) => {
+              const slug = skill ? skillCommandSlug(skill.name) : undefined;
+              writeDefaultSkill(activeName, slug);
+              setDefaultSkill(slug);
+              setSkillSheetOpen(false);
+            }}
+            onClose={() => setSkillSheetOpen(false)}
+          />
+        ) : null}
         <SettingsRow label="Busy input" value={configLoading ? 'Loading…' : busyInputModeLabel(busyInputMode)} />
         <p className="hm-muted">{busyInputModeDescription(busyInputMode)}</p>
         <div className="hm-settings__segmented" role="radiogroup" aria-label="Busy input mode">

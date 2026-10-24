@@ -272,7 +272,8 @@ describe('AppShell', () => {
     fireEvent.click(screen.getByRole('button', { name: /open menu/i }));
     const drawer = screen.getByRole('dialog', { name: /navigation menu/i });
     expect(within(drawer).queryByRole('button', { name: 'Skills & Tools' })).not.toBeInTheDocument();
-    expect(within(drawer).queryByRole('button', { name: 'Messaging' })).not.toBeInTheDocument();
+    // Messaging (which chat services run a Hermes bot) is a first-class screen.
+    expect(within(drawer).getByRole('button', { name: 'Messaging' })).toBeInTheDocument();
     expect(within(drawer).queryByText('Telegram')).not.toBeInTheDocument();
   });
 
@@ -286,7 +287,7 @@ describe('AppShell', () => {
     vi.clearAllMocks();
     localStorage.setItem('hermes-mobile-screen', 'messaging');
     render(<AppShell connectionState="connected" rpc={rpcMock} rest={restMock} />);
-    expect(screen.getAllByRole('heading', { name: 'Home' })).toHaveLength(2);
+    expect(screen.getAllByRole('heading', { name: 'Messaging' }).length).toBeGreaterThan(0);
   });
 
   it('shows Profiles in the main drawer directly after Home and opens it', async () => {

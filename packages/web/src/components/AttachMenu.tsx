@@ -5,6 +5,8 @@ interface AttachMenuProps {
   open: boolean;
   onClose: () => void;
   onFiles: (files: FileList | null) => void;
+  /** Present when skills can be listed: adds "Use a skill". */
+  onSkill?: (() => void) | undefined;
 }
 
 /**
@@ -12,7 +14,7 @@ interface AttachMenuProps {
  * `capture`) is the one combination where iOS offers Photo Library, Take Photo
  * and Choose File together, and Android/desktop show their normal picker.
  */
-export function AttachMenu({ open, onClose, onFiles }: AttachMenuProps) {
+export function AttachMenu({ open, onClose, onFiles, onSkill }: AttachMenuProps) {
   const filesInputRef = useRef<HTMLInputElement>(null);
 
   if (!open) return null;
@@ -35,6 +37,25 @@ export function AttachMenu({ open, onClose, onFiles }: AttachMenuProps) {
             <span className="hm-attach-item__hint">Photos, screenshots, PDFs, text and CSV, up to 16 MB</span>
           </span>
         </button>
+        {onSkill ? (
+          <button
+            type="button"
+            className="hm-attach-item"
+            role="menuitem"
+            onClick={() => {
+              onClose();
+              onSkill();
+            }}
+          >
+            <span className="hm-attach-item__icon" aria-hidden="true">
+              <Icon name="bolt" size={18} />
+            </span>
+            <span className="hm-attach-item__body">
+              <span className="hm-attach-item__label">Use a skill</span>
+              <span className="hm-attach-item__hint">Start this message with one of Hermes's skills</span>
+            </span>
+          </button>
+        ) : null}
       </div>
 
       <input

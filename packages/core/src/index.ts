@@ -12,7 +12,8 @@ export { makeRpcClient, makeRpcEvents, type RpcClient, type RpcEvents, type RpcE
 export { makeWsConnection, type WsConnection } from './transport/ws';
 export { useConnectionStore, type ConnectionState, type ConnectionStore } from './stores/connection';
 export { useSessionsStore, type SessionsStore } from './stores/sessions';
-export { useChatStore, type ChatStore } from './stores/chat';
+export { useChatStore, stabilizeMessages, LIVE_STREAM_QUIET_MS, LIVE_STREAM_STALE_MS, type ChatStore, type SubmitOptions } from './stores/chat';
+export { describeSkillInvocation, skillInvocationText, isSkillScaffold, type SkillInvocation } from './domain/skill-invocation';
 export { useActivityStore, type ActivityStore } from './stores/activity';
 export { useCronStore, type CronStore } from './stores/cron';
 export { useConfigStore, type ConfigStore } from './stores/config';
@@ -58,6 +59,7 @@ export type { IntervalUnit, ScheduleBuilderState, ScheduleDescribeStrings, Sched
 export type { McpServer } from './domain/mcp';
 export type { EnvVar } from './domain/env';
 export type { Skill } from './domain/skills';
+export { skillCommandSlug } from './domain/skills';
 export type {
   AuxiliaryModels,
   ModelAssignment,
@@ -67,6 +69,8 @@ export type {
   ModelProvider,
 } from './domain/model';
 export type { SystemStats, Checkpoint, OpsRunResult, SystemActionStatus } from './domain/system';
+export type { MessagingPlatform, MessagingPlatformState, MessagingOverview } from './domain/messaging';
+export { sortMessagingPlatforms, messagingStateLabel, toMessagingOverview } from './domain/messaging';
 export type { Artifact } from './domain/artifact';
 export type { HermesConfig } from './domain/config';
 export { extractFileRefs, stripAttachmentRefs, attachmentRefs, localFileUrl, localFileInfoUrl, MAX_FILE_REFS_PER_MESSAGE, type FileRef, type FileRefKind } from './domain/file-refs';

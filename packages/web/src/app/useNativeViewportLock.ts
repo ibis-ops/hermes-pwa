@@ -35,6 +35,11 @@ export function useNativeViewportLock() {
       tracking = true;
     };
 
+    // Only a document wider than the screen can pan sideways. When it is not,
+    // cancelling "mostly horizontal" moves would also cancel the vertical scroll
+    // a thumb starts at an angle, so those gestures are left alone.
+    const documentCanPanSideways = () => document.documentElement.scrollWidth > window.innerWidth + 1;
+
     const handleTouchMove = (event: TouchEvent) => {
       if (!tracking) return;
       const touch = event.touches[0];
@@ -51,7 +56,7 @@ export function useNativeViewportLock() {
       const absY = Math.abs(dy);
       const horizontal = absX > HORIZONTAL_SLOP_PX && absX > absY * 1.25;
 
-      if (horizontal) {
+      if (horizontal && documentCanPanSideways()) {
         event.preventDefault();
         clampDocumentX();
       }

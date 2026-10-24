@@ -14,6 +14,7 @@ const VALID_SCREENS = new Set<Screen>([
   'profiles',
   'cron',
   'artifacts',
+  'messaging',
   // TODO: Skills/Tools is temporarily hidden from the PWA menu until we decide
   // whether this administrative surface belongs in the mobile app.
   // Keep the screen code, but do not restore it from localStorage for now.

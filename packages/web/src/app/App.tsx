@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import {
   useConnectionStore,
   makeHttp,
@@ -27,6 +27,12 @@ const rpc = makeRpcClient((msg: string) => {
 export function App() {
   useNativeViewportLock();
   const connection = useConnectionStore();
+  // Once the shell has been on screen, a WebSocket reconnect (every return
+  // from another app on iOS) must not replace it with the connecting screen:
+  // that remount lost the scroll position and the text being typed, and
+  // flashed "Connecting" for a moment. The shell shows its own banner instead.
+  const shellShownRef = useRef(false);
+  if (connection.state === 'connected') shellShownRef.current = true;
 
   useEffect(() => {
     if (isPreview) return;
@@ -51,7 +57,7 @@ export function App() {
     return <Login store={connection} error={connection.error} />;
   }
 
-  if (connection.state === 'init' || connection.state === 'ticketing') {
+  if ((connection.state === 'init' || connection.state === 'ticketing') && !shellShownRef.current) {
     return (
       <div className="hm-app-shell">
         <div className="hm-empty-state">

@@ -14,6 +14,8 @@ import type { McpServer } from '../domain/mcp';
 import { toMcpServer } from '../domain/mcp';
 import type { EnvVar } from '../domain/env';
 import { toEnvVar } from '../domain/env';
+import type { MessagingOverview } from '../domain/messaging';
+import { toMessagingOverview } from '../domain/messaging';
 import type {
   AuxiliaryModels,
   ModelAssignment,
@@ -307,6 +309,8 @@ export interface RestClient {
   fileUpload(path: string, dataUrl: string, overwrite?: boolean): Promise<unknown>;
   /** Name, size and type of a file on the Hermes host, via the plugin's allowlisted file route. */
   localFileInfo(path: string): Promise<LocalFileInfo>;
+  /** The chat services the gateway can run a bot on, with connection state only (no secrets). */
+  messagingPlatforms(): Promise<MessagingOverview>;
 }
 
 export function makeRestClient(http: Http): RestClient {
@@ -783,6 +787,10 @@ export function makeRestClient(http: Http): RestClient {
         inline: raw.inline === true,
         image: raw.image === true,
       };
+    },
+
+    async messagingPlatforms(): Promise<MessagingOverview> {
+      return toMessagingOverview(await http<unknown>('/api/messaging/platforms'));
     },
   };
 }

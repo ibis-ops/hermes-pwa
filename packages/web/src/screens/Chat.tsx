@@ -23,6 +23,8 @@ import {
 import { Icon } from '../components/Icon';
 import { parseMaybeObject } from '../lib/toolView';
 import { pendingApprovalsForMessage, selectPendingApprovals } from '../lib/pendingApprovals';
+import { formatDividerTime, needsTimeDivider, toMillis } from '../lib/chatTime';
+import { DEFAULT_SKILL_EVENT, applyDefaultSkill, readDefaultSkill } from '../lib/defaultSkill';
 
 interface ChatProps {
   rpc: RpcClient;
@@ -247,7 +249,23 @@ export function Chat({ rpc, rest }: ChatProps) {
       if (!eventBelongsToActiveChat(e)) return;
       beginAssistant();
       const payload = e.payload as Record<string, unknown> | undefined;
+      if (payload?.text === null) {
+        // Segment boundary: commentary before a tool call ends here, the final
+        // answer starts a new paragraph instead of running into it.
+        useChatStore.getState().sealSegment();
+        return;
+      }
       useChatStore.getState().appendDelta(typeof payload?.text === 'string' ? payload.text : '');
+    };
+    const onInterim = (e: import('@hermes-pwa/core').RpcEvent) => {
+      if (!eventBelongsToActiveChat(e)) return;
+      beginAssistant();
+      const payload = e.payload as Record<string, unknown> | undefined;
+      const text = typeof payload?.text === 'string' ? payload.text.trim() : '';
+      if (text && payload?.already_streamed !== true) {
+        useChatStore.getState().appendDelta(text);
+      }
+      useChatStore.getState().sealSegment();
     };
     const onDone = (e: import('@hermes-pwa/core').RpcEvent) => {
       if (!eventBelongsToActiveChat(e)) return;
@@ -375,6 +393,7 @@ export function Chat({ rpc, rest }: ChatProps) {
       const { messages, streaming } = useChatStore.getState();
       const last = messages[messages.length - 1];
       if (!streaming || last?.role !== 'assistant') return;
+      useChatStore.getState().noteLiveEvent();
       setCleanLiveStatus(payload);
     };
 
@@ -417,6 +436,7 @@ export function Chat({ rpc, rest }: ChatProps) {
 
     rpc.events.addEventListener('message.start', onMessageStart);
     rpc.events.addEventListener('message.delta', onDelta);
+    rpc.events.addEventListener('message.interim', onInterim);
     rpc.events.addEventListener('message.complete', onDone);
     rpc.events.addEventListener('tool.start', onToolStart);
     rpc.events.addEventListener('tool.progress', onToolStart);
@@ -432,6 +452,7 @@ export function Chat({ rpc, rest }: ChatProps) {
     return () => {
       rpc.events.removeEventListener('message.start', onMessageStart);
       rpc.events.removeEventListener('message.delta', onDelta);
+      rpc.events.removeEventListener('message.interim', onInterim);
       rpc.events.removeEventListener('message.complete', onDone);
       rpc.events.removeEventListener('tool.start', onToolStart);
       rpc.events.removeEventListener('tool.progress', onToolStart);
@@ -552,9 +573,27 @@ export function Chat({ rpc, rest }: ChatProps) {
     [handleBusyInput, markLocalInputShouldScroll, profileForSubmit, rpc, submit],
   );
 
+  // The profile's default skill opens every new chat: the first message goes
+  // out as `/skill message` and Hermes expands it. Ongoing chats carry the skill
+  // in their history already, so only an empty chat gets it.
+  const [defaultSkill, setDefaultSkill] = useState<string | undefined>(() => readDefaultSkill(activeName));
+  useEffect(() => {
+    setDefaultSkill(readDefaultSkill(activeName));
+    const onChange = () => setDefaultSkill(readDefaultSkill(activeName));
+    window.addEventListener(DEFAULT_SKILL_EVENT, onChange);
+    window.addEventListener('storage', onChange);
+    return () => {
+      window.removeEventListener(DEFAULT_SKILL_EVENT, onChange);
+      window.removeEventListener('storage', onChange);
+    };
+  }, [activeName]);
+
   const handleSend = useCallback(
-    (text: string) => submitPrompt(text),
-    [submitPrompt],
+    (text: string) => {
+      const isNewChat = useChatStore.getState().messages.length === 0;
+      submitPrompt(applyDefaultSkill(text, defaultSkill, isNewChat));
+    },
+    [submitPrompt, defaultSkill],
   );
 
   const handleTranscribeAudio = useCallback(
@@ -708,22 +747,39 @@ export function Chat({ rpc, rest }: ChatProps) {
             <img className="hm-empty-state__logo" src="./icons/icon-192.png" alt="" aria-hidden="true" />
             <h2>Start a conversation</h2>
             <p className="hm-muted">Type a message, attach a photo, or tap the mic to dictate. Earlier chats are in the menu.</p>
+            {defaultSkill ? (
+              <p className="hm-empty-state__skill" data-testid="default-skill-hint">
+                <Icon name="bolt" size={13} />
+                Starts with /{defaultSkill}
+              </p>
+            ) : null}
           </div>
         ) : (
-          messages.map((m, index) => (
-            <MessageBubble
-              key={m.id}
-              message={m}
-              rpc={rpc}
-              rest={rest}
-              isLast={index === messages.length - 1}
-              streaming={streaming}
-              liveStatus={index === messages.length - 1 && streaming ? liveStatus.text : ''}
-              liveFace={undefined}
-              pendingApprovals={pendingApprovalsForMessage(pendingApprovals, index, messages.length)}
-              activeSessionIds={activeSessionIds}
-            />
-          ))
+          messages.map((m, index) => {
+            const at = toMillis(m.createdAt);
+            const previousAt = index > 0 ? toMillis(messages[index - 1]?.createdAt) : undefined;
+            const divider = needsTimeDivider(previousAt, at) && at !== undefined ? formatDividerTime(at) : undefined;
+            return (
+              <div key={m.id} className="hm-chat__entry">
+                {divider ? (
+                  <div className="hm-chat__time" role="separator" aria-label={divider} data-testid="time-divider">
+                    {divider}
+                  </div>
+                ) : null}
+                <MessageBubble
+                  message={m}
+                  rpc={rpc}
+                  rest={rest}
+                  isLast={index === messages.length - 1}
+                  streaming={streaming}
+                  liveStatus={index === messages.length - 1 && streaming ? liveStatus.text : ''}
+                  liveFace={undefined}
+                  pendingApprovals={pendingApprovalsForMessage(pendingApprovals, index, messages.length)}
+                  activeSessionIds={activeSessionIds}
+                />
+              </div>
+            );
+          })
         )}
 
         {error ? <div className="hm-warning-banner hm-warning-banner--error">{error}</div> : null}
@@ -743,6 +799,7 @@ export function Chat({ rpc, rest }: ChatProps) {
         onPrimeVoiceAudio={primeVoiceAudio}
         onUploadFile={handleUploadFile}
         onLayoutChange={handleComposerLayoutChange}
+        rest={rest}
       />
     </div>
   );

@@ -2593,3 +2593,459 @@ textarea {
 .hm-file-row--busy {
   opacity: 0.6;
 }
+
+/* ── Pass 6: behaviour fixes from the phone ─────────────────────────── */
+
+/* Keyboard. iOS keeps the layout viewport tall while the keyboard is up; the
+   shell follows the visual viewport instead so the composer stays above it. */
+.hm-app-shell {
+  height: var(--hm-visual-height, 100dvh);
+  max-height: var(--hm-visual-height, 100dvh);
+}
+
+html.hm-keyboard-open .hm-composer,
+html.hm-keyboard-open .hm-sheet,
+html.hm-keyboard-open .hm-login {
+  padding-bottom: 8px;
+}
+
+/* Touch screens have no hover: a tapped control must not stay highlighted. */
+@media (hover: none) {
+  .hm-attach-item:hover,
+  .hm-composer__action:hover:not(:disabled),
+  .hm-composer__send:hover:not(:disabled),
+  .hm-composer__stop:hover:not(:disabled),
+  .hm-slash-palette__item:hover {
+    background: transparent;
+  }
+
+  .hm-composer__send:hover:not(:disabled) {
+    background: var(--hm-color-accent);
+  }
+
+  .hm-composer__stop:hover:not(:disabled) {
+    background: var(--hm-color-text);
+  }
+}
+
+/* Thinking card: a quiet fold with a live tail while the reply streams. */
+.hm-thinking {
+  margin: 0 0 8px;
+  border: 0;
+  border-radius: 12px;
+  background: var(--hm-color-surface);
+  overflow: hidden;
+}
+
+.hm-thinking__header {
+  min-height: 40px;
+  padding: 0 12px;
+  gap: 8px;
+  font-size: var(--hm-fs-small);
+  font-weight: var(--hm-fw-medium);
+  color: var(--hm-color-text-muted);
+  -webkit-tap-highlight-color: transparent;
+}
+
+.hm-thinking__header:active {
+  background: var(--hm-color-fill);
+}
+
+.hm-thinking__icon {
+  display: inline-flex;
+  flex: none;
+  width: 22px;
+  height: 22px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 7px;
+  background: var(--hm-color-fill);
+  color: var(--hm-color-text-muted);
+}
+
+.hm-thinking[data-live='true'] .hm-thinking__icon {
+  color: var(--hm-color-accent);
+}
+
+.hm-thinking__title {
+  font-weight: var(--hm-fw-medium);
+}
+
+.hm-thinking__spinner {
+  flex: none;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 1.5px solid var(--hm-color-border);
+  border-top-color: var(--hm-color-accent);
+  animation: hm-spin 0.9s linear infinite;
+}
+
+.hm-thinking__chevron {
+  display: inline-flex;
+  margin-left: auto;
+  color: var(--hm-color-text-faint);
+  transition: transform 0.2s ease;
+}
+
+.hm-thinking[data-mode='full'] .hm-thinking__chevron,
+.hm-thinking[data-mode='live'] .hm-thinking__chevron {
+  transform: rotate(180deg);
+}
+
+/* The body is a plain block: when open it is all there, inline, so the chat
+   scrolls as one surface and nothing is clipped away. */
+.hm-message .hm-thinking__body {
+  margin: 0;
+  padding: 0 12px 12px;
+  max-height: none;
+  overflow: visible;
+  border-top: 0;
+  background: transparent;
+  font-family: var(--hm-font-sans);
+  font-size: var(--hm-fs-small);
+  line-height: 1.45;
+  color: var(--hm-color-text-muted);
+}
+
+/* While streaming: a short window pinned to the newest lines. */
+.hm-message .hm-thinking__body[data-mode='live'] {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  max-height: 132px;
+  overflow: hidden;
+}
+
+.hm-thinking[data-long='true'] .hm-thinking__body[data-mode='live'] {
+  -webkit-mask-image: linear-gradient(to bottom, transparent, #000 40px);
+  mask-image: linear-gradient(to bottom, transparent, #000 40px);
+}
+
+.hm-message .hm-thinking__text {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  max-height: none;
+  overflow: visible;
+  background: transparent;
+  font: inherit;
+  color: inherit;
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+
+.hm-message .hm-thinking__text code {
+  padding: 0;
+  background: transparent;
+  font: inherit;
+  color: inherit;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hm-thinking__spinner {
+    animation: none;
+    border-top-color: var(--hm-color-border);
+  }
+
+  .hm-thinking__chevron {
+    transition: none;
+  }
+}
+
+/* ── Messaging: which chat services have a Hermes bot ───────────────── */
+.hm-messaging {
+  padding: 12px 16px 32px;
+}
+
+.hm-messaging__lead {
+  margin: 4px 0 16px;
+  font-size: var(--hm-fs-small);
+  line-height: 1.4;
+}
+
+.hm-bot-list {
+  padding: 0;
+}
+
+.hm-bot-list__empty {
+  margin: 0;
+  padding: 14px 16px;
+  font-size: var(--hm-fs-small);
+}
+
+.hm-bot + .hm-bot {
+  border-top: 1px solid var(--hm-color-border);
+}
+
+.hm-bot__row {
+  display: flex;
+  width: 100%;
+  min-height: 56px;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 16px;
+  border: 0;
+  background: transparent;
+  color: var(--hm-color-text);
+  font: inherit;
+  text-align: left;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.hm-bot__row:active {
+  background: var(--hm-color-fill);
+}
+
+.hm-bot__dot {
+  flex: none;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--hm-color-text-faint);
+}
+
+.hm-bot--connected .hm-bot__dot {
+  background: var(--hm-color-success);
+  box-shadow: 0 0 0 3px var(--hm-color-success-bg);
+}
+
+.hm-bot--connecting .hm-bot__dot {
+  background: var(--hm-color-running);
+  animation: hm-pulse 1.6s infinite;
+}
+
+.hm-bot--error .hm-bot__dot {
+  background: var(--hm-color-danger);
+  box-shadow: 0 0 0 3px var(--hm-color-danger-bg);
+}
+
+.hm-bot--enabled .hm-bot__dot {
+  background: var(--hm-color-warning);
+}
+
+.hm-bot__body {
+  display: flex;
+  min-width: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.hm-bot__name {
+  font-size: var(--hm-fs-body);
+  font-weight: var(--hm-fw-medium);
+}
+
+.hm-bot__meta {
+  font-size: var(--hm-fs-small);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hm-bot--error .hm-bot__meta {
+  color: var(--hm-color-danger-strong);
+  white-space: normal;
+}
+
+.hm-bot__age {
+  flex: none;
+  font-size: var(--hm-fs-label);
+}
+
+.hm-bot__chevron {
+  display: inline-flex;
+  flex: none;
+  color: var(--hm-color-text-faint);
+  transition: transform 0.2s ease;
+}
+
+.hm-bot__row[aria-expanded='true'] .hm-bot__chevron {
+  transform: rotate(180deg);
+}
+
+.hm-bot__detail {
+  padding: 0 16px 14px 38px;
+  font-size: var(--hm-fs-small);
+  line-height: 1.45;
+}
+
+.hm-bot__detail p {
+  margin: 0 0 8px;
+}
+
+.hm-bot__error {
+  color: var(--hm-color-danger-strong);
+  word-break: break-word;
+}
+
+.hm-bot__link {
+  color: var(--hm-color-accent);
+  text-decoration: none;
+  font-weight: var(--hm-fw-medium);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hm-bot--connecting .hm-bot__dot {
+    animation: none;
+  }
+
+  .hm-bot__chevron {
+    transition: none;
+  }
+}
+
+/* ── Chat time stamps: centered dividers at gaps, like Messages ──────── */
+.hm-chat__entry {
+  display: flex;
+  flex: 0 0 auto;
+  flex-direction: column;
+  min-width: 0;
+  max-width: 100%;
+  gap: 10px;
+}
+
+.hm-chat__time {
+  align-self: center;
+  margin: 8px 0 0;
+  padding: 0 12px;
+  font-size: var(--hm-fs-label);
+  font-weight: var(--hm-fw-medium);
+  color: var(--hm-color-text-faint);
+  text-align: center;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.hm-chat__entry:first-child .hm-chat__time {
+  margin-top: 2px;
+}
+
+/* ── Skill picker ────────────────────────────────────────────────────── */
+.hm-sheet--skills .hm-sheet__content {
+  max-height: 80dvh;
+}
+
+.hm-skill-picker {
+  padding: 0 0 16px;
+}
+
+.hm-skill-picker__search {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 16px 8px;
+  padding: 0 12px;
+  min-height: 38px;
+  border-radius: 12px;
+  background: var(--hm-color-fill);
+  color: var(--hm-color-text-muted);
+}
+
+.hm-skill-picker__search input {
+  flex: 1 1 auto;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  color: var(--hm-color-text);
+  font: inherit;
+  font-size: var(--hm-fs-body);
+  outline: none;
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+.hm-skill-picker__search input::-webkit-search-cancel-button {
+  -webkit-appearance: none;
+}
+
+.hm-skill-picker__group {
+  margin: 0 16px 14px;
+  border-radius: 12px;
+  background: var(--hm-color-surface);
+  overflow: hidden;
+}
+
+.hm-skill-picker__heading {
+  margin: 0;
+  padding: 10px 14px 4px;
+  font-size: var(--hm-fs-label);
+  font-weight: var(--hm-fw-medium);
+  color: var(--hm-color-text-muted);
+}
+
+.hm-skill-picker__row {
+  display: flex;
+  width: 100%;
+  min-height: 52px;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 14px;
+  border: 0;
+  background: transparent;
+  color: var(--hm-color-text);
+  font: inherit;
+  text-align: left;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.hm-skill-picker__row + .hm-skill-picker__row {
+  border-top: 1px solid var(--hm-color-border);
+}
+
+.hm-skill-picker__row:active {
+  background: var(--hm-color-fill);
+}
+
+.hm-skill-picker__row--selected {
+  color: var(--hm-color-accent);
+}
+
+.hm-skill-picker__body {
+  display: flex;
+  min-width: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.hm-skill-picker__name {
+  font-size: var(--hm-fs-body);
+  font-weight: var(--hm-fw-medium);
+  font-family: var(--hm-font-mono);
+  font-size: 15px;
+}
+
+.hm-skill-picker__desc {
+  font-size: var(--hm-fs-label);
+  line-height: 1.35;
+  color: var(--hm-color-text-muted);
+}
+
+.hm-skill-picker__empty {
+  margin: 8px 16px;
+}
+
+.hm-empty-state__skill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 6px 0 0;
+  padding: 5px 12px;
+  border-radius: var(--hm-radius-full);
+  background: var(--hm-color-fill);
+  color: var(--hm-color-text-muted);
+  font-size: var(--hm-fs-label);
+  font-weight: var(--hm-fw-medium);
+}
+
+/* A /skill turn reads as a command, not as prose. */
+.hm-message--user[data-kind='skill_invocation'] p {
+  font-family: var(--hm-font-mono);
+  font-size: 15px;
+}

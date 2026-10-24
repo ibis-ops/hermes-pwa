@@ -119,6 +119,8 @@ describe('App Phase 3', () => {
   it('locks the native viewport and cancels horizontal touch pan', () => {
     render(<App />);
     expect(document.documentElement.classList.contains('hm-native-viewport-lock')).toBe(true);
+    // A document wider than the screen is the case the lock exists for.
+    Object.defineProperty(document.documentElement, 'scrollWidth', { configurable: true, value: window.innerWidth + 200 });
 
     const start = new Event('touchstart', { bubbles: true, cancelable: true });
     Object.defineProperty(start, 'touches', {
@@ -139,6 +141,20 @@ describe('App Phase 3', () => {
     });
     document.dispatchEvent(verticalMove);
     expect(verticalMove.defaultPrevented).toBe(false);
+  });
+
+  it('leaves angled thumb scrolls alone when the document fits the screen', () => {
+    render(<App />);
+    Object.defineProperty(document.documentElement, 'scrollWidth', { configurable: true, value: window.innerWidth });
+
+    const start = new Event('touchstart', { bubbles: true, cancelable: true });
+    Object.defineProperty(start, 'touches', { value: [{ clientX: 10, clientY: 10 }] });
+    document.dispatchEvent(start);
+
+    const angledMove = new Event('touchmove', { bubbles: true, cancelable: true });
+    Object.defineProperty(angledMove, 'touches', { value: [{ clientX: 70, clientY: 14 }] });
+    document.dispatchEvent(angledMove);
+    expect(angledMove.defaultPrevented).toBe(false);
   });
 
   it('cancels pinch-style multi-touch moves and gesture zoom events', () => {

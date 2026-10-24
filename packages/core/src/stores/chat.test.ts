@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { useChatStore } from './chat';
+import { LIVE_STREAM_QUIET_MS, LIVE_STREAM_STALE_MS, __setLiveEventAge, useChatStore } from './chat';
 import { useSessionsStore } from './sessions';
 import { HermesHttpError } from '../transport/http';
 import { JsonRpcError, type RpcClient } from '../transport/jsonrpc';
@@ -11,6 +11,7 @@ describe('useChatStore', () => {
 
   beforeEach(() => {
     window.localStorage.clear();
+    __setLiveEventAge(undefined);
     useChatStore.setState({ sessionId: undefined, storedSessionId: undefined, messages: [], streaming: false, error: undefined });
     useSessionsStore.setState({ sessions: [], loading: false, error: undefined, pinnedIds: [] });
 
@@ -1107,6 +1108,8 @@ describe('useChatStore', () => {
         { id: 'a-rest-final', role: 'assistant', text: 'Self-check complete. All good.', created_at: 2 },
       ],
     });
+    // The stream went quiet long ago (the WebSocket died): the snapshot may reconcile.
+    __setLiveEventAge(LIVE_STREAM_QUIET_MS + 1);
 
     await useChatStore.getState().refreshHistory(restMock, 'default');
 
@@ -1433,5 +1436,163 @@ describe('useChatStore', () => {
     expect(state.sessionId).toBeUndefined();
     expect(state.messages).toEqual([]);
     expect(state.streaming).toBe(false);
+  });
+  describe('live stream vs REST refresh', () => {
+    function liveTurn() {
+      useSessionsStore.setState({
+        sessions: [{ id: 'stored-live', title: 'Live', updatedAt: 2, messageCount: 2, profile: 'default' }],
+        loading: false,
+        error: undefined,
+        pinnedIds: [],
+      });
+      useChatStore.setState({
+        sessionId: 'live-1',
+        storedSessionId: 'stored-live',
+        messages: [
+          { id: 'u-1', role: 'user', text: 'run the check', createdAt: 1 },
+          { id: 'a-1', role: 'assistant', text: '', createdAt: 2, thinking: 'Looking at the repo', toolCalls: [{ id: 't-1', name: 'terminal' }] },
+        ],
+        streaming: true,
+        error: undefined,
+      });
+      Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' });
+    }
+
+    it('leaves a turn alone while its events are still arriving', async () => {
+      liveTurn();
+      useChatStore.getState().appendThinking(' more');
+      vi.mocked(restMock.sessionMessages).mockResolvedValue({
+        session_id: 'stored-live',
+        messages: [{ id: 'u-rest', role: 'user', text: 'run the check', created_at: 1 }],
+      });
+      const before = useChatStore.getState().messages;
+
+      await useChatStore.getState().refreshHistory(restMock, 'default');
+
+      expect(restMock.sessionMessages).not.toHaveBeenCalled();
+      expect(useChatStore.getState().messages).toBe(before);
+      expect(useChatStore.getState().streaming).toBe(true);
+    });
+
+    it('keeps streaming through a quiet tool call when REST has no finished answer yet', async () => {
+      liveTurn();
+      __setLiveEventAge(LIVE_STREAM_QUIET_MS + 1);
+      vi.mocked(restMock.sessionMessages).mockResolvedValue({
+        session_id: 'stored-live',
+        messages: [{ id: 'u-rest', role: 'user', text: 'run the check', created_at: 1 }],
+      });
+
+      await useChatStore.getState().refreshHistory(restMock, 'default');
+
+      expect(useChatStore.getState().streaming).toBe(true);
+      const last = useChatStore.getState().messages.at(-1);
+      expect(last?.role).toBe('assistant');
+      expect(last?.thinking).toBe('Looking at the repo');
+    });
+
+    it('gives up on a turn that has been silent for a very long time', async () => {
+      liveTurn();
+      __setLiveEventAge(LIVE_STREAM_STALE_MS + 1);
+      vi.mocked(restMock.sessionMessages).mockResolvedValue({
+        session_id: 'stored-live',
+        messages: [{ id: 'u-rest', role: 'user', text: 'run the check', created_at: 1 }],
+      });
+
+      await useChatStore.getState().refreshHistory(restMock, 'default');
+
+      expect(useChatStore.getState().streaming).toBe(false);
+    });
+
+    it('hands back the same message objects when a refresh changes nothing', async () => {
+      useSessionsStore.setState({
+        sessions: [{ id: 'stored-idle', title: 'Idle', updatedAt: 2, messageCount: 2, profile: 'default' }],
+        loading: false,
+        error: undefined,
+        pinnedIds: [],
+      });
+      const messages = [
+        { id: '1', role: 'user' as const, text: 'hi', createdAt: 1 },
+        { id: '2', role: 'assistant' as const, text: 'hello', createdAt: 2 },
+      ];
+      useChatStore.setState({ sessionId: 'live-idle', storedSessionId: 'stored-idle', messages, streaming: false, error: undefined });
+      vi.mocked(restMock.sessionMessages).mockResolvedValue({
+        session_id: 'stored-idle',
+        messages: [
+          { id: '1', role: 'user', text: 'hi', created_at: 1 },
+          { id: '2', role: 'assistant', text: 'hello', created_at: 2 },
+        ],
+      });
+
+      await useChatStore.getState().refreshHistory(restMock, 'default');
+
+      expect(useChatStore.getState().messages).toBe(messages);
+    });
+  });
+
+  describe('reply segments and skill turns', () => {
+    it('separates interim commentary from the final answer and keeps both', () => {
+      useChatStore.setState({
+        sessionId: 's',
+        messages: [
+          { id: 'u', role: 'user', text: 'go', createdAt: 1 },
+          { id: 'a', role: 'assistant', text: '', createdAt: 1 },
+        ],
+        streaming: true,
+      });
+      useChatStore.getState().appendDelta('Checking the file first.');
+      useChatStore.getState().sealSegment();
+      useChatStore.getState().sealSegment();
+      useChatStore.getState().appendDelta('Done: the file is fine.');
+      useChatStore.getState().finishAssistant('Done: the file is fine.');
+
+      expect(useChatStore.getState().messages.at(-1)?.text).toBe('Checking the file first.\n\nDone: the file is fine.');
+    });
+
+    it('prefers the final text when the stream never delivered it', () => {
+      useChatStore.setState({
+        sessionId: 's',
+        messages: [
+          { id: 'u', role: 'user', text: 'go', createdAt: 1 },
+          { id: 'a', role: 'assistant', text: 'partial', createdAt: 1 },
+        ],
+        streaming: true,
+      });
+      useChatStore.getState().finishAssistant('The complete answer.');
+      expect(useChatStore.getState().messages.at(-1)?.text).toBe('The complete answer.');
+    });
+
+    it('shows a stored /skill turn as typed and hides rows Hermes marks hidden', async () => {
+      useSessionsStore.setState({
+        sessions: [{ id: 'stored-skill', title: 'Skill', updatedAt: 2, messageCount: 2, profile: 'default' }],
+        loading: false,
+        error: undefined,
+        pinnedIds: [],
+      });
+      useChatStore.setState({ sessionId: 'live-skill', storedSessionId: 'stored-skill', messages: [], streaming: false, error: undefined });
+      const scaffold = [
+        '[IMPORTANT: The user has invoked the "obsidian" skill, indicating they want you to follow its instructions. The full skill content is loaded below.]',
+        '',
+        '# Obsidian',
+        'Lots of skill text here.',
+        '',
+        'The user has provided the following instruction alongside the skill invocation: find my notes on ApoB',
+        '',
+        '[Runtime note: something]',
+      ].join('\n');
+      vi.mocked(restMock.sessionMessages).mockResolvedValue({
+        session_id: 'stored-skill',
+        messages: [
+          { id: '1', role: 'user', content: scaffold, timestamp: 1 },
+          { id: '2', role: 'user', content: '[System: recovery nudge]', display_kind: 'hidden', timestamp: 1.5 },
+          { id: '3', role: 'assistant', content: 'Here are your notes.', timestamp: 2 },
+        ],
+      });
+
+      await useChatStore.getState().refreshHistory(restMock, 'default');
+
+      const messages = useChatStore.getState().messages;
+      expect(messages.map((m) => m.text)).toEqual(['/obsidian find my notes on ApoB', 'Here are your notes.']);
+      expect(messages[0]?.displayKind).toBe('skill_invocation');
+    });
   });
 });
