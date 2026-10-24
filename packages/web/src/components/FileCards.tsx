@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { localFileUrl, type FileRef, type RestClient } from '@hermes-pwa/core';
 import { Icon } from './Icon';
+import { Lightbox } from './Lightbox';
 
 interface FileCardsProps {
   refs: FileRef[];
@@ -71,20 +72,24 @@ function useFileInfo(file: FileRef, rest: RestClient | undefined): InfoState {
 
 function ImageCard({ file, rest }: { file: FileRef; rest: RestClient | undefined }) {
   const [failed, setFailed] = useState(false);
+  const [open, setOpen] = useState(false);
   const url = localFileUrl('', file.path);
   if (failed) return <FileRow file={file} rest={rest} />;
   return (
-    <a
-      className="hm-file-image"
-      href={url}
-      target="_blank"
-      rel="noopener noreferrer"
-      aria-label={`Open image ${file.name}`}
-      data-testid="file-image"
-    >
-      <img src={url} alt={file.name} loading="lazy" decoding="async" onError={() => setFailed(true)} />
-      <span className="hm-file-image__name">{file.name}</span>
-    </a>
+    <>
+      <button
+        type="button"
+        className="hm-file-image"
+        onClick={() => setOpen(true)}
+        aria-label={`Open image ${file.name}`}
+        data-testid="file-image"
+        data-href={url}
+      >
+        <img src={url} alt={file.name} loading="lazy" decoding="async" onError={() => setFailed(true)} />
+        <span className="hm-file-image__name">{file.name}</span>
+      </button>
+      {open ? <Lightbox src={url} name={file.name} onClose={() => setOpen(false)} /> : null}
+    </>
   );
 }
 

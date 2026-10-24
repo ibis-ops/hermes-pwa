@@ -22,13 +22,17 @@ describe('FileCards', () => {
     expect(container.firstChild).toBeNull();
   });
 
-  it('shows images inline through the plugin file route', () => {
+  it('shows images inline through the plugin file route and opens them in place', () => {
     render(<FileCards refs={[{ path: '/Users/sean/Desktop/shot.png', name: 'shot.png', ext: 'png', kind: 'image' }]} />);
-    const link = screen.getByTestId('file-image');
-    expect(link).toHaveAttribute('href', '/api/plugins/hermes-pwa/file?path=%2FUsers%2Fsean%2FDesktop%2Fshot.png');
-    expect(link).toHaveAttribute('target', '_blank');
-    expect(link).toHaveAttribute('rel', 'noopener noreferrer');
-    expect(screen.getByRole('img', { name: 'shot.png' })).toHaveAttribute('src', link.getAttribute('href'));
+    const card = screen.getByTestId('file-image');
+    const url = '/api/plugins/hermes-pwa/file?path=%2FUsers%2Fsean%2FDesktop%2Fshot.png';
+    expect(screen.getByRole('img', { name: 'shot.png' })).toHaveAttribute('src', url);
+    fireEvent.click(card);
+    const lightbox = screen.getByTestId('lightbox');
+    expect(lightbox).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /Open image in a new tab/ })).toHaveAttribute('href', url);
+    fireEvent.click(screen.getByRole('button', { name: 'Close image' }));
+    expect(screen.queryByTestId('lightbox')).toBeNull();
   });
 
   it('shows a file row with size and type from the info route', async () => {
