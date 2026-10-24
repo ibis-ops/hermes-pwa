@@ -2464,3 +2464,48 @@ textarea {
   -webkit-user-select: auto;
   user-select: auto;
 }
+
+/* ════════════════════════════════════════════════════════════════════
+   Pass 5: live-turn details
+   ════════════════════════════════════════════════════════════════════ */
+
+/* Tool rows: never let a long command push past the edge. */
+.hm-tool-group__row-button {
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+}
+
+.hm-tool-group__row-title {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hm-tool-group__row-target {
+  font-family: var(--hm-font-mono);
+  font-size: 13px;
+}
+
+.hm-tool-group__row-detail-label {
+  text-transform: none;
+  letter-spacing: 0;
+  font-size: var(--hm-fs-label);
+  font-weight: var(--hm-fw-medium);
+}
+
+/* Reasoning reads as prose, not as code. */
+.hm-thinking__body {
+  font-family: var(--hm-font-sans);
+  font-size: var(--hm-fs-small);
+  line-height: 1.4;
+  max-height: 240px;
+}
+
+/* Live status line next to the avatar */
+.hm-live-status--inline {
+  font-size: var(--hm-fs-label);
+  color: var(--hm-color-text-muted);
+}
