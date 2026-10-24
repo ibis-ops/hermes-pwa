@@ -414,7 +414,9 @@ def _save_delivery_state(state: dict[str, Any], path: Path | None = None) -> Non
     target = path or push_delivery_state_path()
     target.parent.mkdir(parents=True, exist_ok=True)
     tmp = target.with_suffix(target.suffix + ".tmp")
-    tmp.write_text(json.dumps(state, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as handle:
+        handle.write(json.dumps(state, indent=2, sort_keys=True) + "\n")
     os.replace(tmp, target)
 
 
