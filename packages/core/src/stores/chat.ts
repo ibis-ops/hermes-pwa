@@ -342,7 +342,32 @@ function messagesFromResult(raw: unknown): Message[] {
   const internal = maybeMessages
     .filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === 'object')
     .map(toInternalMessage);
-  return mergeToolMessages(internal).map(toPublicMessage);
+  return collapseAssistantRuns(mergeToolMessages(internal).map(toPublicMessage));
+}
+
+/**
+ * Hermes stores one reply as several assistant rows when tools are involved
+ * (a row holding the tool calls with empty text, then the answer). The live
+ * stream shows a single bubble with the tools above the answer, so fold
+ * consecutive assistant rows into one message to match.
+ */
+function collapseAssistantRuns(messages: Message[]): Message[] {
+  const out: Message[] = [];
+  for (const message of messages) {
+    const last = out[out.length - 1];
+    if (!last || last.role !== 'assistant' || message.role !== 'assistant') {
+      out.push(message);
+      continue;
+    }
+    const text = [last.text, message.text].filter((t) => t.trim() !== '').join('\n\n');
+    const toolCalls = [...(last.toolCalls ?? []), ...(message.toolCalls ?? [])];
+    const thinking = [last.thinking, message.thinking].filter((t): t is string => Boolean(t && t.trim())).join('\n\n');
+    const merged: Message = { ...last, text };
+    if (toolCalls.length > 0) merged.toolCalls = toolCalls;
+    if (thinking) merged.thinking = thinking;
+    out[out.length - 1] = merged;
+  }
+  return out;
 }
 
 function liveSessionIdFromResult(raw: unknown): string {
@@ -410,19 +435,6 @@ function isDuplicateReasoning(reasoning: string | undefined, answer: string | un
   return r.startsWith(a) || a.startsWith(r);
 }
 
-function messageFingerprint(message: Message): string {
-  // Intentionally exclude toolCalls from the fingerprint. The same assistant
-  // message can have different tool call shapes between the realtime WS stream
-  // and the REST session snapshot (different ids, missing output, different
-  // ordering). Including them causes the merge to treat the REST version as a
-  // different message and drop the local one with its inline approval UI.
-  return JSON.stringify([
-    message.role,
-    message.text,
-    message.thinking ?? '',
-  ]);
-}
-
 function toolCallKey(tool: ToolCall): string {
   return tool.id || `${tool.name}:${JSON.stringify(tool.input ?? {})}`;
 }
@@ -441,63 +453,124 @@ function mergeToolCallsPreservingLocalPending(historyTools: ToolCall[] | undefin
   return merged;
 }
 
-function mergeHistoryMessageWithLocal(historyMessage: Message, localMessage: Message): Message {
-  const toolCalls = mergeToolCallsPreservingLocalPending(historyMessage.toolCalls, localMessage.toolCalls);
-  if (!toolCalls || toolCalls === historyMessage.toolCalls) return historyMessage;
-  return { ...historyMessage, toolCalls };
-}
-
 function isEmptyAssistantPlaceholder(message: Message): boolean {
   return message.role === 'assistant' && message.text.trim() === '' && (message.thinking ?? '').trim() === '';
 }
 
-function hasCompletedHistoryAssistantForLocalTurn(history: Message[], local: Message[], localIndex: number): boolean {
-  for (let i = localIndex - 1; i >= 0; i -= 1) {
-    const localMessage = local[i];
-    if (!localMessage) continue;
-    if (localMessage.role !== 'user') continue;
-    const userKey = messageFingerprint(localMessage);
-    const historyUserIndex = history.findIndex((historyMessage) => messageFingerprint(historyMessage) === userKey);
-    if (historyUserIndex < 0) return false;
-    for (let j = historyUserIndex + 1; j < history.length; j += 1) {
-      const historyMessage = history[j];
-      if (!historyMessage) continue;
-      if (historyMessage.role === 'user') return false;
-      if (historyMessage.role === 'assistant' && historyMessage.text.trim() !== '') return true;
+function hasCompletedAssistant(turn: Message[]): boolean {
+  return turn.some((m) => m.role === 'assistant' && m.text.trim() !== '');
+}
+
+/**
+ * Split a transcript into turns: an optional leading run of non-user messages,
+ * then one slice per user message (the user message and whatever followed it).
+ */
+function splitTurns(messages: Message[]): Message[][] {
+  const turns: Message[][] = [];
+  let current: Message[] = [];
+  for (const message of messages) {
+    if (message.role === 'user') {
+      if (current.length > 0 || turns.length === 0) turns.push(current);
+      current = [message];
+      continue;
     }
-    return false;
+    current.push(message);
   }
-  return false;
+  turns.push(current);
+  // The first slot is the pre-user lead; keep it even when empty so indexes
+  // line up between history and local.
+  return turns;
 }
 
-function shouldDropLocalTailMessage(history: Message[], local: Message[], localIndex: number, message: Message): boolean {
-  // A backgrounded PWA can keep the realtime tool-call placeholder after REST already has the final answer.
-  // Drop only that same-turn placeholder; keep pending approval/tool rows when REST has no completed answer yet.
-  return isEmptyAssistantPlaceholder(message) && hasCompletedHistoryAssistantForLocalTurn(history, local, localIndex);
+function userCount(turns: Message[][]): number {
+  return turns.filter((turn) => turn[0]?.role === 'user').length;
 }
 
+function pendingToolCalls(turn: Message[]): ToolCall[] {
+  return turn.flatMap((m) => (m.role === 'assistant' ? (m.toolCalls ?? []).filter((t) => t.output === undefined) : []));
+}
+
+function attachPendingToolCalls(turn: Message[], pending: ToolCall[]): Message[] {
+  if (pending.length === 0) return turn;
+  for (let i = turn.length - 1; i >= 0; i -= 1) {
+    const message = turn[i];
+    if (!message || message.role !== 'assistant') continue;
+    const toolCalls = mergeToolCallsPreservingLocalPending(message.toolCalls, pending);
+    if (!toolCalls || toolCalls === message.toolCalls) return turn;
+    const next = [...turn];
+    next[i] = { ...message, toolCalls };
+    return next;
+  }
+  return turn;
+}
+
+/**
+ * Reconcile the REST transcript (source of truth for every finished turn) with
+ * the local, live transcript.
+ *
+ * Turns are matched by position, not by text: Hermes rewrites prompts (it
+ * expands `@file:` references), stores a tool-using reply as several rows and
+ * drops reasoning, so text fingerprints never line up reliably and used to
+ * leave duplicates behind. Positional rules:
+ *
+ * - Every turn the REST transcript has is taken from REST. If REST has no
+ *   completed answer yet for its last turn (tool calls still running, or the
+ *   answer not persisted yet), the local assistant for that turn is kept so an
+ *   in-flight reply never disappears.
+ * - Local tool calls still waiting for output (approval prompts) are merged
+ *   onto the matching REST assistant so inline approval UI survives a refresh.
+ * - Local turns newer than anything REST knows (the prompt just sent and its
+ *   streaming reply) are preserved as the tail.
+ */
 function mergeHistoryWithLocal(history: Message[], local: Message[]): { messages: Message[]; preservedLocalTail: Message[] } {
   if (local.length === 0) {
     return { messages: history, preservedLocalTail: [] };
   }
+  if (history.length === 0) {
+    return { messages: local, preservedLocalTail: local };
+  }
 
-  const consumedLocal = new Set<number>();
-  const mergedHistory = history.map((historyMessage) => {
-    const key = messageFingerprint(historyMessage);
-    const localIndex = local.findIndex((localMessage, index) => !consumedLocal.has(index) && messageFingerprint(localMessage) === key);
-    if (localIndex < 0) return historyMessage;
-    const localMatch = local[localIndex];
-    if (!localMatch) return historyMessage;
-    consumedLocal.add(localIndex);
-    return mergeHistoryMessageWithLocal(historyMessage, localMatch);
+  const historyTurns = splitTurns(history);
+  const localTurns = splitTurns(local);
+  const covered = userCount(historyTurns);
+  const localUserTurns = localTurns.filter((turn) => turn[0]?.role === 'user');
+  const localLead = localTurns[0]?.[0]?.role === 'user' ? [] : localTurns[0] ?? [];
+
+  const merged: Message[] = [];
+  const preservedLocalTail: Message[] = [];
+
+  historyTurns.forEach((turn, index) => {
+    const isLast = index === historyTurns.length - 1;
+    const isLead = turn[0]?.role !== 'user';
+    const localTurn = isLead ? localLead : localUserTurns[index - (historyTurns[0]?.[0]?.role === 'user' ? 0 : 1)] ?? [];
+    let next = attachPendingToolCalls(turn, pendingToolCalls(localTurn));
+    if (isLast && !hasCompletedAssistant(turn)) {
+      // REST lags the live stream: keep the local assistant for this turn.
+      const localAssistant = localTurn.filter((m) => m.role === 'assistant');
+      const restHasAssistant = turn.some((m) => m.role === 'assistant');
+      if (localAssistant.length > 0 && !restHasAssistant) {
+        next = [...next, ...localAssistant];
+        preservedLocalTail.push(...localAssistant);
+      } else if (localAssistant.length > 0 && restHasAssistant) {
+        const liveText = localAssistant.find((m) => !isEmptyAssistantPlaceholder(m));
+        if (liveText) {
+          // REST has the placeholder row only; the live text is newer.
+          next = next.map((m) => (m.role === 'assistant' && m === next[next.length - 1] ? { ...m, text: liveText.text, ...(liveText.thinking ? { thinking: liveText.thinking } : {}) } : m));
+          preservedLocalTail.push(liveText);
+        }
+      }
+    }
+    merged.push(...next);
   });
 
-  const preservedLocalTail = local.filter((message, index) => {
-    if (consumedLocal.has(index)) return false;
-    return !shouldDropLocalTailMessage(history, local, index, message);
-  });
+  // Local turns REST has not caught up with yet.
+  const newer = localUserTurns.slice(covered);
+  for (const turn of newer) {
+    merged.push(...turn);
+    preservedLocalTail.push(...turn);
+  }
 
-  return { messages: [...mergedHistory, ...preservedLocalTail], preservedLocalTail };
+  return { messages: merged, preservedLocalTail };
 }
 
 function dropPendingOptimisticTail(messages: Message[]): Message[] {

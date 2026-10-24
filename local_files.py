@@ -12,7 +12,9 @@ Security boundaries (all enforced here, tests in dashboard/tests):
   Documents, Pictures and Movies. ``HERMES_PWA_FILE_ROOTS`` (os.pathsep
   separated) replaces the list.
 * Paths are resolved with ``realpath`` before the root check, so symlinks and
-  ``..`` segments cannot escape a root. Dot-files and dot-directories *inside*
+  ``..`` segments cannot escape a root. A relative path is taken relative to
+  the Hermes home (that is how Hermes names phone uploads), and still has to
+  land inside a root. Dot-files and dot-directories *inside*
   a root are refused (``~/.hermes`` itself is a root; its own name is fine).
 * Only regular files are served, up to ``MAX_FILE_BYTES``.
 * The response media type comes from the file extension, never from content
@@ -123,6 +125,10 @@ def _home() -> Path:
     return Path(os.environ.get("HERMES_PWA_FILE_HOME") or Path.home()).expanduser()
 
 
+def _hermes_home() -> Path:
+    return Path(os.environ.get("HERMES_HOME") or _home() / ".hermes").expanduser()
+
+
 def allowed_roots() -> list[Path]:
     """Real paths of the roots files may be served from. Missing dirs are skipped."""
     raw = os.environ.get("HERMES_PWA_FILE_ROOTS")
@@ -156,8 +162,14 @@ def resolve_served_file(raw_path: str) -> ServedFile:
         raise FileAccessError(400, "invalid path")
     if text.startswith("~"):
         text = str(_home() / text[1:].lstrip("/"))
-    if not os.path.isabs(text):
-        raise FileAccessError(400, "path must be absolute")
+    elif not os.path.isabs(text):
+        # Hermes writes `@file:attachments/<name>` for phone uploads, relative to
+        # its home directory; resolve the same way so those cards work. Any
+        # other relative path lands outside the roots and is refused below, and
+        # a relative path has no business climbing with `..` at all.
+        if ".." in Path(text).parts:
+            raise FileAccessError(400, "invalid path")
+        text = str(_hermes_home() / text)
 
     real = Path(os.path.realpath(text))
     root = next((r for r in allowed_roots() if real == r or real.is_relative_to(r)), None)

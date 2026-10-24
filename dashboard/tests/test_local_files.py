@@ -73,11 +73,23 @@ class LocalFilePolicyTests(unittest.TestCase):
                 self._resolve(raw)
             self.assertIn(ctx.exception.status, (403, 404), raw)
 
-    def test_refuses_relative_and_empty_paths(self):
-        for raw in ("", "   ", "Desktop/shot.png", "shot.png"):
+    def test_refuses_empty_paths(self):
+        for raw in ("", "   "):
             with self.assertRaises(local_files.FileAccessError) as ctx:
                 self._resolve(raw)
             self.assertEqual(ctx.exception.status, 400, raw)
+
+    def test_relative_paths_resolve_against_the_hermes_home(self):
+        attachments = self.home / ".hermes" / "attachments"
+        attachments.mkdir(parents=True)
+        (attachments / "photo.jpg").write_bytes(b"jpg")
+        with patch.dict(os.environ, {"HERMES_HOME": str(self.home / ".hermes")}):
+            served = self._resolve("attachments/photo.jpg")
+            self.assertEqual(served.path, Path(os.path.realpath(attachments / "photo.jpg")))
+            # Relative paths cannot reach outside the roots either.
+            for raw in ("config.yaml", "../Desktop/shot.png", "Desktop/shot.png"):
+                with self.assertRaises(local_files.FileAccessError, msg=raw):
+                    self._resolve(raw)
         with self.assertRaises(local_files.FileAccessError) as ctx:
             self._resolve(str(self.desktop / "a\x00b.png"))
         self.assertEqual(ctx.exception.status, 400)
@@ -186,7 +198,7 @@ class LocalFileRouteTests(unittest.TestCase):
 
     def test_refusals_map_to_http_statuses(self):
         self.assertEqual(self.client.get("/file", params={"path": "/etc/passwd"}).status_code, 403)
-        self.assertEqual(self.client.get("/file", params={"path": "relative.png"}).status_code, 400)
+        self.assertEqual(self.client.get("/file", params={"path": "relative.png"}).status_code, 403)
         self.assertEqual(self.client.get("/file", params={"path": str(self.desktop / "missing.png")}).status_code, 404)
         self.assertEqual(self.client.get("/file").status_code, 400)
 

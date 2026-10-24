@@ -49,6 +49,13 @@ describe('extractFileRefs', () => {
     ]);
   });
 
+  it('keeps relative @file references as written', () => {
+    expect(extractFileRefs('see @file:attachments/gradient.png')).toEqual([
+      { path: 'attachments/gradient.png', name: 'gradient.png', ext: 'png', kind: 'image' },
+    ]);
+    expect(attachmentRefs('hi\n\n@file:attachments/labs.pdf').map((r) => r.path)).toEqual(['attachments/labs.pdf']);
+  });
+
   it('returns nothing for empty input', () => {
     expect(extractFileRefs(undefined)).toEqual([]);
     expect(extractFileRefs('')).toEqual([]);

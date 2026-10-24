@@ -868,7 +868,8 @@ describe('useChatStore', () => {
     expect(rpcMock.request).toHaveBeenCalledWith('session.resume', { session_id: 'dev-stored', profile: 'dev' }, { timeoutMs: 300_000 });
     expect(useChatStore.getState().sessionId).toBe('dev-live-new');
     expect(useChatStore.getState().storedSessionId).toBe('dev-stored');
-    expect(useChatStore.getState().messages.map((m) => m.text)).toEqual(['dev restored', 'dev cached']);
+    // REST is the source of truth for finished turns; a stale cached reply is not re-appended.
+    expect(useChatStore.getState().messages.map((m) => m.text)).toEqual(['dev restored']);
     expect(window.localStorage.getItem('hermes-pwa.activeSession.v4:default')).toContain('default cached');
   });
 
@@ -976,6 +977,103 @@ describe('useChatStore', () => {
     expect(message?.toolCalls?.[0]?.name).toBe('terminal');
     expect(message?.toolCalls?.[0]?.input).toEqual({ command: 'rm -rf /tmp/example' });
     expect(useChatStore.getState().streaming).toBe(false);
+  });
+
+  it('refreshHistory does not duplicate turns when Hermes rewrote the prompt and split the reply', async () => {
+    // Observed live: Hermes expands @file: refs in the stored user text, stores a
+    // tool-using reply as two assistant rows and drops reasoning. Text-based
+    // matching left every local message behind as a duplicate tail.
+    useSessionsStore.setState({
+      sessions: [{ id: 'stored-dup', title: 'Dup', updatedAt: 5, messageCount: 4, profile: 'default' }],
+      loading: false,
+      error: undefined,
+      pinnedIds: [],
+    });
+    useChatStore.setState({
+      sessionId: 'live-dup',
+      storedSessionId: 'stored-dup',
+      messages: [
+        { id: 'u1', role: 'user', text: 'Print two paths', createdAt: 1 },
+        { id: 'a1', role: 'assistant', text: '/tmp/a.png\n/tmp/b.csv', thinking: 'thinking about paths', createdAt: 2 },
+        { id: 'u2', role: 'user', text: 'What colors?\n\n@file:attachments/gradient.png', createdAt: 3 },
+        {
+          id: 'a2',
+          role: 'assistant',
+          text: 'A gradient of blue and pink.',
+          thinking: 'I should look at the image.',
+          createdAt: 4,
+          toolCalls: [{ id: 'toolu_1', name: 'vision_analyze', input: { image_url: '/tmp/gradient.png' }, output: 'Image loaded' }],
+        },
+      ],
+      streaming: false,
+      error: undefined,
+    });
+    Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' });
+    vi.mocked(restMock.sessionMessages).mockResolvedValue({
+      session_id: 'stored-dup',
+      messages: [
+        { id: '205', role: 'user', text: 'Print two paths', created_at: 1 },
+        { id: '206', role: 'assistant', text: '/tmp/a.png\n/tmp/b.csv', created_at: 2 },
+        { id: '207', role: 'user', text: 'What colors? [attachment: /Users/x/.hermes/attachments/gradient.png]', created_at: 3 },
+        { id: '208', role: 'assistant', text: '', created_at: 4, tool_calls: [{ id: 'toolu_1', name: 'vision_analyze', arguments: { image_url: '/tmp/gradient.png' } }] },
+        { id: '209', role: 'tool', tool_call_id: 'toolu_1', content: 'Image loaded', created_at: 4.5 },
+        { id: '210', role: 'assistant', text: 'A gradient of blue and pink.', created_at: 5 },
+      ],
+    });
+
+    await useChatStore.getState().refreshHistory(restMock, 'default');
+
+    const messages = useChatStore.getState().messages;
+    expect(messages.map((m) => `${m.role}:${m.text}`)).toEqual([
+      'user:Print two paths',
+      'assistant:/tmp/a.png\n/tmp/b.csv',
+      'user:What colors? [attachment: /Users/x/.hermes/attachments/gradient.png]',
+      'assistant:A gradient of blue and pink.',
+    ]);
+    // The split reply is one bubble with the tool call attached and completed.
+    expect(messages[3]?.toolCalls).toEqual([
+      expect.objectContaining({ id: 'toolu_1', name: 'vision_analyze', output: 'Image loaded' }),
+    ]);
+  });
+
+  it('refreshHistory keeps the live reply when REST only has the tool-call row so far', async () => {
+    useSessionsStore.setState({
+      sessions: [{ id: 'stored-lag', title: 'Lag', updatedAt: 5, messageCount: 2, profile: 'default' }],
+      loading: false,
+      error: undefined,
+      pinnedIds: [],
+    });
+    useChatStore.setState({
+      sessionId: 'live-lag',
+      storedSessionId: 'stored-lag',
+      messages: [
+        { id: 'u1', role: 'user', text: 'Look at it', createdAt: 1 },
+        {
+          id: 'a1',
+          role: 'assistant',
+          text: 'It is blue.',
+          createdAt: 2,
+          toolCalls: [{ id: 'toolu_1', name: 'vision_analyze', output: 'ok' }],
+        },
+      ],
+      streaming: false,
+      error: undefined,
+    });
+    Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' });
+    vi.mocked(restMock.sessionMessages).mockResolvedValue({
+      session_id: 'stored-lag',
+      messages: [
+        { id: '1', role: 'user', text: 'Look at it', created_at: 1 },
+        { id: '2', role: 'assistant', text: '', created_at: 2, tool_calls: [{ id: 'toolu_1', name: 'vision_analyze', arguments: {} }] },
+      ],
+    });
+
+    await useChatStore.getState().refreshHistory(restMock, 'default');
+
+    expect(useChatStore.getState().messages.map((m) => `${m.role}:${m.text}`)).toEqual([
+      'user:Look at it',
+      'assistant:It is blue.',
+    ]);
   });
 
   it('refreshHistory drops a stale local tool-only assistant once REST has the completed answer', async () => {

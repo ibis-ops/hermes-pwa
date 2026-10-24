@@ -58,19 +58,44 @@ function cleanPath(raw: string): string {
   return path;
 }
 
+function refFromPath(path: string): FileRef | undefined {
+  if (!path || path === '~') return undefined;
+  const name = path.split('/').filter(Boolean).pop() ?? '';
+  const ext = extensionOf(name);
+  if (!ext || !FILE_EXTENSIONS.has(ext)) return undefined;
+  return { path, name, ext, kind: IMAGE_EXTENSIONS.has(ext) ? 'image' : 'file' };
+}
+
+/**
+ * `@file:` references the composer appends. Hermes resolves a relative one
+ * (`attachments/photo.jpg`) against its home directory, and so does the file
+ * route, so the path is kept exactly as written.
+ */
+const ATTACHMENT_PATTERN = /@file:([^\s"'`<>]+)/g;
+
 /** Find file references in `text`, in order of first appearance, de-duplicated. */
 export function extractFileRefs(text: string | undefined): FileRef[] {
   if (!text) return [];
   const seen = new Set<string>();
   const refs: FileRef[] = [];
-  for (const match of text.matchAll(PATH_PATTERN)) {
-    const path = cleanPath(match[1] ?? '');
-    if (!path || path === '~' || seen.has(path)) continue;
-    const name = path.split('/').filter(Boolean).pop() ?? '';
-    const ext = extensionOf(name);
-    if (!ext || !FILE_EXTENSIONS.has(ext)) continue;
+  const add = (path: string) => {
+    if (seen.has(path)) return;
+    const ref = refFromPath(path);
+    if (!ref) return;
     seen.add(path);
-    refs.push({ path, name, ext, kind: IMAGE_EXTENSIONS.has(ext) ? 'image' : 'file' });
+    refs.push(ref);
+  };
+  // Positions let prose paths and @file refs keep their order of appearance.
+  const found: { index: number; path: string }[] = [];
+  for (const match of text.matchAll(ATTACHMENT_PATTERN)) {
+    found.push({ index: match.index ?? 0, path: cleanPath(match[1] ?? '') });
+  }
+  for (const match of text.matchAll(PATH_PATTERN)) {
+    found.push({ index: match.index ?? 0, path: cleanPath(match[1] ?? '') });
+  }
+  found.sort((a, b) => a.index - b.index);
+  for (const item of found) {
+    add(item.path);
     if (refs.length >= MAX_FILE_REFS_PER_MESSAGE) break;
   }
   return refs;
@@ -93,9 +118,18 @@ export function stripAttachmentRefs(text: string | undefined): string {
 /** Attachment paths the composer appended as `@file:` lines. */
 export function attachmentRefs(text: string | undefined): FileRef[] {
   if (!text) return [];
-  const paths = Array.from(text.matchAll(/@file:(\S+)/g), (m) => m[1] ?? '').filter(Boolean);
-  if (paths.length === 0) return [];
-  return extractFileRefs(paths.map((p) => `@file:${p}`).join('\n'));
+  const seen = new Set<string>();
+  const refs: FileRef[] = [];
+  for (const match of text.matchAll(ATTACHMENT_PATTERN)) {
+    const path = cleanPath(match[1] ?? '');
+    if (!path || seen.has(path)) continue;
+    const ref = refFromPath(path);
+    if (!ref) continue;
+    seen.add(path);
+    refs.push(ref);
+    if (refs.length >= MAX_FILE_REFS_PER_MESSAGE) break;
+  }
+  return refs;
 }
 
 /** Query-string URL for the plugin's file route; `base` is the API origin ('' for same-origin). */
