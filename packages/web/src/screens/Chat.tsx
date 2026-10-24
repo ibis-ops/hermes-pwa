@@ -136,7 +136,10 @@ export function Chat({ rpc, rest }: ChatProps) {
   const voiceAudioSequenceRef = useRef(0);
   const [liveStatus, setLiveStatus] = useState<LiveStatus>({ text: '' });
   const [composerLayoutVersion, setComposerLayoutVersion] = useState(0);
-  const profileForSubmit = activeName === currentName ? activeName : currentName;
+  // The gateway runs every profile and binds a session to the one named at
+  // session.create, so the selected bot (activeName) is the one to talk to;
+  // currentName is only the profile the gateway process was launched with.
+  const profileForSubmit = activeName ?? currentName;
   const activeSessionIds = useMemo(
     () => [sessionId, storedSessionId].filter((value): value is string => Boolean(value)),
     [sessionId, storedSessionId],
@@ -186,7 +189,6 @@ export function Chat({ rpc, rest }: ChatProps) {
     const previous = previousConnectionRef.current;
     previousConnectionRef.current = connection.state;
     if (connection.state !== 'connected' || previous === 'connected' || !restoredRef.current) return;
-    if (activeName && activeName !== currentName) return;
     void useChatStore.getState().resyncLiveSession(rest, rpc, activeName).then((outcome) => {
       // The parked runtime was reaped while the phone was away: reopen the
       // stored session so the chat keeps working.
@@ -198,14 +200,6 @@ export function Chat({ rpc, rest }: ChatProps) {
     if (connection.state !== 'connected' || restoredRef.current) return;
     restoredRef.current = true;
     void loadConfig(rest);
-    if (activeName && activeName !== currentName) {
-      // The gateway is running a different profile; avoid auto-restoring a session
-      // that belongs to the selected profile over a single-profile WebSocket.
-      useChatStore.getState().clear(activeName);
-      void load(rest);
-      initialRestoreDoneRef.current = true;
-      return;
-    }
 
     let cancelled = false;
     void (async () => {
@@ -230,7 +224,6 @@ export function Chat({ rpc, rest }: ChatProps) {
 
   useEffect(() => {
     if (connection.state !== 'connected') return undefined;
-    if (activeName && activeName !== currentName) return undefined;
     const refresh = () => {
       if (!initialRestoreDoneRef.current) return;
       if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;

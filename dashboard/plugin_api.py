@@ -30,6 +30,7 @@ from local_files import (  # noqa: E402
     resolve_served_file,
     response_headers as local_file_headers,
 )
+from obsidian_activity import cached_activity as obsidian_cached_activity  # noqa: E402
 from push_common import (  # noqa: E402
     load_pending_approvals,
     load_push_subscriptions,
@@ -906,6 +907,21 @@ def local_file_info(path: str = "") -> JSONResponse:
     except FileAccessError as exc:
         raise HTTPException(status_code=exc.status, detail=exc.detail) from None
     return JSONResponse(describe_local_file(served), headers={"Cache-Control": "private, no-store"})
+
+
+@router.get("/obsidian/activity", dependencies=[Depends(_require_dashboard_auth)])
+def obsidian_activity(days: int = 60, limit: int = 300) -> JSONResponse:
+    """Notes the agent created or edited in the Obsidian vaults on this Mac.
+
+    Names, folders and times only, from Hermes' own tool-call history; the
+    phone turns each row into an ``obsidian://`` link. Never sends note text.
+    """
+    try:
+        payload = obsidian_cached_activity(days=max(1, min(days, 3650)), limit=max(1, min(limit, 2000)))
+    except Exception as exc:  # pragma: no cover - defensive: a corrupt DB must not 500 the tab
+        _file_log.warning("obsidian activity scan failed: %s", sanitize_error_text(str(exc)))
+        payload = {"available": False, "vaults": [], "profiles": [], "notes": [], "total": 0, "error": "scan failed"}
+    return JSONResponse(payload, headers={"Cache-Control": "private, no-store"})
 
 
 @router.get("/health")

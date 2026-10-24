@@ -3225,3 +3225,278 @@ html.hm-keyboard-open .hm-login {
   font: inherit;
   font-weight: var(--hm-fw-medium);
 }
+
+/* ── Obsidian: notes the bots wrote, by day, each a link into the app ── */
+.hm-obsidian {
+  padding: 12px 16px 32px;
+}
+
+.hm-obsidian__lead {
+  margin: 4px 0 14px;
+  font-size: var(--hm-fs-small);
+  line-height: 1.4;
+}
+
+.hm-obsidian__toolbar {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 18px;
+}
+
+.hm-obsidian__filters {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+}
+
+.hm-obsidian__filters::-webkit-scrollbar {
+  display: none;
+}
+
+.hm-obsidian__filters .hm-filter-chip {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.hm-obsidian__filters .hm-filter-chip__count {
+  font-size: var(--hm-fs-label);
+  font-weight: var(--hm-fw-regular);
+  opacity: 0.8;
+}
+
+.hm-obsidian__vault {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 28px;
+  padding: 0 2px;
+  border: 0;
+  background: transparent;
+  color: var(--hm-color-text);
+  font: inherit;
+  font-size: var(--hm-fs-small);
+  font-weight: var(--hm-fw-medium);
+}
+
+.hm-obsidian__empty {
+  margin: 28px 0;
+  text-align: center;
+  font-size: var(--hm-fs-small);
+}
+
+.hm-obsidian__day + .hm-obsidian__day {
+  margin-top: 22px;
+}
+
+.hm-obsidian__day-title {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin: 0 0 8px 4px;
+  font-size: var(--hm-fs-label);
+  font-weight: var(--hm-fw-semibold);
+  letter-spacing: 0.01em;
+  color: var(--hm-color-text-muted);
+}
+
+.hm-obsidian__day-count {
+  font-weight: var(--hm-fw-regular);
+}
+
+.hm-obsidian__list {
+  overflow: hidden;
+  border-radius: var(--hm-radius-card);
+  background: var(--hm-color-surface);
+}
+
+.hm-note {
+  display: flex;
+  min-height: 60px;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px 10px 14px;
+  color: var(--hm-color-text);
+  text-decoration: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.hm-note + .hm-note {
+  border-top: 1px solid var(--hm-color-border);
+}
+
+.hm-note:active {
+  background: var(--hm-color-fill);
+}
+
+.hm-note__icon {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 9px;
+  background: var(--hm-color-primary-tint);
+  color: var(--hm-color-primary);
+}
+
+.hm-note--edited .hm-note__icon {
+  background: var(--hm-color-fill);
+  color: var(--hm-color-text-muted);
+}
+
+.hm-note__body {
+  display: flex;
+  min-width: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.hm-note__name {
+  font-size: var(--hm-fs-body);
+  font-weight: var(--hm-fw-medium);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hm-note__meta {
+  display: flex;
+  min-width: 0;
+  gap: 8px;
+  font-size: var(--hm-fs-small);
+}
+
+.hm-note__folder {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hm-note__bot {
+  flex: none;
+  padding: 0 6px;
+  border-radius: var(--hm-radius-full);
+  background: var(--hm-color-fill);
+  font-size: var(--hm-fs-label);
+  line-height: 18px;
+}
+
+.hm-note__side {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 3px;
+}
+
+.hm-note__badge {
+  padding: 0 7px;
+  border-radius: var(--hm-radius-full);
+  font-size: var(--hm-fs-label);
+  font-weight: var(--hm-fw-semibold);
+  line-height: 18px;
+}
+
+.hm-note__badge--created {
+  background: var(--hm-color-success-bg);
+  color: var(--hm-color-success-strong);
+}
+
+.hm-note__badge--edited {
+  background: var(--hm-color-fill);
+  color: var(--hm-color-text-muted);
+}
+
+.hm-note__time {
+  font-size: var(--hm-fs-label);
+  white-space: nowrap;
+}
+
+.hm-note__chevron {
+  flex: none;
+  color: var(--hm-color-text-faint);
+}
+
+/* Vault chooser sheet */
+.hm-vault-sheet__hint {
+  margin: 0 0 10px;
+  font-size: var(--hm-fs-small);
+  line-height: 1.4;
+}
+
+.hm-vault-sheet__row {
+  display: flex;
+  width: 100%;
+  min-height: 52px;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 4px;
+  border: 0;
+  background: transparent;
+  color: var(--hm-color-text);
+  font: inherit;
+  text-align: left;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.hm-vault-sheet__row + .hm-vault-sheet__row {
+  border-top: 1px solid var(--hm-color-border);
+}
+
+.hm-vault-sheet__row--selected {
+  color: var(--hm-color-accent);
+}
+
+.hm-vault-sheet__body {
+  display: flex;
+  min-width: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.hm-vault-sheet__name {
+  font-size: var(--hm-fs-body);
+  font-weight: var(--hm-fw-medium);
+}
+
+.hm-vault-sheet__desc {
+  font-size: var(--hm-fs-small);
+}
+
+.hm-vault-sheet__custom {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--hm-color-border);
+}
+
+.hm-vault-sheet__custom .hm-input {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.hm-vault-sheet__use {
+  flex: none;
+  min-height: 44px;
+  padding: 0 16px;
+  border: 0;
+  border-radius: 10px;
+  background: var(--hm-color-primary);
+  color: #fff;
+  font: inherit;
+  font-weight: var(--hm-fw-semibold);
+}
+
+.hm-vault-sheet__use:disabled {
+  opacity: 0.4;
+}

@@ -479,20 +479,28 @@ def send_web_push_record(record: dict[str, Any], payload: dict[str, Any]) -> Non
     )
 
 
-def send_web_push_to_enabled(payload: dict[str, Any], *, profile: str | None = None) -> int:
+def send_web_push_to_enabled(payload: dict[str, Any], *, profile: str | None = None, fallback_to_any: bool = True) -> int:
+    """Push to the devices subscribed for ``profile``.
+
+    Subscriptions are per profile because the phone registers under the profile
+    it was chatting with. A bot (another profile) that finishes a turn usually
+    has no subscription of its own, so when the exact profile has none the
+    payload goes to every enabled device instead: the person asked to hear
+    when work is done, whichever bot did it. Duplicate endpoints (one phone
+    subscribed under several profiles) are sent once.
+    """
     available, reason = push_sender_availability()
     if not available:
         raise RuntimeError(reason or "push unavailable")
     records = load_push_subscriptions()
     target_profile = _normalized_profile(profile)
+    enabled = [record for record in records if record.get("enabled", True)]
+    exact = [record for record in enabled if _normalized_profile(record.get("profile")) == target_profile]
+    targets = exact if exact or not fallback_to_any else enabled
     sent = 0
     changed = False
     seen_recipients: set[str] = set()
-    for record in records:
-        if not record.get("enabled", True):
-            continue
-        if _normalized_profile(record.get("profile")) != target_profile:
-            continue
+    for record in targets:
         endpoint = str(record.get("endpoint") or "")
         recipient_key = endpoint_hash(endpoint) if endpoint else str(record.get("id") or "")
         if recipient_key and recipient_key in seen_recipients:

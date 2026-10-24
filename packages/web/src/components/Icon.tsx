@@ -17,6 +17,7 @@ export type IconName =
   | 'messaging'
   | 'search'
   | 'globe'
+  | 'note'
   | 'file'
   | 'plus'
   | 'mic'
@@ -105,6 +106,7 @@ const ICONS: Record<IconName, IconPart[]> = {
     'M12 3c-2.5 3.5-3 7-3 9s.5 5.5 3 9c2.5-3.5 3-7 3-9s-.5-5.5-3-9z',
     'M3 12h18',
   ],
+  note: ['M6.5 3h8l4 4v14h-12z', 'M14.5 3v4h4', 'M9.5 12h5', 'M9.5 16h5'],
   file: [
     ['path', { d: 'M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z' }],
     'M14 2v6h6',

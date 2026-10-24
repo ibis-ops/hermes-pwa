@@ -71,6 +71,8 @@ export type {
 export type { SystemStats, Checkpoint, OpsRunResult, SystemActionStatus } from './domain/system';
 export type { MessagingPlatform, MessagingPlatformState, MessagingOverview } from './domain/messaging';
 export { sortMessagingPlatforms, messagingStateLabel, toMessagingOverview } from './domain/messaging';
+export type { ObsidianActivity, ObsidianNote, ObsidianVault, ObsidianNoteAction, ObsidianDayGroup } from './domain/obsidian';
+export { toObsidianActivity, obsidianOpenUrl, resolveLinkVault, groupNotesByDay } from './domain/obsidian';
 export type { Artifact } from './domain/artifact';
 export type { HermesConfig } from './domain/config';
 export { extractFileRefs, stripAttachmentRefs, attachmentRefs, localFileUrl, localFileInfoUrl, MAX_FILE_REFS_PER_MESSAGE, type FileRef, type FileRefKind } from './domain/file-refs';

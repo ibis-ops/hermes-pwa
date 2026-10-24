@@ -290,18 +290,18 @@ describe('AppShell', () => {
     expect(screen.getAllByRole('heading', { name: 'Messaging' }).length).toBeGreaterThan(0);
   });
 
-  it('shows Profiles in the main drawer directly after Home and opens it', async () => {
+  it('shows Bots in the main drawer directly after Home and opens it', async () => {
     render(<AppShell connectionState="connected" rpc={rpcMock} rest={restMock} />);
     fireEvent.click(screen.getByRole('button', { name: /open menu/i }));
     const drawer = screen.getByRole('dialog', { name: /navigation menu/i });
     const navItems = within(drawer).getAllByRole('button').map((button) => button.textContent?.replace(/\s+/g, ' ').trim());
     const homeIndex = navItems.indexOf('Home');
-    const profilesIndex = navItems.indexOf('Profiles');
+    const profilesIndex = navItems.indexOf('Bots');
     expect(homeIndex).toBeGreaterThanOrEqual(0);
     expect(profilesIndex).toBe(homeIndex + 1);
 
-    fireEvent.click(within(drawer).getByRole('button', { name: 'Profiles' }));
-    await waitFor(() => expect(screen.getByRole('heading', { name: 'Profiles' })).toBeInTheDocument());
+    fireEvent.click(within(drawer).getByRole('button', { name: 'Bots' }));
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'Bots' })).toBeInTheDocument());
   });
 
   it('filters main drawer sessions by source', async () => {

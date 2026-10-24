@@ -44,7 +44,7 @@ describe('Profiles', () => {
   it('keeps the new profile action above the profile list', async () => {
     const { container } = render(<Profiles rest={makeRest()} />);
     await waitFor(() => expect(screen.getByText('Default', { selector: '.hm-agent-card__name' })).toBeInTheDocument());
-    const newProfile = screen.getByRole('button', { name: /New profile/i });
+    const newProfile = screen.getByRole('button', { name: /New bot/i });
     const firstCard = container.querySelector('[data-testid="agent-card"]');
     expect(firstCard).toBeTruthy();
     expect(Boolean(newProfile.compareDocumentPosition(firstCard!) & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(true);
@@ -98,11 +98,11 @@ describe('Profiles', () => {
   it('creates a profile', async () => {
     const rest = makeRest();
     render(<Profiles rest={rest} />);
-    await waitFor(() => expect(screen.getByText('New profile')).toBeInTheDocument());
-    fireEvent.click(screen.getByRole('button', { name: /New profile/i }));
-    await waitFor(() => expect(screen.getByText('Create profile')).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText('New bot')).toBeInTheDocument());
+    fireEvent.click(screen.getByRole('button', { name: /New bot/i }));
+    await waitFor(() => expect(screen.getByText('Create bot')).toBeInTheDocument());
     fireEvent.change(screen.getByPlaceholderText('e.g. research'), { target: { value: 'ops' } });
-    fireEvent.click(screen.getByText('Create profile'));
+    fireEvent.click(screen.getByText('Create bot'));
     await waitFor(() =>
       expect(rest.profileCreate).toHaveBeenCalledWith(
         expect.objectContaining({ name: 'ops', clone_from_default: true }),

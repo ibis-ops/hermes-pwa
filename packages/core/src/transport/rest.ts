@@ -16,6 +16,7 @@ import type { EnvVar } from '../domain/env';
 import { toEnvVar } from '../domain/env';
 import type { MessagingOverview } from '../domain/messaging';
 import { toMessagingOverview } from '../domain/messaging';
+import { toObsidianActivity, type ObsidianActivity } from '../domain/obsidian';
 import type {
   AuxiliaryModels,
   ModelAssignment,
@@ -311,6 +312,8 @@ export interface RestClient {
   localFileInfo(path: string): Promise<LocalFileInfo>;
   /** The chat services the gateway can run a bot on, with connection state only (no secrets). */
   messagingPlatforms(): Promise<MessagingOverview>;
+  /** Obsidian notes the agent created or edited on the Mac, newest first. */
+  obsidianActivity(days?: number): Promise<ObsidianActivity>;
 }
 
 export function makeRestClient(http: Http): RestClient {
@@ -791,6 +794,12 @@ export function makeRestClient(http: Http): RestClient {
 
     async messagingPlatforms(): Promise<MessagingOverview> {
       return toMessagingOverview(await http<unknown>('/api/messaging/platforms'));
+    },
+
+    async obsidianActivity(days = 60): Promise<ObsidianActivity> {
+      return toObsidianActivity(
+        await http<unknown>(`/api/plugins/hermes-pwa/obsidian/activity?days=${encodeURIComponent(String(days))}`),
+      );
     },
   };
 }

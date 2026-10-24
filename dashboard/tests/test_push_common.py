@@ -241,6 +241,24 @@ class PushCommonTests(unittest.TestCase):
         self.assertEqual(sent, 1)
         self.assertEqual(send.call_args.args[0]["profile"], "work")
 
+    def test_send_web_push_to_enabled_falls_back_to_every_device_for_an_unsubscribed_profile(self):
+        records = [
+            {**_subscription("https://push.example/sub/default"), "id": endpoint_hash("https://push.example/sub/default"), "profile": "default", "enabled": True},
+            {**_subscription("https://push.example/sub/default"), "id": endpoint_hash("https://push.example/sub/default"), "profile": "work", "enabled": True},
+            {**_subscription("https://push.example/sub/off"), "id": endpoint_hash("https://push.example/sub/off"), "profile": "default", "enabled": False},
+        ]
+        with patch("push_common.push_sender_availability", return_value=(True, None)):
+            with patch("push_common.load_push_subscriptions", return_value=records):
+                with patch("push_common.save_push_subscriptions"):
+                    with patch("push_common.send_web_push_record") as send:
+                        sent = send_web_push_to_enabled({"title": "test"}, profile="manager")
+                        strict = send_web_push_to_enabled({"title": "test"}, profile="manager", fallback_to_any=False)
+
+        # One phone, two profile rows, same endpoint: the bot's turn reaches it once.
+        self.assertEqual(sent, 1)
+        self.assertEqual(strict, 0)
+        self.assertEqual(send.call_count, 1)
+
     def test_send_web_push_to_enabled_defaults_to_default_profile_only(self):
         records = [
             {**_subscription("https://push.example/sub/default"), "id": endpoint_hash("https://push.example/sub/default"), "profile": "default", "enabled": True},

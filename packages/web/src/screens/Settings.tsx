@@ -276,14 +276,14 @@ export function Settings({ rest, onNavigate, onLogout }: SettingsProps) {
       {configError && <div className="hm-warning-banner hm-warning-banner--error">{configError}</div>}
       {pushError && <div className="hm-warning-banner hm-warning-banner--error">{pushError}</div>}
 
-      <Section title="Profiles">
+      <Section title="Bots">
         <button
           className="hm-settings-row hm-settings-row--link"
           onClick={() => onNavigate('profiles')}
-          aria-label="Manage profiles"
+          aria-label="Manage bots"
         >
           <span className="hm-settings-row__body">
-            <span className="hm-settings-row__label">Manage profiles</span>
+            <span className="hm-settings-row__label">Manage bots</span>
             {activeProfile && (
               <span className="hm-settings-row__sub hm-muted">
                 Active: {activeProfile.displayName ?? activeProfile.name}

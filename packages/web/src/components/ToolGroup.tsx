@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import type { RpcClient, ToolCall } from '@hermes-pwa/core';
+import { useActivityStore, type RpcClient, type ToolCall } from '@hermes-pwa/core';
 import { Icon } from './Icon';
 import { ApprovalInline } from './ApprovalInline';
 import { buildToolView, truncate } from '../lib/toolView';
@@ -14,13 +14,38 @@ interface ToolRowProps {
   tool: ToolCall;
   rpc: RpcClient;
   streaming?: boolean | undefined;
+  /** An approval is waiting somewhere, so a result-less approval tool may really be paused. */
+  approvalsPending: boolean;
 }
 
-function ToolRow({ tool, rpc, streaming }: ToolRowProps) {
+/** Tools Hermes pauses on for approval; only these can be "waiting" after the stream ends. */
+const APPROVAL_TOOLS = new Set(['terminal', 'execute_code']);
+
+function selectApprovalsPending(state: { items: { kind: string; status: string }[] }): boolean {
+  return state.items.some((item) => item.kind === 'approval' && item.status === 'needs_you');
+}
+
+/**
+ * A call with no stored result is still running only while its reply streams,
+ * or while an approval for it is open (a reload clears streaming but not the
+ * approval). Otherwise it finished without Hermes keeping a result row, which
+ * the history projection does for some tools, and it reads as done.
+ */
+function isUnfinished(tool: ToolCall, streaming: boolean | undefined, approvalsPending: boolean): boolean {
+  if (tool.output !== undefined) return false;
+  if (streaming) return true;
+  return approvalsPending && APPROVAL_TOOLS.has(tool.name);
+}
+
+function ToolRow({ tool, rpc, streaming, approvalsPending }: ToolRowProps) {
   const [expanded, setExpanded] = useState(false);
-  const view = useMemo(() => buildToolView(tool), [tool]);
-  const isPendingTool = view.status === 'running';
-  const isRunning = isPendingTool && streaming;
+  const unfinished = isUnfinished(tool, streaming, approvalsPending);
+  const settled = useMemo<ToolCall>(
+    () => (unfinished || tool.output !== undefined ? tool : { ...tool, output: '' }),
+    [tool, unfinished],
+  );
+  const view = useMemo(() => buildToolView(settled), [settled]);
+  const isPendingTool = unfinished && view.status === 'running';
 
   return (
     <div className={`hm-tool-group__row ${isPendingTool ? 'hm-tool-group__row--running' : 'hm-tool-group__row--done'}`}>
@@ -40,7 +65,7 @@ function ToolRow({ tool, rpc, streaming }: ToolRowProps) {
             <span className="hm-tool-group__row-target">{truncate(view.subtitle, 90)}</span>
           </>
         )}
-        {isRunning && <span className="hm-tool-group__row-running" aria-label="running" />}
+        {isPendingTool && <span className="hm-tool-group__row-running" aria-label="running" />}
         {view.countLabel && <span className="hm-tool-group__row-count">{view.countLabel}</span>}
       </button>
 
@@ -56,7 +81,10 @@ function ToolRow({ tool, rpc, streaming }: ToolRowProps) {
 }
 
 export function ToolGroup({ tools, rpc, streaming }: ToolGroupProps) {
-  const runningCount = tools.filter((t) => t.output === undefined).length;
+  const approvalsPending = useActivityStore(selectApprovalsPending);
+  // The pulsing dot means "still working". It follows the turn (or an open
+  // approval), not the presence of a result row, so it stops when the reply does.
+  const runningCount = tools.filter((t) => isUnfinished(t, streaming, approvalsPending)).length;
   const stateLabel = runningCount > 0 ? 'running' : 'done';
 
   return (
@@ -72,7 +100,7 @@ export function ToolGroup({ tools, rpc, streaming }: ToolGroupProps) {
         {runningCount > 0 && <span className="hm-tool-group__header-running" aria-label="running" />}
       </div>
       {tools.map((tool) => (
-        <ToolRow key={tool.id} tool={tool} rpc={rpc} streaming={streaming} />
+        <ToolRow key={tool.id} tool={tool} rpc={rpc} streaming={streaming} approvalsPending={approvalsPending} />
       ))}
     </div>
   );

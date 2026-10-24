@@ -5,6 +5,24 @@ All notable changes are documented here. The format follows
 
 ## Unreleased
 
+### Added
+
+- **Obsidian tab.** Lists the notes Hermes created or edited in the Obsidian vault, grouped by
+  day with New/Edited badges and the bot that did the work, and opens each one in the Obsidian
+  app through an `obsidian://` link. The plugin's new `/obsidian/activity` route reads the vault
+  registry and every profile's tool-call history (paths and times only, never note text); the
+  vault name the links carry is detected from the phone's iCloud copy and can be changed on the tab.
+- **Bots.** Profiles are presented as bots: Activate now really switches the chat to that profile
+  (messages used to go to the gateway's launch profile) and opens a new chat with it.
+
+### Fixed
+
+- **Tool action dots.** The pulsing "running" dot on tool actions followed the presence of a stored
+  result instead of the turn, so it kept blinking after the reply finished. It now stops with the
+  reply, except for a tool that is really paused on an open approval.
+- **Push for bot turns.** A turn finished by a profile with no push subscription of its own now
+  notifies every subscribed device instead of nobody.
+
 ## 0.1.2-beta — 2026-06-28
 
 ### Fixed

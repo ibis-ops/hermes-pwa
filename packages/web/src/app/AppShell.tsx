@@ -20,6 +20,7 @@ export type Screen =
   | 'kanban'
   | 'agents'
   | 'messaging'
+  | 'obsidian'
   | 'profiles'
   | 'cron'
   | 'artifacts'
@@ -42,6 +43,7 @@ const Activity = lazy(() => import('../screens/Activity').then((module) => ({ de
 const Projects = lazy(() => import('../screens/Projects').then((module) => ({ default: module.Projects })));
 const Agents = lazy(() => import('../screens/Agents').then((module) => ({ default: module.Agents })));
 const Messaging = lazy(() => import('../screens/Messaging').then((module) => ({ default: module.Messaging })));
+const Obsidian = lazy(() => import('../screens/Obsidian').then((module) => ({ default: module.Obsidian })));
 const Profiles = lazy(() => import('../screens/Profiles').then((module) => ({ default: module.Profiles })));
 const Sessions = lazy(() => import('../screens/Sessions').then((module) => ({ default: module.Sessions })));
 const CommandCenter = lazy(() => import('../screens/CommandCenter').then((module) => ({ default: module.CommandCenter })));
@@ -142,8 +144,9 @@ function clarifyFromEvent(event: RpcEvent): Clarify {
 
 const DRAWER_ITEMS: { key: Screen; label: string; icon: IconName }[] = [
   { key: 'home', label: 'Home', icon: 'home' },
-  { key: 'profiles', label: 'Profiles', icon: 'profiles' },
+  { key: 'profiles', label: 'Bots', icon: 'profiles' },
   { key: 'chat', label: 'Chat', icon: 'chat' },
+  { key: 'obsidian', label: 'Obsidian', icon: 'note' },
   { key: 'approvals', label: 'Approvals', icon: 'shield' },
   { key: 'sessions', label: 'Sessions', icon: 'sessions' },
   { key: 'kanban', label: 'Kanban', icon: 'kanban' },
@@ -173,7 +176,8 @@ const SCREEN_TITLES: Record<Screen, string> = {
   kanban: 'Kanban',
   agents: 'Agents',
   messaging: 'Messaging',
-  profiles: 'Profiles',
+  obsidian: 'Obsidian',
+  profiles: 'Bots',
   cron: 'Cron',
   artifacts: 'Artifacts',
   skills: 'Skills',
@@ -367,7 +371,6 @@ export function AppShell({ connectionState, rpc, rest, onRetry }: AppShellProps)
   useEffect(() => {
     if (connectionState !== 'connected') return undefined;
     if (screen === 'chat') return undefined;
-    if (activeName && currentName && activeName !== currentName) return undefined;
     let cancelled = false;
 
     const recoverActiveChatHistory = () => {
@@ -666,7 +669,8 @@ export function AppShell({ connectionState, rpc, rest, onRetry }: AppShellProps)
             {screen === 'kanban'    && <Projects key={activeName ?? 'default'} rest={rest} />}
             {screen === 'agents'    && <Agents key={activeName ?? 'default'} rpc={rpc} />}
             {screen === 'messaging' && <Messaging key={activeName ?? 'default'} rest={rest} />}
-            {screen === 'profiles'  && <Profiles key={activeName ?? 'default'} rest={rest} />}
+            {screen === 'obsidian'  && <Obsidian rest={rest} />}
+            {screen === 'profiles'  && <Profiles key={activeName ?? 'default'} rest={rest} onActivated={() => navigate('chat')} />}
             {screen === 'home'      && <Home key={activeName ?? 'default'} rpc={rpc} rest={rest} onNavigate={(s) => navigate(s as Screen)} />}
             {screen === 'command'   && <CommandCenter key={activeName ?? 'default'} rest={rest} />}
             {screen === 'cron'      && <Cron key={activeName ?? 'default'} rest={rest} />}

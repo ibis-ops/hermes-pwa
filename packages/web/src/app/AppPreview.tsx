@@ -313,6 +313,18 @@ const noopRest: RestClient = {
   audioSpeak:          () => Promise.resolve({ dataUrl: 'data:audio/wav;base64,UklGRigAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQQAAAAAAA==', mimeType: 'audio/wav' }),
   fileUpload:          () => Promise.resolve({ path: 'preview.txt' }),
   localFileInfo:       () => Promise.resolve({ name: 'preview.png', size: 1024, mime: 'image/png', inline: true, image: true }),
+  obsidianActivity:    () => Promise.resolve({
+    available: true,
+    vaults: [{ name: 'General', path: '/Users/preview/Desktop/General', phoneName: 'Vault 1', open: true }],
+    notes: [
+      { path: 'Clients/Ann Lee/Ann Lee.md', name: 'Ann Lee', folder: 'Clients/Ann Lee', vault: 'General', phoneVault: 'Vault 1', action: 'created' as const, at: Date.now() - 3_600_000, createdAt: Date.now() - 3_600_000, editedAt: undefined, profile: 'default', size: 2400 },
+      { path: 'Business & Ops/Orders/Orders — MOC.md', name: 'Orders — MOC', folder: 'Business & Ops/Orders', vault: 'General', phoneVault: 'Vault 1', action: 'edited' as const, at: Date.now() - 90_000_000, createdAt: undefined, editedAt: Date.now() - 90_000_000, profile: 'obsidian-vault-manager', size: 800 },
+    ],
+    scannedAt: Date.now(),
+    days: 60,
+    total: 2,
+    error: undefined,
+  }),
   messagingPlatforms:  () => Promise.resolve({
     gatewayRunning: true,
     platforms: [

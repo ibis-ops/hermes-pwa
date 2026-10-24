@@ -56,8 +56,8 @@ describe('Settings', () => {
   it('renders connection and profiles sections', async () => {
     render(<Settings rest={makeRest()} onNavigate={vi.fn()} onLogout={vi.fn()} />);
     await waitFor(() => expect(screen.getByRole('heading', { name: 'Connection' })).toBeInTheDocument());
-    expect(screen.getByRole('heading', { name: 'Profiles' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /Manage profiles/i })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Bots' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Manage bots/i })).toBeInTheDocument();
   });
 
   it('loads separate PWA client and Hermes backend versions on mount', async () => {
@@ -75,8 +75,8 @@ describe('Settings', () => {
   it('navigates to profiles when manage profiles is clicked', async () => {
     const onNavigate = vi.fn();
     render(<Settings rest={makeRest()} onNavigate={onNavigate} onLogout={vi.fn()} />);
-    await waitFor(() => expect(screen.getByRole('button', { name: /Manage profiles/i })).toBeInTheDocument());
-    fireEvent.click(screen.getByRole('button', { name: /Manage profiles/i }));
+    await waitFor(() => expect(screen.getByRole('button', { name: /Manage bots/i })).toBeInTheDocument());
+    fireEvent.click(screen.getByRole('button', { name: /Manage bots/i }));
     expect(onNavigate).toHaveBeenCalledWith('profiles');
   });
 

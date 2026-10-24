@@ -5,6 +5,8 @@ import { BottomSheet } from '../components/BottomSheet';
 
 interface ProfilesProps {
   rest: RestClient;
+  /** Called once a bot has been made active and a new chat with it is open. */
+  onActivated?: (() => void) | undefined;
 }
 
 const NAME_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/;
@@ -22,7 +24,7 @@ function thinkingLabel(showReasoning: boolean | undefined): string {
   return 'Default';
 }
 
-export function Profiles({ rest }: ProfilesProps) {
+export function Profiles({ rest, onActivated }: ProfilesProps) {
   const { profiles, loading, error, activeName, currentName, load, activate, create, rename, delete: deleteProfile, setModel } = useProfilesStore();
   const { options, loading: modelLoading, error: modelError, loadOptions } = useModelStore();
   const [sheetOpen, setSheetOpen] = useState(false);
@@ -178,14 +180,14 @@ export function Profiles({ rest }: ProfilesProps) {
   return (
     <div className="hm-agents">
       <p className="hm-agents__subtitle hm-muted">
-        Each profile has its own model, personality and skills.
+        Each bot is a Hermes profile with its own model, personality, memory and skills. Activate one to chat with it; the main agent can also delegate work to them.
       </p>
 
       {error && <div className="hm-warning-banner hm-warning-banner--error">{error}</div>}
       {modelError && <div className="hm-warning-banner hm-warning-banner--error">{modelError}</div>}
-      {loading && <p className="hm-muted hm-loading">Loading profiles…</p>}
-      <button className="hm-agents__new-btn" aria-label="New profile" onClick={openSheet}>
-        <Icon name="plus" size={16} /> New profile
+      {loading && <p className="hm-muted hm-loading">Loading bots…</p>}
+      <button className="hm-agents__new-btn" aria-label="New bot" onClick={openSheet}>
+        <Icon name="plus" size={16} /> New bot
       </button>
 
       {profiles.length === 0 && !loading && (
@@ -261,6 +263,7 @@ export function Profiles({ rest }: ProfilesProps) {
                         try {
                           await activate(rest, p.name);
                           useChatStore.getState().startNewSession(p.name);
+                          onActivated?.();
                         } finally {
                           setActingName(undefined);
                         }
@@ -394,7 +397,7 @@ export function Profiles({ rest }: ProfilesProps) {
 
       {sheetOpen && (
         <BottomSheet
-          title="New profile"
+          title="New bot"
           onClose={closeSheet}
           closeDisabled={creating}
           footer={
@@ -405,7 +408,7 @@ export function Profiles({ rest }: ProfilesProps) {
                 disabled={creating || !name.trim()}
                 onClick={() => void handleCreate()}
               >
-                {creating ? 'Creating…' : 'Create profile'}
+                {creating ? 'Creating…' : 'Create bot'}
               </button>
               <button type="button" className="hm-ghost" onClick={closeSheet} disabled={creating}>
                 Cancel
