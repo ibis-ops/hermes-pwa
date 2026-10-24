@@ -107,7 +107,11 @@ export function extractFileRefs(text: string | undefined): FileRef[] {
  */
 export function stripAttachmentRefs(text: string | undefined): string {
   if (!text) return '';
-  return text
+  // Hermes stores the prompt with an appended "--- Attached Context ---" block
+  // describing each upload for the model; the person never typed that.
+  const cut = text.search(/^\s*-{3,}\s*Attached Context\s*-{3,}\s*$/m);
+  const own = cut >= 0 ? text.slice(0, cut) : text;
+  return own
     .split('\n')
     .filter((line) => !/^\s*@file:\S/.test(line))
     .join('\n')

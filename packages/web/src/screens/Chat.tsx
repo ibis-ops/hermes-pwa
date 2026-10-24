@@ -281,19 +281,41 @@ export function Chat({ rpc, rest }: ChatProps) {
       return last?.role === 'assistant' && (last.toolCalls ?? []).some((t) => t.id === id);
     };
 
+    // `tool.generating` arrives before Hermes has a tool id: the model is still
+    // writing the call. Show it as a pending row under a placeholder id, then
+    // let the real `tool.start` take that row over instead of adding a second
+    // one that would never complete.
+    const GENERATING_PREFIX = 'generating:';
+    const pendingPlaceholderId = (name: string): string | undefined => {
+      const { messages } = useChatStore.getState();
+      const last = messages[messages.length - 1];
+      if (last?.role !== 'assistant') return undefined;
+      return (last.toolCalls ?? []).find(
+        (t) => t.id.startsWith(`${GENERATING_PREFIX}${name}:`) && t.output === undefined,
+      )?.id;
+    };
+
     const onToolStart = (e: import('@hermes-pwa/core').RpcEvent) => {
       if (!eventBelongsToActiveChat(e)) return;
       beginAssistant();
       const payload = e.payload as Record<string, unknown> | undefined;
-      const id = String(payload?.tool_id ?? Date.now());
+      const name = String(payload?.name ?? 'unknown');
+      const realId = typeof payload?.tool_id === 'string' || typeof payload?.tool_id === 'number' ? String(payload.tool_id) : undefined;
       const input = extractToolInput(payload);
-      const tool: import('@hermes-pwa/core').ToolCall = {
-        id,
-        name: String(payload?.name ?? 'unknown'),
-      };
+      if (!realId) {
+        if (pendingPlaceholderId(name)) return;
+        const tool: import('@hermes-pwa/core').ToolCall = { id: `${GENERATING_PREFIX}${name}:${Date.now()}`, name };
+        if (input) tool.input = input;
+        useChatStore.getState().appendToolCall(tool);
+        return;
+      }
+      const tool: import('@hermes-pwa/core').ToolCall = { id: realId, name };
       if (input) tool.input = input;
-      if (toolExists(id)) {
-        useChatStore.getState().updateToolCall(id, tool);
+      const placeholder = pendingPlaceholderId(name);
+      if (toolExists(realId)) {
+        useChatStore.getState().updateToolCall(realId, tool);
+      } else if (placeholder) {
+        useChatStore.getState().updateToolCall(placeholder, tool);
       } else {
         useChatStore.getState().appendToolCall(tool);
       }
@@ -303,7 +325,10 @@ export function Chat({ rpc, rest }: ChatProps) {
       if (!eventBelongsToActiveChat(e)) return;
       beginAssistant();
       const payload = e.payload as Record<string, unknown> | undefined;
-      const id = String(payload?.tool_id ?? Date.now());
+      const name = String(payload?.name ?? 'unknown');
+      const id = typeof payload?.tool_id === 'string' || typeof payload?.tool_id === 'number'
+        ? String(payload.tool_id)
+        : pendingPlaceholderId(name) ?? String(Date.now());
       const result = payload?.result;
       const authoritativeTodos = Array.isArray(payload?.todos) ? { todos: payload.todos } : undefined;
       const output = authoritativeTodos

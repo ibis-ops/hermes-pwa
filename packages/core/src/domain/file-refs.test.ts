@@ -65,6 +65,13 @@ describe('extractFileRefs', () => {
 describe('stripAttachmentRefs and attachmentRefs', () => {
   const text = 'What is in this photo?\n\n@file:/Users/sean/.hermes/attachments/photo.jpg\n\n@file:/Users/sean/.hermes/attachments/labs.pdf';
 
+  it('drops the attached-context block Hermes appends to stored prompts', () => {
+    const stored =
+      'What colors?\n\n@file:attachments/gradient.png\n\n--- Attached Context ---\n\n📎 @file:attachments/gradient.png (image/png, 103.4 KB) — binary file. It is available on disk at `/Users/x/.hermes/attachments/gradient.png`. Use your tools.';
+    expect(stripAttachmentRefs(stored)).toBe('What colors?');
+    expect(attachmentRefs(stored).map((r) => r.path)).toEqual(['attachments/gradient.png']);
+  });
+
   it('removes the @file lines from the visible text', () => {
     expect(stripAttachmentRefs(text)).toBe('What is in this photo?');
     expect(stripAttachmentRefs('@file:/Users/sean/a.png')).toBe('');

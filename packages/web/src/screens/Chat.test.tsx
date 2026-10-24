@@ -188,6 +188,37 @@ describe('Chat', () => {
     );
   });
 
+  it('folds tool.generating into the real tool.start instead of leaving a second running row', async () => {
+    core.useConnectionStore.setState({ state: 'reconnecting', error: undefined });
+    core.useChatStore.setState({
+      sessionId: 's-1',
+      streaming: true,
+      messages: [{ id: 'a-1', role: 'assistant', text: '', createdAt: undefined }],
+    });
+    render(<Chat rpc={rpcMock} rest={restMock} />);
+
+    // Hermes emits tool.generating without an id while the model writes the call.
+    rpcMock.events.dispatchEvent({ type: 'tool.generating', sessionId: 's-1', payload: { name: 'vision_analyze' } });
+    rpcMock.events.dispatchEvent({ type: 'tool.generating', sessionId: 's-1', payload: { name: 'vision_analyze' } });
+    expect(core.useChatStore.getState().messages[0]?.toolCalls).toHaveLength(1);
+
+    rpcMock.events.dispatchEvent({
+      type: 'tool.start',
+      sessionId: 's-1',
+      payload: { tool_id: 'toolu_1', name: 'vision_analyze', args: { image_url: '/tmp/a.png' } },
+    });
+    rpcMock.events.dispatchEvent({
+      type: 'tool.complete',
+      sessionId: 's-1',
+      payload: { tool_id: 'toolu_1', name: 'vision_analyze', result: 'Image loaded' },
+    });
+
+    await waitFor(() => expect(core.useChatStore.getState().messages[0]?.toolCalls?.[0]?.output).toBe('Image loaded'));
+    const tools = core.useChatStore.getState().messages[0]?.toolCalls ?? [];
+    expect(tools).toHaveLength(1);
+    expect(tools[0]).toEqual(expect.objectContaining({ id: 'toolu_1', name: 'vision_analyze', input: { image_url: '/tmp/a.png' } }));
+  });
+
   it('shows local thinking status as live activity, not inside Thinking body', async () => {
     core.useConnectionStore.setState({ state: 'reconnecting', error: undefined });
     core.useChatStore.setState({
