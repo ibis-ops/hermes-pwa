@@ -662,8 +662,12 @@ export function makeRestClient(http: Http): RestClient {
     },
 
     async sessionMessages(sessionId, profile): Promise<unknown> {
-      const qs = profile ? `?profile=${encodeURIComponent(profile)}` : '';
-      return await http<unknown>(`/api/sessions/${encodeURIComponent(sessionId)}/messages${qs}`);
+      // Hermes folds old turns away when it compacts a long session and leaves
+      // them out of the default page; the phone wants the whole transcript
+      // (latest 500 rows), so ask for the folded turns too.
+      const params = new URLSearchParams({ include_compacted: 'true' });
+      if (profile) params.set('profile', profile);
+      return await http<unknown>(`/api/sessions/${encodeURIComponent(sessionId)}/messages?${params.toString()}`);
     },
 
     async sessionArtifacts(sessionId): Promise<Artifact[]> {

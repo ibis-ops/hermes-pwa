@@ -20,6 +20,31 @@ export interface ProfilesStore {
   clear(): void;
 }
 
+/**
+ * The bot chosen on this phone. It is a per-device choice: binding chats to a
+ * profile needs nothing server-side, and POSTing the gateway's sticky active
+ * profile would also switch the `hermes` CLI's default on the Mac.
+ */
+export const SELECTED_PROFILE_STORAGE_KEY = 'hermes-pwa.selectedProfile.v1';
+
+function readSelectedProfile(): string | undefined {
+  try {
+    const raw = globalThis.localStorage?.getItem(SELECTED_PROFILE_STORAGE_KEY);
+    return raw ? raw : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function writeSelectedProfile(name: string | undefined): void {
+  try {
+    if (name === undefined) globalThis.localStorage?.removeItem(SELECTED_PROFILE_STORAGE_KEY);
+    else globalThis.localStorage?.setItem(SELECTED_PROFILE_STORAGE_KEY, name);
+  } catch {
+    // Storage blocked: the choice lasts for this app session only.
+  }
+}
+
 export const useProfilesStore = create<ProfilesStore>((set, get) => ({
   profiles: [],
   activeName: undefined,
@@ -34,9 +59,12 @@ export const useProfilesStore = create<ProfilesStore>((set, get) => ({
         rest.profileList(),
         rest.profileActive().catch(() => ({ active: undefined, current: undefined } as ProfileActive)),
       ]);
-      // `active` is the selected/sticky profile; `current` is the running gateway profile.
-      const activeName = active.active ?? active.current ?? '';
+      // `current` is the running gateway profile. The bot in use here is the
+      // phone's own pick when it still exists, else the gateway's sticky active profile.
+      const serverActive = active.active ?? active.current ?? '';
       const currentName = active.current ?? active.active ?? '';
+      const remembered = get().activeName ?? readSelectedProfile();
+      const activeName = remembered && profiles.some((p) => p.name === remembered) ? remembered : serverActive;
       const normalized = profiles.map((p) => ({ ...p, isActive: p.name === activeName }));
       set({ profiles: normalized, activeName: activeName || undefined, currentName: currentName || undefined, loading: false });
     } catch (err) {
@@ -44,15 +72,10 @@ export const useProfilesStore = create<ProfilesStore>((set, get) => ({
     }
   },
 
-  async activate(rest, name) {
-    try {
-      await rest.profileActivate(name);
-      const profiles = get().profiles.map((p) => ({ ...p, isActive: p.name === name }));
-      set({ profiles, activeName: name });
-    } catch (err) {
-      set({ error: err instanceof Error ? err.message : 'Failed to activate profile' });
-      throw err;
-    }
+  async activate(_rest, name) {
+    const profiles = get().profiles.map((p) => ({ ...p, isActive: p.name === name }));
+    writeSelectedProfile(name);
+    set({ profiles, activeName: name, error: undefined });
   },
 
   async create(rest, body) {
@@ -85,6 +108,7 @@ export const useProfilesStore = create<ProfilesStore>((set, get) => ({
       const profiles = get().profiles.filter((p) => p.name !== name);
       const activeName = get().activeName === name ? undefined : get().activeName;
       const currentName = get().currentName === name ? undefined : get().currentName;
+      if (get().activeName === name) writeSelectedProfile(undefined);
       set({ profiles, activeName, currentName });
     } catch (err) {
       set({ error: err instanceof Error ? err.message : 'Failed to delete profile' });
@@ -120,6 +144,7 @@ export const useProfilesStore = create<ProfilesStore>((set, get) => ({
   },
 
   clear() {
+    writeSelectedProfile(undefined);
     set({ profiles: [], activeName: undefined, currentName: undefined, loading: false, error: undefined });
   },
 }));

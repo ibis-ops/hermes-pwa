@@ -409,6 +409,19 @@ function mergeToolMessages(messages: InternalMessage[]): InternalMessage[] {
   return out;
 }
 
+/**
+ * The handoff row Hermes writes when it compacts a long session: a summary of
+ * the turns it folded away, addressed to the model. History is requested with
+ * the folded turns included, so the summary would only repeat them.
+ */
+const COMPACTION_SUMMARY_PREFIXES = ['[PRIOR CONTEXT', '[CONTEXT COMPACTION', '[CONTEXT SUMMARY'];
+
+export function isCompactionSummaryRow(row: Record<string, unknown>): boolean {
+  if (row._compressed_summary === true) return true;
+  const content = typeof row.content === 'string' ? row.content.trimStart() : '';
+  return COMPACTION_SUMMARY_PREFIXES.some((prefix) => content.startsWith(prefix));
+}
+
 function messagesFromResult(raw: unknown): Message[] {
   let maybeMessages: unknown[] = [];
   if (Array.isArray(raw)) {
@@ -419,6 +432,7 @@ function messagesFromResult(raw: unknown): Message[] {
   }
   const internal = maybeMessages
     .filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === 'object')
+    .filter((item) => !isCompactionSummaryRow(item))
     .map(toInternalMessage)
     // Rows Hermes types as hidden are scaffolding (recovery nudges, widget
     // intents); its own clients never draw a bubble for them.

@@ -19,8 +19,13 @@ All notable changes are documented here. The format follows
   every delegated run across all profiles (`/agents/history`, read from each profile's subagent
   sessions), grouped by day, with the bot that ran it, the goal, status, duration, model, tool and
   token counts, the chat that asked, and the run's final answer on tap.
+- **Whole transcript after compaction.** History is requested with the turns Hermes folded away
+  (`include_compacted=true`) and the compaction handoff row is dropped, so a long chat keeps
+  showing its earlier turns instead of collapsing to the latest page.
 - **Bots.** Profiles are presented as bots: Activate now really switches the chat to that profile
-  (messages used to go to the gateway's launch profile) and opens a new chat with it.
+  (messages used to go to the gateway's launch profile) and opens a new chat with it. The choice is
+  kept on the phone (localStorage) instead of changing the gateway's sticky active profile, which
+  also set the `hermes` CLI default on the Mac.
 
 ### Fixed
 

@@ -1184,6 +1184,29 @@ describe('useChatStore', () => {
     expect(useChatStore.getState().streaming).toBe(false);
   });
 
+  it('keeps the turns Hermes folded away and drops the compaction handoff row', async () => {
+    useSessionsStore.setState({
+      sessions: [{ id: 'stored-77', title: 'Long chat', updatedAt: 1, messageCount: 4, profile: 'default' }],
+      loading: false,
+      error: undefined,
+      pinnedIds: [],
+    });
+    vi.mocked(restMock.sessionMessages).mockResolvedValue({
+      messages: [
+        { id: 1, role: 'user', content: 'first question', compacted: 1, timestamp: 1 },
+        { id: 2, role: 'assistant', content: 'first answer', compacted: 1, timestamp: 2 },
+        { id: 3, role: 'assistant', content: '[PRIOR CONTEXT — for reference only; not a new message]\n[CONTEXT COMPACTION — REFERENCE ONLY] Earlier turns were compacted.', compacted: 0, timestamp: 3 },
+        { id: 4, role: 'user', content: 'latest question', compacted: 0, timestamp: 4 },
+        { id: 5, role: 'assistant', content: 'latest answer', compacted: 0, timestamp: 5 },
+      ],
+    });
+    vi.mocked(rpcMock.request).mockResolvedValue({ session_id: 'live-77', session_key: 'stored-77', messages: [] });
+
+    await useChatStore.getState().resumeSessionIntoChat(restMock, rpcMock, 'stored-77', 'default');
+
+    expect(useChatStore.getState().messages.map((m) => m.text)).toEqual(['first question', 'first answer', 'latest question', 'latest answer']);
+  });
+
   it('resumeSessionIntoChat canonicalizes a cached/root alias to the current openable local head id', async () => {
     useSessionsStore.setState({
       sessions: [

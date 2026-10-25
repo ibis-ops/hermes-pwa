@@ -74,6 +74,18 @@ describe('makeRestClient', () => {
     });
   });
 
+  it('sessionMessages asks for the folded (compacted) turns and scopes to the profile', async () => {
+    httpMock.mockResolvedValue({ messages: [] });
+    await client.sessionMessages('stored 1', 'dev');
+    const [path] = httpMock.mock.calls[0] ?? [];
+    expect(String(path)).toMatch(/^\/api\/sessions\/stored%201\/messages\?/u);
+    expect(queryForCall(0).get('include_compacted')).toBe('true');
+    expect(queryForCall(0).get('profile')).toBe('dev');
+    await client.sessionMessages('stored-2');
+    expect(queryForCall(1).get('profile')).toBeNull();
+    expect(queryForCall(1).get('include_compacted')).toBe('true');
+  });
+
   it('me maps raw user with all fields', async () => {
     httpMock.mockResolvedValue({
       user_id: 'u-1',

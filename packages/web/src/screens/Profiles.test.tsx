@@ -55,7 +55,8 @@ describe('Profiles', () => {
     render(<Profiles rest={rest} />);
     await waitFor(() => expect(screen.getByText('Research')).toBeInTheDocument());
     fireEvent.click(screen.getByRole('button', { name: /Activate research/i }));
-    await waitFor(() => expect(rest.profileActivate).toHaveBeenCalledWith('research'));
+    await waitFor(() => expect(useProfilesStore.getState().activeName).toBe('research'));
+    expect(rest.profileActivate).not.toHaveBeenCalled();
   });
 
   it('starts a fresh chat draft when activating a different profile', async () => {
@@ -83,7 +84,7 @@ describe('Profiles', () => {
     await waitFor(() => expect(screen.getByText('Research')).toBeInTheDocument());
     fireEvent.click(screen.getByRole('button', { name: /Activate research/i }));
 
-    await waitFor(() => expect(rest.profileActivate).toHaveBeenCalledWith('research'));
+    await waitFor(() => expect(useProfilesStore.getState().activeName).toBe('research'));
     expect(useChatStore.getState()).toMatchObject({
       sessionId: undefined,
       storedSessionId: undefined,

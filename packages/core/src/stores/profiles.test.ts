@@ -34,6 +34,7 @@ const makeRest = (overrides: Partial<{
 
 describe('useProfilesStore', () => {
   beforeEach(() => {
+    window.localStorage.clear();
     useProfilesStore.setState({ profiles: [], activeName: undefined, currentName: undefined, loading: false, error: undefined });
   });
 
@@ -57,7 +58,7 @@ describe('useProfilesStore', () => {
     expect(currentName).toBeUndefined();
   });
 
-  it('activates a profile and updates isActive', async () => {
+  it('activates a profile on this device only and remembers it across loads', async () => {
     const rest = makeRest();
     await useProfilesStore.getState().load(rest);
     await useProfilesStore.getState().activate(rest, 'research');
@@ -66,6 +67,20 @@ describe('useProfilesStore', () => {
     expect(currentName).toBe('default');
     expect(profiles.find((p) => p.name === 'research')?.isActive).toBe(true);
     expect(profiles.find((p) => p.name === 'default')?.isActive).toBe(false);
+    // The Mac's sticky active profile (and so the hermes CLI default) is left alone.
+    expect(rest.profileActivate).not.toHaveBeenCalled();
+    expect(window.localStorage.getItem('hermes-pwa.selectedProfile.v1')).toBe('research');
+
+    useProfilesStore.setState({ profiles: [], activeName: undefined, currentName: undefined });
+    await useProfilesStore.getState().load(rest);
+    expect(useProfilesStore.getState().activeName).toBe('research');
+  });
+
+  it('falls back to the gateway profile when the remembered bot no longer exists', async () => {
+    window.localStorage.setItem('hermes-pwa.selectedProfile.v1', 'gone');
+    const rest = makeRest({ profileActive: vi.fn().mockResolvedValue({ active: 'default', current: 'default' }) });
+    await useProfilesStore.getState().load(rest);
+    expect(useProfilesStore.getState().activeName).toBe('default');
   });
 
   it('creates a profile and reloads list', async () => {
