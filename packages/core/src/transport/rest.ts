@@ -1,5 +1,12 @@
 import type { Http } from './http';
-import { PWA_BROWSE_ONLY_SESSION_SOURCES, PWA_NON_LOCAL_SESSION_SOURCES, mergeSessionsByLineage, sessionsFromResult, type Session } from '../domain/session';
+import {
+  PWA_BROWSE_ONLY_SESSION_SOURCES,
+  PWA_NON_LOCAL_SESSION_SOURCES,
+  mergeBrowseOnlySessions,
+  mergeSessionsByLineage,
+  sessionsFromResult,
+  type Session,
+} from '../domain/session';
 import type { GatewayStatus } from '../domain/status';
 import type { AuthProvider, HermesUser, LoginBody, LoginResult, WsTicket } from '../domain/auth';
 import type { Artifact } from '../domain/artifact';
@@ -323,8 +330,15 @@ export interface RestClient {
   agentHistory(days?: number): Promise<AgentHistory>;
 }
 
+/** How far back the browse-only Sessions list reaches for delegated runs. */
+const BROWSE_ONLY_DELEGATED_DAYS = 30;
+
 export function makeRestClient(http: Http): RestClient {
   let activeProfile: string | undefined;
+
+  async function agentHistoryRequest(days: number): Promise<AgentHistory> {
+    return toAgentHistory(await http<unknown>(`/api/plugins/hermes-pwa/agents/history?days=${encodeURIComponent(String(days))}`));
+  }
 
   return {
     async status(): Promise<GatewayStatus> {
@@ -656,8 +670,11 @@ export function makeRestClient(http: Http): RestClient {
     },
 
     async browseOnlySessions(): Promise<Session[]> {
-      // Signal, scheduled and delegated runs from every profile's store: the
-      // delegated ones live in the delegating profile's database under the bot's name.
+      // Signal and scheduled sessions come from every profile's store. Delegated
+      // runs never do: Hermes hides sub-agent sessions from any source-scoped
+      // listing, so those come from the plugin's own agent history, which reads
+      // them straight from each profile's database. The history is optional;
+      // the listing is not.
       const params = new URLSearchParams({
         limit: '100',
         offset: '0',
@@ -665,10 +682,17 @@ export function makeRestClient(http: Http): RestClient {
         archived: 'exclude',
         order: 'recent',
         profile: 'all',
-        sources: PWA_BROWSE_ONLY_SESSION_SOURCES.join(','),
+        sources: PWA_BROWSE_ONLY_SESSION_SOURCES.filter((source) => source !== 'subagent').join(','),
       });
-      const raw = await http<Record<string, unknown>>(`/api/profiles/sessions?${params.toString()}`);
-      return sessionsFromResult(raw);
+      const [listed, history] = await Promise.allSettled([
+        http<Record<string, unknown>>(`/api/profiles/sessions?${params.toString()}`),
+        agentHistoryRequest(BROWSE_ONLY_DELEGATED_DAYS),
+      ]);
+      if (listed.status === 'rejected') throw listed.reason;
+      return mergeBrowseOnlySessions(
+        sessionsFromResult(listed.value),
+        history.status === 'fulfilled' ? history.value.runs : [],
+      );
     },
 
     async profileSessions(): Promise<Session[]> {
@@ -830,7 +854,7 @@ export function makeRestClient(http: Http): RestClient {
     },
 
     async agentHistory(days = 30): Promise<AgentHistory> {
-      return toAgentHistory(await http<unknown>(`/api/plugins/hermes-pwa/agents/history?days=${encodeURIComponent(String(days))}`));
+      return agentHistoryRequest(days);
     },
 
     async obsidianNote(vault: string, path: string): Promise<ObsidianNoteContent> {

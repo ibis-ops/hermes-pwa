@@ -2,6 +2,8 @@
  * Session / chat domain types and small UI helpers shared by stores/components.
  */
 
+import type { AgentRun } from './agent-history';
+
 export type MessageRole = 'user' | 'assistant' | 'system' | 'tool';
 
 export interface ToolCall {
@@ -191,6 +193,64 @@ export function sessionsFromResult(raw: unknown): Session[] {
   return items
     .filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === 'object')
     .map(toSession);
+}
+
+/**
+ * A delegated run from the plugin's agent history as a browse-only session row.
+ * The run's transcript lives in the delegating profile's store (`profile`), under
+ * the bot that did the work (`profileName`); times are epoch ms like the run's.
+ */
+export function sessionFromAgentRun(run: AgentRun): Session {
+  const lastActive = run.endedAt ?? run.startedAt;
+  return {
+    id: run.id,
+    title: run.goal,
+    updatedAt: lastActive,
+    messageCount: run.messageCount,
+    profile: run.ownerProfile,
+    source: 'subagent',
+    originSource: 'subagent',
+    currentSource: 'subagent',
+    archived: false,
+    isActive: run.status === 'running',
+    startedAt: run.startedAt,
+    lastActive,
+    profileName: run.bot,
+    parentSessionId: run.parent?.id,
+  };
+}
+
+function sessionRecencyMs(session: Session): number {
+  const value = session.lastActive ?? session.updatedAt;
+  if (!Number.isFinite(value) || value <= 0) return 0;
+  return value > 1_000_000_000_000 ? value : value * 1000;
+}
+
+/** Store-scoped identity: the same id can exist in two profiles' databases. */
+function sessionStoreKey(session: Pick<Session, 'id' | 'profile'>): string {
+  return `${session.profile ?? ''}/${session.id}`;
+}
+
+/**
+ * The browse-only list: the gateway's own Signal and scheduled rows plus the
+ * delegated runs the plugin reads itself. Hermes hides sub-agent sessions from
+ * every source-scoped listing (`sessions.show_subagents` only re-admits them to
+ * an unscoped one), so they never arrive with the rows. Newest first; a run the
+ * listing already carries is not doubled, and only the newest `delegatedLimit`
+ * runs are added.
+ */
+export function mergeBrowseOnlySessions(listed: Session[], runs: AgentRun[], delegatedLimit = 100): Session[] {
+  const seen = new Set(listed.map(sessionStoreKey));
+  const delegated: Session[] = [];
+  for (const run of [...runs].sort((a, b) => b.startedAt - a.startedAt)) {
+    if (delegated.length >= delegatedLimit) break;
+    const session = sessionFromAgentRun(run);
+    const key = sessionStoreKey(session);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    delegated.push(session);
+  }
+  return [...listed, ...delegated].sort((a, b) => sessionRecencyMs(b) - sessionRecencyMs(a));
 }
 
 /** Stable logical-conversation key; lineage root survives auto-compression. */

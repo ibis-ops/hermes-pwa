@@ -161,6 +161,76 @@ describe('makeRestClient', () => {
     expect(sessions.map((s) => s.id)).toEqual(['dev-local']);
   });
 
+  it('browseOnlySessions lists Signal and scheduled rows from every profile and adds delegated runs from the plugin history', async () => {
+    httpMock.mockImplementation(async (path) => {
+      const url = new URL(String(path), 'https://hermes.test');
+      if (url.pathname === '/api/profiles/sessions') {
+        return {
+          sessions: [
+            { id: 'cron-1', title: 'Nightly review', source: 'cron', profile: 'default', last_active: 1_792_860_000, message_count: 4 },
+            { id: 'sig-1', title: 'Weekly workout log', source: 'signal', profile: 'signal-connector', last_active: 1_792_850_000, message_count: 25 },
+          ],
+        };
+      }
+      if (url.pathname === '/api/plugins/hermes-pwa/agents/history') {
+        return {
+          runs: [
+            {
+              id: 'sub-1',
+              bot: 'google-calander',
+              owner_profile: 'default',
+              goal: 'Check the calendar',
+              status: 'completed',
+              started_at: 1_792_855_000,
+              ended_at: 1_792_855_400,
+              message_count: 13,
+              parent: { id: 'p-1', title: 'Morning chat', source: 'signal', profile: 'default' },
+            },
+          ],
+        };
+      }
+      throw new Error(`unexpected ${url.pathname}`);
+    });
+
+    const sessions = await client.browseOnlySessions();
+
+    const listing = queryForCall(0);
+    expect(listing.get('profile')).toBe('all');
+    expect(listing.get('sources')).toContain('signal');
+    expect(listing.get('sources')).toContain('cron');
+    // Hermes hides sub-agent rows from a source-scoped listing; they come from the plugin.
+    expect(listing.get('sources')?.split(',')).not.toContain('subagent');
+    expect(httpMock.mock.calls.map(([path]) => new URL(String(path), 'https://hermes.test').pathname)).toContain(
+      '/api/plugins/hermes-pwa/agents/history',
+    );
+    expect(sessions.map((s) => s.id)).toEqual(['cron-1', 'sub-1', 'sig-1']);
+    expect(sessions[1]).toMatchObject({ source: 'subagent', profile: 'default', profileName: 'google-calander', parentSessionId: 'p-1', messageCount: 13 });
+  });
+
+  it('browseOnlySessions keeps the listed rows when the plugin history is unavailable', async () => {
+    httpMock.mockImplementation(async (path) => {
+      const url = new URL(String(path), 'https://hermes.test');
+      if (url.pathname === '/api/profiles/sessions') {
+        return { sessions: [{ id: 'sig-1', title: 'Weekly workout log', source: 'signal', profile: 'default', last_active: 1 }] };
+      }
+      throw new HermesHttpError(404, 'Not Found', '');
+    });
+
+    const sessions = await client.browseOnlySessions();
+
+    expect(sessions.map((s) => s.id)).toEqual(['sig-1']);
+  });
+
+  it('browseOnlySessions fails when the session listing itself fails', async () => {
+    httpMock.mockImplementation(async (path) => {
+      const url = new URL(String(path), 'https://hermes.test');
+      if (url.pathname === '/api/profiles/sessions') throw new HermesHttpError(503, 'Service Unavailable', '');
+      return { runs: [] };
+    });
+
+    await expect(client.browseOnlySessions()).rejects.toBeInstanceOf(HermesHttpError);
+  });
+
   it('profileSessions does not call the PWA messaging binding shim in the TUI/CLI release scope', async () => {
     httpMock.mockResolvedValueOnce({ sessions: [{ id: 'core-only', title: 'Core', source: 'tui', last_active: 1 }] });
 

@@ -30,6 +30,10 @@ All notable changes are documented here. The format follows
   switches from phone chats to Signal, scheduled and delegated sessions across all profiles
   (`/api/profiles/sessions?profile=all&sources=…`), listed read-only with the bot that ran each
   one; a tap opens the transcript in a sheet instead of resuming the session into the chat.
+  Delegated runs come from the plugin's `/agents/history` instead, because Hermes hides sub-agent
+  sessions from every source-scoped listing (`sessions.show_subagents` only re-admits them to an
+  unscoped one); they are merged in newest first, in the delegating profile's store under the
+  bot's name.
 - **Whole transcript after compaction.** History is requested with the turns Hermes folded away
   (`include_compacted=true`) and the compaction handoff row is dropped, so a long chat keeps
   showing its earlier turns instead of collapsing to the latest page.

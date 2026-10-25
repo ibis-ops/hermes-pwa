@@ -36,6 +36,8 @@ export {
   sessionSourceId,
   sessionSourceLabel,
   sessionSourceSearchTerms,
+  sessionFromAgentRun,
+  mergeBrowseOnlySessions,
   PWA_BROWSE_ONLY_SESSION_SOURCES,
 } from './domain/session';
 export type { ActionItem, ActionKind, ActionStatus, Approval, ApprovalChoice, Clarify, ClarifyQuestion } from './domain/activity';

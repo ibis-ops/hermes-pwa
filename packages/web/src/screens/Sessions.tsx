@@ -73,6 +73,7 @@ function sessionSearchText(session: Session): string {
   return [
     sessionTitle(session),
     session.profile ?? '',
+    session.profileName ?? '',
     session.cwd ?? '',
     source,
     currentSource,
