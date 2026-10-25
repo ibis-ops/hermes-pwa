@@ -260,7 +260,7 @@ describe('server→client approval and clarify requests', () => {
           listeners.set(type, set);
         },
         removeEventListener: (type: string, handler: (event: unknown) => void) => listeners.get(type)?.delete(handler),
-        dispatchEvent: (event: { type: string }) => listeners.get(event.type)?.forEach((h) => h(event)),
+        dispatchEvent: (event: { type: string; sessionId?: string; payload?: unknown }) => listeners.get(event.type)?.forEach((h) => h(event)),
       },
       onServerRequest: vi.fn((method: string, handler: (request: unknown) => void) => {
         handlers.set(method, handler);

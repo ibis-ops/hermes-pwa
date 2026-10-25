@@ -13,6 +13,7 @@ import {
   type Session,
 } from '@hermes-pwa/core';
 import { Icon } from '../components/Icon';
+import { SessionTranscript } from '../components/SessionTranscript';
 
 interface SessionsProps {
   rpc: RpcClient;
@@ -22,6 +23,8 @@ interface SessionsProps {
 
 type Filter = 'all' | 'live' | 'done' | 'archived';
 type SourceFilter = 'all' | string;
+/** Phone chats can be resumed; the rest (Signal, scheduled, delegated) is browsed read-only. */
+type Scope = 'chats' | 'other';
 
 interface SourceFilterOption {
   key: SourceFilter;
@@ -98,12 +101,15 @@ function StatusDot({ session }: { session: Session }) {
 function SessionRow({
   session,
   acting,
+  readOnly,
   onSelect,
   onArchiveToggle,
   onDelete,
 }: {
   session: Session;
   acting?: boolean;
+  /** Browse-only rows open a transcript and carry no archive or delete actions. */
+  readOnly?: boolean;
   onSelect: (s: Session) => void | Promise<void>;
   onArchiveToggle: (s: Session) => void | Promise<void>;
   onDelete: (s: Session) => void | Promise<void>;
@@ -112,16 +118,21 @@ function SessionRow({
   const sourceLabel = sessionSourceLabel(source);
   const currentSource = sessionCurrentSourceId(session);
   const currentSourceLabel = currentSource ? sessionSourceLabel(currentSource) ?? currentSource : null;
+  const bot = session.profileName && session.profileName !== session.profile ? session.profileName : undefined;
   const meta = [
-    session.profile,
+    bot ?? session.profile,
     session.messageCount != null ? `${session.messageCount} msgs` : undefined,
     fmtAge(session.updatedAt),
   ].filter(Boolean);
   const archiveLabel = session.archived ? 'Restore session' : 'Archive session';
 
   return (
-    <div className="hm-session-row" data-testid="session-row">
-      <button className="hm-session-row__open" onClick={() => void onSelect(session)} aria-label={`Open session: ${sessionTitle(session)}`}>
+    <div className={`hm-session-row${readOnly ? ' hm-session-row--readonly' : ''}`} data-testid="session-row" data-readonly={readOnly ? 'true' : 'false'}>
+      <button
+        className="hm-session-row__open"
+        onClick={() => void onSelect(session)}
+        aria-label={`${readOnly ? 'Read session' : 'Open session'}: ${sessionTitle(session)}`}
+      >
         <StatusDot session={session} />
         <span className="hm-session-row__body">
           <span className="hm-session-row__title">{sessionTitle(session)}</span>
@@ -136,6 +147,7 @@ function SessionRow({
           )}
         </span>
       </button>
+      {readOnly ? null : (
       <div className="hm-session-row__actions" aria-label={`Actions for ${sessionTitle(session)}`}>
         <button
           type="button"
@@ -160,26 +172,59 @@ function SessionRow({
           <span>Delete</span>
         </button>
       </div>
+      )}
     </div>
   );
 }
 
 export function Sessions({ rpc, rest, onSessionOpen }: SessionsProps) {
-  const { sessions, loading, error, load, archive: archiveSession, delete: deleteSession } = useSessionsStore();
+  const {
+    sessions: chatSessions,
+    loading: chatsLoading,
+    error: chatsError,
+    load,
+    archive: archiveSession,
+    delete: deleteSession,
+    browseOnly,
+    browseOnlyLoading,
+    browseOnlyError,
+    loadBrowseOnly,
+  } = useSessionsStore();
   const activeName = useProfilesStore((s) => s.activeName);
+  const [scope, setScope] = useState<Scope>('chats');
   const [filter, setFilter] = useState<Filter>('all');
   const [sourceFilter, setSourceFilter] = useState<SourceFilter>('all');
   const [search, setSearch] = useState('');
   const [actingId, setActingId] = useState<string | undefined>();
+  const [reading, setReading] = useState<Session | undefined>(undefined);
 
   useEffect(() => {
     void load(rest);
   }, [rest, load]);
 
+  useEffect(() => {
+    if (scope === 'other') void loadBrowseOnly(rest);
+  }, [scope, rest, loadBrowseOnly]);
+
+  const readOnly = scope === 'other';
+  const sessions = readOnly ? browseOnly : chatSessions;
+  const loading = readOnly ? browseOnlyLoading : chatsLoading;
+  const error = readOnly ? browseOnlyError : chatsError;
+
   async function handleSelect(session: Session) {
+    if (readOnly) {
+      setReading(session);
+      return;
+    }
     await useChatStore.getState().resumeSessionIntoChat(rest, rpc, session.id, session.profile ?? activeName);
     onSessionOpen();
   }
+
+  const switchScope = (next: Scope) => {
+    setScope(next);
+    setSourceFilter('all');
+    setFilter('all');
+  };
 
   async function handleArchiveToggle(session: Session) {
     const nextArchived = !session.archived;
@@ -243,19 +288,45 @@ export function Sessions({ rpc, rest, onSessionOpen }: SessionsProps) {
         />
       </div>
 
-      <div className="hm-sessions__filters" role="tablist" aria-label="Session filters">
-        {FILTERS.map((f) => (
-          <button
-            key={f.key}
-            className={`hm-filter-chip${filter === f.key ? ' hm-filter-chip--active' : ''}`}
-            onClick={() => setFilter(f.key)}
-            role="tab"
-            aria-selected={filter === f.key}
-          >
-            {f.label}
-          </button>
-        ))}
+      <div className="hm-sessions__scope" role="tablist" aria-label="Session kind">
+        <button
+          type="button"
+          role="tab"
+          className={`hm-sessions__scope-btn${scope === 'chats' ? ' hm-sessions__scope-btn--active' : ''}`}
+          aria-selected={scope === 'chats'}
+          onClick={() => switchScope('chats')}
+        >
+          Phone chats
+        </button>
+        <button
+          type="button"
+          role="tab"
+          className={`hm-sessions__scope-btn${scope === 'other' ? ' hm-sessions__scope-btn--active' : ''}`}
+          aria-selected={scope === 'other'}
+          onClick={() => switchScope('other')}
+        >
+          Signal, scheduled, delegated
+        </button>
       </div>
+      {readOnly ? (
+        <p className="hm-sessions__scope-hint hm-muted">Conversations the gateway runs on its own. Tap one to read it.</p>
+      ) : null}
+
+      {readOnly ? null : (
+        <div className="hm-sessions__filters" role="tablist" aria-label="Session filters">
+          {FILTERS.map((f) => (
+            <button
+              key={f.key}
+              className={`hm-filter-chip${filter === f.key ? ' hm-filter-chip--active' : ''}`}
+              onClick={() => setFilter(f.key)}
+              role="tab"
+              aria-selected={filter === f.key}
+            >
+              {f.label}
+            </button>
+          ))}
+        </div>
+      )}
 
       {sourceOptions.length > 1 && (
         <div className="hm-sessions__filters hm-sessions__source-filters" role="tablist" aria-label="Session source filters">
@@ -283,16 +354,19 @@ export function Sessions({ rpc, rest, onSessionOpen }: SessionsProps) {
 
       {searched.length === 0 && !loading ? (
         <div className="hm-empty-state">
-          <p>{search ? 'No matching sessions' : 'No sessions yet'}</p>
-          <p className="hm-muted">Start a chat to create your first session.</p>
+          <p>{search ? 'No matching sessions' : readOnly ? 'Nothing here yet' : 'No sessions yet'}</p>
+          <p className="hm-muted">
+            {readOnly ? 'Signal conversations, scheduled jobs and delegated bot runs show up here once they happen.' : 'Start a chat to create your first session.'}
+          </p>
         </div>
       ) : (
         <div className="hm-sessions__list">
           {searched.map((s) => (
             <SessionRow
-              key={s.id}
+              key={`${s.profile ?? ''}/${s.id}`}
               session={s}
               acting={actingId === s.id}
+              readOnly={readOnly}
               onSelect={handleSelect}
               onArchiveToggle={handleArchiveToggle}
               onDelete={handleDelete}
@@ -300,6 +374,8 @@ export function Sessions({ rpc, rest, onSessionOpen }: SessionsProps) {
           ))}
         </div>
       )}
+
+      {reading ? <SessionTranscript session={reading} rpc={rpc} rest={rest} onClose={() => setReading(undefined)} /> : null}
     </div>
   );
 }

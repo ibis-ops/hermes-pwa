@@ -148,7 +148,7 @@ describe('service worker runtime cache behavior', () => {
       }
     }
 
-    const shellCache = harness.cacheStores.get('hermes-mobile-v76:shell');
+    const shellCache = harness.cacheStores.get('hermes-mobile-v77:shell');
     const runtimeCache = harness.cacheStores.get('hermes-mobile-runtime-assets');
     if (!shellCache || !runtimeCache) throw new Error('missing expected caches');
 

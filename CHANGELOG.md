@@ -26,6 +26,10 @@ All notable changes are documented here. The format follows
   connection, turns the requests into cards (choices as the gateway offers them, a note when the
   safety check refused the command, batch clarify with chips and free text), answers on the same
   request id, honors `request.cancel`, and re-delivers `open_requests` from a reconnect snapshot.
+- **Sessions: browse the gateway's own conversations.** A scope toggle on the Sessions screen
+  switches from phone chats to Signal, scheduled and delegated sessions across all profiles
+  (`/api/profiles/sessions?profile=all&sources=…`), listed read-only with the bot that ran each
+  one; a tap opens the transcript in a sheet instead of resuming the session into the chat.
 - **Whole transcript after compaction.** History is requested with the turns Hermes folded away
   (`include_compacted=true`) and the compaction handoff row is dropped, so a long chat keeps
   showing its earlier turns instead of collapsing to the latest page.

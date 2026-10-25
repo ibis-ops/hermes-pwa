@@ -12,7 +12,7 @@ export { makeRpcClient, makeRpcEvents, METHOD_NOT_FOUND, type RpcClient, type Rp
 export { makeWsConnection, type WsConnection } from './transport/ws';
 export { useConnectionStore, type ConnectionState, type ConnectionStore } from './stores/connection';
 export { useSessionsStore, type SessionsStore } from './stores/sessions';
-export { useChatStore, stabilizeMessages, LIVE_STREAM_QUIET_MS, LIVE_STREAM_STALE_MS, type ChatStore, type SubmitOptions } from './stores/chat';
+export { useChatStore, stabilizeMessages, projectHistoryMessages, LIVE_STREAM_QUIET_MS, LIVE_STREAM_STALE_MS, type ChatStore, type SubmitOptions } from './stores/chat';
 export { describeSkillInvocation, skillInvocationText, isSkillScaffold, type SkillInvocation } from './domain/skill-invocation';
 export { useActivityStore, type ActivityStore } from './stores/activity';
 export { useCronStore, type CronStore } from './stores/cron';
@@ -36,6 +36,7 @@ export {
   sessionSourceId,
   sessionSourceLabel,
   sessionSourceSearchTerms,
+  PWA_BROWSE_ONLY_SESSION_SOURCES,
 } from './domain/session';
 export type { ActionItem, ActionKind, ActionStatus, Approval, ApprovalChoice, Clarify, ClarifyQuestion } from './domain/activity';
 export { approvalFromServerRequest, clarifyFromServerRequest } from './domain/activity';

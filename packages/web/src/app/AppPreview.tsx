@@ -12,7 +12,7 @@ import {
   useChatStore,
   useProjectsStore,
 } from '@hermes-pwa/core';
-import type { RpcClient, RestClient, Approval } from '@hermes-pwa/core';
+import type { RpcClient, RestClient, Approval, Session } from '@hermes-pwa/core';
 import type {
   Board,
   BoardDetail,
@@ -329,6 +329,11 @@ const noopRest: RestClient = {
     total: 2,
     error: undefined,
   }),
+  browseOnlySessions:  () => Promise.resolve([
+    { id: 'sig-1', title: 'Weekly workout log chest legs back', updatedAt: Date.now() / 1000 - 1800, messageCount: 25, profile: 'default', source: 'signal', originSource: 'signal', currentSource: 'signal', profileName: 'default' },
+    { id: 'cron-1', title: 'Nightly memory review · Oct 25 02:42', updatedAt: Date.now() / 1000 - 36_000, messageCount: 54, profile: 'default', source: 'cron', originSource: 'cron', currentSource: 'cron', profileName: 'default' },
+    { id: 'sub-1', title: "Subagent: Check Sean's Google Calendar for today", updatedAt: Date.now() / 1000 - 90_000, messageCount: 13, profile: 'default', source: 'subagent', originSource: 'subagent', currentSource: 'subagent', profileName: 'google-calander', parentSessionId: 'p-1' },
+  ] as Session[]),
   agentHistory:        () => Promise.resolve({
     runs: [
       { id: 'sub1', bot: 'google-calander', ownerProfile: 'default', goal: "Check Sean's Google Calendar for today", model: 'claude-sonnet-5', status: 'completed' as const, startedAt: Date.now() - 3_600_000, endedAt: Date.now() - 3_540_000, durationSeconds: 63, messageCount: 13, toolCallCount: 6, inputTokens: 12, outputTokens: 5492, costUsd: undefined, lastActivity: undefined, parent: { id: 'p', title: 'Check Google Calendar via delegate_task', source: 'oneshot', profile: 'default' }, result: '## Summary\n\nTwo events today.' },

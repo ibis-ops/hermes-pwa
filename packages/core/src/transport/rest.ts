@@ -1,5 +1,5 @@
 import type { Http } from './http';
-import { PWA_NON_LOCAL_SESSION_SOURCES, mergeSessionsByLineage, sessionsFromResult, type Session } from '../domain/session';
+import { PWA_BROWSE_ONLY_SESSION_SOURCES, PWA_NON_LOCAL_SESSION_SOURCES, mergeSessionsByLineage, sessionsFromResult, type Session } from '../domain/session';
 import type { GatewayStatus } from '../domain/status';
 import type { AuthProvider, HermesUser, LoginBody, LoginResult, WsTicket } from '../domain/auth';
 import type { Artifact } from '../domain/artifact';
@@ -289,6 +289,8 @@ export interface RestClient {
 
   profileSessions(): Promise<Session[]>;
   sessionMessages(sessionId: string, profile?: string): Promise<unknown>;
+  /** Signal, scheduled and delegated sessions across profiles, for read-only browsing. */
+  browseOnlySessions(): Promise<Session[]>;
   sessionArtifacts(sessionId: string): Promise<Artifact[]>;
   sessionUpdate(sessionId: string, updates: { title?: string | null; archived?: boolean; profile?: string }): Promise<unknown>;
   sessionDelete(sessionId: string, profile?: string): Promise<unknown>;
@@ -651,6 +653,22 @@ export function makeRestClient(http: Http): RestClient {
     async cronDeliveryTargets(): Promise<CronDeliveryTarget[]> {
       const raw = await http<Record<string, unknown>>('/api/cron/delivery-targets');
       return asArray<Record<string, unknown>>(raw.targets).map(toCronDeliveryTarget);
+    },
+
+    async browseOnlySessions(): Promise<Session[]> {
+      // Signal, scheduled and delegated runs from every profile's store: the
+      // delegated ones live in the delegating profile's database under the bot's name.
+      const params = new URLSearchParams({
+        limit: '100',
+        offset: '0',
+        min_messages: '1',
+        archived: 'exclude',
+        order: 'recent',
+        profile: 'all',
+        sources: PWA_BROWSE_ONLY_SESSION_SOURCES.join(','),
+      });
+      const raw = await http<Record<string, unknown>>(`/api/profiles/sessions?${params.toString()}`);
+      return sessionsFromResult(raw);
     },
 
     async profileSessions(): Promise<Session[]> {

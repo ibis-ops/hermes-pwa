@@ -422,6 +422,11 @@ export function isCompactionSummaryRow(row: Record<string, unknown>): boolean {
   return COMPACTION_SUMMARY_PREFIXES.some((prefix) => content.startsWith(prefix));
 }
 
+/** The transcript rows a REST history payload holds, projected the way the chat shows them. */
+export function projectHistoryMessages(raw: unknown): Message[] {
+  return messagesFromResult(raw);
+}
+
 function messagesFromResult(raw: unknown): Message[] {
   let maybeMessages: unknown[] = [];
   if (Array.isArray(raw)) {

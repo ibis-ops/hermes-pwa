@@ -37,7 +37,10 @@ describe('ClarifyCard (batch)', () => {
 
   it('keeps the single-answer form for legacy clarify events', () => {
     const onRespond = vi.fn();
-    render(<ClarifyCard item={{ ...item, questions: undefined, serverRequestId: undefined }} onRespond={onRespond} />);
+    const { questions: _questions, serverRequestId: _serverRequestId, ...legacy } = item;
+    void _questions;
+    void _serverRequestId;
+    render(<ClarifyCard item={legacy} onRespond={onRespond} />);
     fireEvent.change(screen.getByLabelText('Your answer'), { target: { value: 'General' } });
     fireEvent.click(screen.getByRole('button', { name: 'Send answer' }));
     expect(onRespond).toHaveBeenCalledWith('srq-3', 'General');

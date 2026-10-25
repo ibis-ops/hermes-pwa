@@ -3820,3 +3820,105 @@ html.hm-keyboard-open .hm-login {
   flex-wrap: wrap;
   gap: 8px;
 }
+
+/* ── Sessions: phone chats vs. conversations the gateway runs on its own ── */
+.hm-sessions__scope {
+  display: flex;
+  gap: 4px;
+  margin: 0 0 10px;
+  padding: 3px;
+  border-radius: 10px;
+  background: var(--hm-color-fill);
+}
+
+.hm-sessions__scope-btn {
+  flex: 1 1 0;
+  min-height: 32px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--hm-color-text-muted);
+  font: inherit;
+  font-size: var(--hm-fs-small);
+  font-weight: var(--hm-fw-medium);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.hm-sessions__scope-btn--active {
+  background: var(--hm-color-surface);
+  color: var(--hm-color-text);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
+}
+
+.hm-sessions__scope-hint {
+  margin: 0 0 10px 2px;
+  font-size: var(--hm-fs-small);
+}
+
+.hm-session-row--readonly .hm-session-row__open {
+  width: 100%;
+}
+
+/* Transcript sheet: a full-height read of a session the phone cannot continue */
+.hm-sheet--transcript .hm-sheet__content {
+  height: 92dvh;
+  max-height: 92dvh;
+  display: flex;
+  flex-direction: column;
+}
+
+.hm-sheet--transcript .hm-sheet__grabber,
+.hm-sheet--transcript .hm-sheet__title,
+.hm-sheet--transcript .hm-transcript__meta,
+.hm-sheet--transcript .hm-transcript__hint {
+  flex: none;
+}
+
+.hm-sheet--transcript .hm-sheet__title {
+  text-align: left;
+  margin-bottom: 2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hm-sheet--transcript .hm-sheet__body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+}
+
+.hm-transcript__meta {
+  margin: 0 0 10px;
+  font-size: var(--hm-fs-small);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hm-transcript__list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-bottom: 12px;
+}
+
+.hm-transcript__empty {
+  margin: 24px 0;
+  text-align: center;
+  font-size: var(--hm-fs-small);
+}
+
+.hm-transcript__hint {
+  margin: 0;
+  padding-top: 10px;
+  border-top: 1px solid var(--hm-color-border);
+  font-size: var(--hm-fs-label);
+  line-height: 1.4;
+  text-align: center;
+}

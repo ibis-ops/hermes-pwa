@@ -45,6 +45,10 @@ export interface Session {
   lineageRootId?: string | undefined;
   startedAt?: number | undefined;
   lastActive?: number | undefined;
+  /** The bot (profile) that ran the session when it differs from the store it lives in (delegated runs). */
+  profileName?: string | undefined;
+  /** The session that asked for this one (delegated runs). */
+  parentSessionId?: string | undefined;
 }
 
 const SOURCE_LABELS: Record<string, string> = {
@@ -54,7 +58,16 @@ const SOURCE_LABELS: Record<string, string> = {
   gateway: 'Gateway',
   local: 'Local',
   tui: 'TUI',
+  subagent: 'Delegated',
+  cron: 'Scheduled',
 };
+
+/**
+ * Sessions the phone can browse but not continue: chat-platform bots, scheduled
+ * jobs and delegated bot runs. The gateway owns their turns (a cron session only
+ * runs its job; a Signal session answers Signal), so the app shows them read-only.
+ */
+export const PWA_BROWSE_ONLY_SESSION_SOURCES = ['signal', 'cron', 'subagent', 'telegram', 'discord', 'slack', 'whatsapp', 'matrix', 'mattermost', 'email', 'sms', 'webhook', 'api_server'] as const;
 
 const SOURCE_ALIASES: Record<string, string[]> = {
   cli: ['terminal'],
@@ -162,6 +175,8 @@ export function toSession(raw: Record<string, unknown>): Session {
     lineageRootId: optionalString(raw._lineage_root_id ?? raw.lineageRootId),
     startedAt: optionalNumber(raw.started_at ?? raw.startedAt),
     lastActive: optionalNumber(raw.last_active ?? raw.lastActive),
+    profileName: optionalString(raw.profile_name ?? raw.profileName),
+    parentSessionId: optionalString(raw.parent_session_id ?? raw.parentSessionId),
   };
 }
 

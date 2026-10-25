@@ -11,8 +11,13 @@ export interface SessionsStore {
   loading: boolean;
   error: string | undefined;
   pinnedIds: string[];
+  /** Signal, scheduled and delegated sessions, browsed read-only. */
+  browseOnly: Session[];
+  browseOnlyLoading: boolean;
+  browseOnlyError: string | undefined;
 
   load(rest: RestClient): Promise<void>;
+  loadBrowseOnly(rest: RestClient): Promise<void>;
   create(rpc: RpcClient, params?: { profile?: string; cwd?: string }): Promise<string>;
   resume(rpc: RpcClient, sessionId: string, profile?: string): Promise<Record<string, unknown> | undefined>;
   archive(rest: RestClient, session: Session, archived: boolean): Promise<void>;
@@ -56,6 +61,19 @@ export const useSessionsStore = create<SessionsStore>((set, get) => ({
   loading: false,
   error: undefined,
   pinnedIds: initialPinnedIds,
+  browseOnly: [],
+  browseOnlyLoading: false,
+  browseOnlyError: undefined,
+
+  async loadBrowseOnly(rest) {
+    set({ browseOnlyLoading: true, browseOnlyError: undefined });
+    try {
+      const browseOnly = await rest.browseOnlySessions();
+      set({ browseOnly, browseOnlyLoading: false });
+    } catch (err) {
+      set({ browseOnlyLoading: false, browseOnlyError: err instanceof Error ? err.message : 'Failed to load sessions.' });
+    }
+  },
 
   async load(rest) {
     set({ loading: true, error: undefined });

@@ -20,6 +20,7 @@ const rpcMock = {
 
 const restMock = {
   profileSessions: vi.fn().mockResolvedValue([]),
+  browseOnlySessions: vi.fn().mockResolvedValue([]),
   sessionMessages: vi.fn().mockResolvedValue({ messages: [] }),
   sessionUpdate: vi.fn().mockResolvedValue({ ok: true }),
   sessionDelete: vi.fn().mockResolvedValue({ ok: true }),
@@ -28,10 +29,12 @@ const restMock = {
 
 describe('Sessions screen', () => {
   beforeEach(() => {
-    useSessionsStore.setState({ sessions: [], loading: false, error: undefined, pinnedIds: [] });
+    useSessionsStore.setState({ sessions: [], loading: false, error: undefined, pinnedIds: [], browseOnly: [], browseOnlyLoading: false, browseOnlyError: undefined });
     useProfilesStore.setState({ activeName: 'default', currentName: 'default', profiles: [{ name: 'default', displayName: 'default', isActive: true }], loading: false, error: undefined });
     vi.clearAllMocks();
     vi.mocked(restMock.profileSessions).mockResolvedValue([]);
+    vi.mocked(restMock.browseOnlySessions).mockResolvedValue([]);
+    vi.mocked(restMock.sessionMessages).mockResolvedValue({ messages: [] });
     vi.mocked(restMock.sessionUpdate).mockResolvedValue({ ok: true });
     vi.mocked(restMock.sessionDelete).mockResolvedValue({ ok: true });
   });
@@ -176,5 +179,39 @@ describe('Sessions screen', () => {
     await waitFor(() => expect(restMock.sessionDelete).toHaveBeenCalledWith('sess-1', 'default'));
     expect(screen.queryByText('Trash me')).not.toBeInTheDocument();
     confirm.mockRestore();
+  });
+
+  it('browses Signal, scheduled and delegated sessions read-only with a transcript sheet', async () => {
+    vi.mocked(restMock.browseOnlySessions).mockResolvedValue([
+      session({ id: 'sig-1', title: 'Weekly workout log', messageCount: 25, profile: 'default', source: 'signal', originSource: 'signal', currentSource: 'signal', profileName: 'default' }),
+      session({ id: 'sub-1', title: 'Subagent: Check the calendar', messageCount: 13, profile: 'default', source: 'subagent', originSource: 'subagent', currentSource: 'subagent', profileName: 'google-calander', parentSessionId: 'p-1' }),
+    ]);
+    vi.mocked(restMock.sessionMessages).mockResolvedValue({
+      messages: [
+        { id: 'm1', role: 'user', content: 'Check the calendar for today', timestamp: 1_792_859_832 },
+        { id: 'm2', role: 'assistant', content: 'Two events today.', timestamp: 1_792_859_895 },
+      ],
+    });
+    const onSessionOpen = vi.fn();
+    render(<Sessions rpc={rpcMock} rest={restMock} onSessionOpen={onSessionOpen} />);
+    await waitFor(() => expect(screen.getByText(/No sessions yet/i)).toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Signal, scheduled, delegated' }));
+    await waitFor(() => expect(screen.getAllByTestId('session-row')).toHaveLength(2));
+    expect(restMock.browseOnlySessions).toHaveBeenCalledTimes(1);
+    const rows = screen.getAllByTestId('session-row');
+    expect(rows.every((row) => row.getAttribute('data-readonly') === 'true')).toBe(true);
+    expect(screen.queryByRole('button', { name: /Delete session/ })).toBeNull();
+    expect(screen.getAllByText('Delegated').length).toBeGreaterThan(0);
+    expect(screen.getByText(/google-calander · 13 msgs/)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Read session: Subagent: Check the calendar' }));
+    await waitFor(() => expect(screen.getByTestId('transcript')).toBeInTheDocument());
+    expect(restMock.sessionMessages).toHaveBeenCalledWith('sub-1', 'default');
+    expect(screen.getByText('Two events today.')).toBeInTheDocument();
+    expect(screen.getByText(/A delegated run belongs to the chat that asked for it/)).toBeInTheDocument();
+    // Nothing was resumed into the live chat.
+    expect(onSessionOpen).not.toHaveBeenCalled();
+    expect(useChatStore.getState().sessionId).toBeUndefined();
   });
 });
