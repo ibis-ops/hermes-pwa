@@ -8,7 +8,7 @@ export type { AuthState, HermesStatus, HermesUser } from './transport/auth';
 export { makeRestClient, type RestClient } from './transport/rest';
 export type { PushStatus, PushSubscribeBody, PushSubscriptionSafe } from './transport/rest';
 export type { UpdateCheck, UpdateInstruction } from './domain/update';
-export { makeRpcClient, makeRpcEvents, type RpcClient, type RpcEvents, type RpcEvent } from './transport/jsonrpc';
+export { makeRpcClient, makeRpcEvents, METHOD_NOT_FOUND, type RpcClient, type RpcEvents, type RpcEvent, type ServerRequest, type ServerRequestHandler } from './transport/jsonrpc';
 export { makeWsConnection, type WsConnection } from './transport/ws';
 export { useConnectionStore, type ConnectionState, type ConnectionStore } from './stores/connection';
 export { useSessionsStore, type SessionsStore } from './stores/sessions';
@@ -37,7 +37,8 @@ export {
   sessionSourceLabel,
   sessionSourceSearchTerms,
 } from './domain/session';
-export type { ActionItem, ActionKind, ActionStatus, Approval, Clarify } from './domain/activity';
+export type { ActionItem, ActionKind, ActionStatus, Approval, ApprovalChoice, Clarify, ClarifyQuestion } from './domain/activity';
+export { approvalFromServerRequest, clarifyFromServerRequest } from './domain/activity';
 export type { Board, BoardDetail, Column, Task, TaskStatus, Worker } from './domain/project';
 export type { AgentProfile } from './domain/agent';
 export type { Profile, ProfileActive, ProfileCreateBody, ProfileCreateResult, ReasoningEffort } from './domain/profile';

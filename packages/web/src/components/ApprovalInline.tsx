@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import type { RpcClient, Approval, ToolCall } from '@hermes-pwa/core';
+import type { RpcClient, Approval, ApprovalChoice, ToolCall } from '@hermes-pwa/core';
 import { useActivityStore, useChatStore } from '@hermes-pwa/core';
 import { Icon } from './Icon';
 import { approvalText } from './approvalText';
@@ -14,7 +14,6 @@ interface ApprovalInlineProps {
 
 const APPROVAL_TOOLS = new Set(['terminal', 'execute_code']);
 
-type ApprovalChoice = 'once' | 'session' | 'always' | 'deny';
 
 function riskStyle(risk: 'low' | 'medium' | 'high') {
   if (risk === 'high') return { bg: 'var(--hm-color-danger-bg)', color: 'var(--hm-color-danger-strong)', label: 'high risk' };
@@ -81,6 +80,8 @@ export function ApprovalInline({ rpc, toolName, tool }: ApprovalInlineProps) {
 
   const approval = pending;
   const shown = approvalText(approval);
+  // The gateway says which answers it accepts; a guardian-flagged command only takes once/deny.
+  const offers = (choice: ApprovalChoice) => !approval.choices || approval.choices.includes(choice);
   const risk = approval.highImpact ? 'high' : 'low';
   const style = riskStyle(risk);
   const busy = submitting !== null;
@@ -130,6 +131,11 @@ export function ApprovalInline({ rpc, toolName, tool }: ApprovalInlineProps) {
             The command text is incomplete. Deny unless you know exactly what this is.
           </div>
         )}
+        {approval.smartDenied ? (
+          <div className="hm-approval-inline__warning" role="alert">
+            The safety check refused this command; approving overrides it for this one run.
+          </div>
+        ) : null}
         <div className="hm-approval-inline__actions">
           <button
             type="button"
@@ -147,22 +153,26 @@ export function ApprovalInline({ rpc, toolName, tool }: ApprovalInlineProps) {
           >
             {submitting === 'deny' ? 'Rejecting…' : toolScoped ? 'Reject' : 'Deny'}
           </button>
-          <button
-            type="button"
-            className="hm-approval-inline__always"
-            disabled={busy}
-            onClick={() => void respond('session')}
-          >
-            {submitting === 'session' ? 'Allowing…' : 'Session'}
-          </button>
-          <button
-            type="button"
-            className="hm-approval-inline__always"
-            disabled={busy}
-            onClick={() => void respond('always')}
-          >
-            {submitting === 'always' ? 'Allowing…' : 'Always'}
-          </button>
+          {offers('session') ? (
+            <button
+              type="button"
+              className="hm-approval-inline__always"
+              disabled={busy}
+              onClick={() => void respond('session')}
+            >
+              {submitting === 'session' ? 'Allowing…' : 'Session'}
+            </button>
+          ) : null}
+          {offers('always') ? (
+            <button
+              type="button"
+              className="hm-approval-inline__always"
+              disabled={busy}
+              onClick={() => void respond('always')}
+            >
+              {submitting === 'always' ? 'Allowing…' : 'Always'}
+            </button>
+          ) : null}
         </div>
       </div>
     </div>

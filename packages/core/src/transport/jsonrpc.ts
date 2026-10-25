@@ -78,6 +78,7 @@ const KNOWN_GATEWAY_EVENT_TYPES = new Set([
   'reasoning.available',
   'approval.request',
   'clarify.request',
+  'request.cancel',
   'status.update',
   'notice',
   'notice.clear',
@@ -100,6 +101,26 @@ export interface RpcRequestOptions {
   timeoutMs?: number;
 }
 
+/**
+ * A question the gateway asks this client (JSON-RPC is peer to peer): an
+ * approval to grant, a clarify to answer. The frame carries the server's own
+ * id (`srq-…`); the answer is a response frame with that id. A request the
+ * client does not handle is answered -32601 at once so the agent fails fast
+ * instead of waiting out its deadline.
+ */
+export interface ServerRequest {
+  id: string;
+  method: string;
+  params: Record<string, unknown>;
+  sessionId: string | undefined;
+  /** Re-delivered from a reconnect snapshot (`open_requests`), not freshly asked. */
+  replayed: boolean;
+}
+
+export type ServerRequestHandler = (request: ServerRequest) => void;
+
+export const METHOD_NOT_FOUND = -32601;
+
 export interface RpcClient {
   request<T>(method: string, params?: unknown, options?: RpcRequestOptions): Promise<T>;
   onFrame(line: string): void;
@@ -111,6 +132,14 @@ export interface RpcClient {
   replayEvent(raw: unknown): void;
   /** `replay_epoch` from the last gateway.ready; a change means the gateway restarted and watermarks are void. */
   replayEpoch(): string | undefined;
+  /** Handle one kind of server→client request (`approval`, `clarify`, ...). Returns the unsubscribe. */
+  onServerRequest(method: string, handler: ServerRequestHandler): () => void;
+  /** Answer a server→client request. */
+  respond(requestId: string, result: Record<string, unknown>): void;
+  /** Refuse a server→client request (`METHOD_NOT_FOUND` for one this client cannot answer). */
+  respondError(requestId: string, code: number, message: string): void;
+  /** Re-deliver the `open_requests` a reconnect snapshot carried, as if they had just arrived. */
+  replayServerRequests(raw: unknown): void;
 }
 
 export function makeRpcEvents(): RpcEvents {
@@ -142,6 +171,53 @@ export function makeRpcClient(send: RpcSend, options: RpcClientOptions = {}): Rp
   let counter = 0;
   const lastSeqBySession = new Map<string, number>();
   let epoch: string | undefined;
+  const serverRequestHandlers = new Map<string, Set<ServerRequestHandler>>();
+
+  function writeFrame(frame: Record<string, unknown>): void {
+    try {
+      send(JSON.stringify(frame) + '\n');
+    } catch (error) {
+      console.warn('[Hermes PWA] could not answer a server request', error);
+    }
+  }
+
+  function respond(requestId: string, result: Record<string, unknown>): void {
+    writeFrame({ jsonrpc: '2.0', id: requestId, result });
+  }
+
+  function respondError(requestId: string, code: number, message: string): void {
+    writeFrame({ jsonrpc: '2.0', id: requestId, error: { code, message } });
+  }
+
+  function deliverServerRequest(id: string, method: string, params: Record<string, unknown>, replayed: boolean): void {
+    const handlers = serverRequestHandlers.get(method);
+    if (!handlers || handlers.size === 0) {
+      respondError(id, METHOD_NOT_FOUND, `This client does not answer ${method} requests.`);
+      return;
+    }
+    const sessionId = typeof params.session_id === 'string' ? params.session_id : undefined;
+    const request: ServerRequest = { id, method, params, sessionId, replayed };
+    handlers.forEach((handler) => {
+      try {
+        handler(request);
+      } catch (error) {
+        console.warn(`[Hermes PWA] server request handler for ${method} failed`, error);
+      }
+    });
+  }
+
+  function replayServerRequests(raw: unknown): void {
+    if (!Array.isArray(raw)) return;
+    for (const entry of raw) {
+      if (!entry || typeof entry !== 'object') continue;
+      const record = entry as Record<string, unknown>;
+      const id = typeof record.id === 'string' ? record.id : undefined;
+      const method = typeof record.method === 'string' ? record.method : undefined;
+      if (!id || !method) continue;
+      const params = record.params && typeof record.params === 'object' ? (record.params as Record<string, unknown>) : {};
+      deliverServerRequest(id, method, params, true);
+    }
+  }
 
   function dispatchEventParams(params: JsonRpcEvent['params']): void {
     if (!isKnownGatewayEventType(params.type)) {
@@ -225,6 +301,14 @@ export function makeRpcClient(send: RpcSend, options: RpcClientOptions = {}): Rp
       if (evt.params && typeof evt.params === 'object' && typeof evt.params.type === 'string') {
         dispatchEventParams(evt.params);
       }
+      return;
+    }
+
+    // A frame with its own id and a method is the gateway asking us something.
+    if ('method' in frame && typeof frame.method === 'string' && 'id' in frame && typeof frame.id === 'string') {
+      const request = frame as unknown as { id: string; method: string; params?: unknown };
+      const params = request.params && typeof request.params === 'object' ? (request.params as Record<string, unknown>) : {};
+      deliverServerRequest(request.id, request.method, params, false);
     }
   }
 
@@ -249,5 +333,16 @@ export function makeRpcClient(send: RpcSend, options: RpcClientOptions = {}): Rp
     lastSeq: (sessionId) => lastSeqBySession.get(sessionId) ?? 0,
     replayEvent,
     replayEpoch: () => epoch,
+    onServerRequest(method, handler) {
+      const set = serverRequestHandlers.get(method) ?? new Set<ServerRequestHandler>();
+      set.add(handler);
+      serverRequestHandlers.set(method, set);
+      return () => {
+        set.delete(handler);
+      };
+    },
+    respond,
+    respondError,
+    replayServerRequests,
   };
 }

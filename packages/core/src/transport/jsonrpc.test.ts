@@ -260,3 +260,54 @@ describe('event sequence tracking', () => {
     expect(rpc.lastSeq('s1')).toBe(0);
   });
 });
+
+describe('server→client requests', () => {
+  it('hands an approval request to its handler and the answer goes back under the same id', () => {
+    const send = vi.fn();
+    const rpc = makeRpcClient(send);
+    const seen: unknown[] = [];
+    rpc.onServerRequest('approval', (request) => seen.push(request));
+    rpc.onFrame(JSON.stringify({ jsonrpc: '2.0', id: 'srq-abc123', method: 'approval', params: { session_id: 's-1', request_id: 'q-9', command: 'rm -rf /tmp/x', description: 'recursive delete', choices: ['once', 'deny'] } }));
+    expect(seen).toEqual([
+      { id: 'srq-abc123', method: 'approval', params: { session_id: 's-1', request_id: 'q-9', command: 'rm -rf /tmp/x', description: 'recursive delete', choices: ['once', 'deny'] }, sessionId: 's-1', replayed: false },
+    ]);
+    expect(send).not.toHaveBeenCalled();
+
+    rpc.respond('srq-abc123', { choice: 'deny' });
+    expect(JSON.parse(send.mock.calls[0][0].trim())).toEqual({ jsonrpc: '2.0', id: 'srq-abc123', result: { choice: 'deny' } });
+  });
+
+  it('refuses a request nobody handles with METHOD_NOT_FOUND so the agent does not wait', () => {
+    const send = vi.fn();
+    const rpc = makeRpcClient(send);
+    rpc.onFrame(JSON.stringify({ jsonrpc: '2.0', id: 'srq-tour', method: 'tour', params: { session_id: 's-1' } }));
+    const frame = JSON.parse(send.mock.calls[0][0].trim());
+    expect(frame.id).toBe('srq-tour');
+    expect(frame.error.code).toBe(-32601);
+  });
+
+  it('replays open requests from a reconnect snapshot as replayed requests', () => {
+    const rpc = makeRpcClient(vi.fn());
+    const seen: unknown[] = [];
+    rpc.onServerRequest('clarify', (request) => seen.push(request));
+    rpc.replayServerRequests([
+      { id: 'srq-c1', method: 'clarify', params: { session_id: 's-1', questions: [{ qid: 'q1', question: 'Which?', choices: ['a', 'b'], multi_select: false }] } },
+      { not: 'a request' },
+    ]);
+    expect(seen).toHaveLength(1);
+    expect((seen[0] as { replayed: boolean }).replayed).toBe(true);
+  });
+
+  it('still settles ordinary responses and events', async () => {
+    const send = vi.fn();
+    const rpc = makeRpcClient(send);
+    const cancelled: RpcEvent[] = [];
+    rpc.events.addEventListener('request.cancel', (event) => cancelled.push(event));
+    const pending = rpc.request('ping');
+    rpc.onFrame(JSON.stringify({ jsonrpc: '2.0', id: '1', result: { ok: true } }));
+    await expect(pending).resolves.toEqual({ ok: true });
+    rpc.onFrame(JSON.stringify({ jsonrpc: '2.0', method: 'event', params: { type: 'request.cancel', session_id: 's-1', payload: { id: 'srq-abc', method: 'approval', reason: 'resolved' } } }));
+    expect(cancelled).toHaveLength(1);
+    expect(cancelled[0]?.payload).toEqual({ id: 'srq-abc', method: 'approval', reason: 'resolved' });
+  });
+});

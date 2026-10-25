@@ -490,10 +490,14 @@ export function AppShell({ connectionState, rpc, rest, onRetry }: AppShellProps)
     rpc.events.addEventListener('approval.request', onApprovalRequired);
     rpc.events.addEventListener('clarify.request', onClarifyRequired);
     rpc.events.addEventListener('status.update', onStatusUpdate);
+    // The gateway's own questions (approval, clarify) arrive as server→client
+    // requests; the activity store turns them into cards and answers them.
+    const detachServerRequests = useActivityStore.getState().attachServerRequests(rpc);
     return () => {
       rpc.events.removeEventListener('approval.request', onApprovalRequired);
       rpc.events.removeEventListener('clarify.request', onClarifyRequired);
       rpc.events.removeEventListener('status.update', onStatusUpdate);
+      detachServerRequests();
     };
   }, [rpc, addActivityItem]);
 

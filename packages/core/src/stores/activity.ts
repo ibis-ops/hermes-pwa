@@ -1,6 +1,6 @@
 import { create } from 'zustand';
-import type { ActionItem } from '../domain/activity';
-import type { RpcClient } from '../transport/jsonrpc';
+import { approvalFromServerRequest, clarifyFromServerRequest, type ActionItem, type Approval, type Clarify } from '../domain/activity';
+import type { RpcClient, RpcEvent, ServerRequest } from '../transport/jsonrpc';
 import type { RestClient } from '../transport/rest';
 
 export interface ActivityStore {
@@ -16,7 +16,12 @@ export interface ActivityStore {
     sessionId?: string,
     choiceOverride?: 'once' | 'session' | 'always' | 'deny',
   ): Promise<void>;
-  respondClarify(rpc: RpcClient, id: string, answer: string): Promise<void>;
+  respondClarify(rpc: RpcClient, id: string, answer: string | Record<string, string | string[] | null>): Promise<void>;
+  /**
+   * Take the gateway's `approval` and `clarify` questions (server→client
+   * requests) and their `request.cancel` withdrawals. Returns the detach.
+   */
+  attachServerRequests(rpc: RpcClient): () => void;
   dismiss(id: string): void;
   addItem(item: ActionItem): void;
   updateItem(id: string, patch: Partial<ActionItem>): void;
@@ -117,14 +122,22 @@ export const useActivityStore = create<ActivityStore>((set, get) => ({
     approvalResponsesInFlight.add(id);
     try {
       const item = get().items.find((i) => i.id === id);
+      const choice = choiceOverride ?? (decision === 'approve' ? 'once' : 'deny');
+      const approval = item && item.kind === 'approval' ? (item as Approval) : undefined;
+      if (approval?.serverRequestId) {
+        // The live question: the answer goes back on the socket it arrived on.
+        rpc.respond(approval.serverRequestId, { choice });
+        set((s) => ({ items: removeById(s.items, id) }));
+        return;
+      }
       const resolvedSessionId = sessionId ?? item?.sessionId;
       if (!resolvedSessionId) {
         throw new Error('Approval response requires session_id.');
       }
-      const choice = choiceOverride ?? (decision === 'approve' ? 'once' : 'deny');
       await rpc.request('approval.respond', {
         choice,
         session_id: resolvedSessionId,
+        ...(approval?.requestId ? { request_id: approval.requestId } : {}),
       });
       set((s) => ({ items: removeById(s.items, id) }));
     } catch (err) {
@@ -143,13 +156,62 @@ export const useActivityStore = create<ActivityStore>((set, get) => ({
 
   async respondClarify(rpc, id, answer) {
     try {
-      await rpc.request('clarify.respond', { id, answer });
+      const item = get().items.find((i) => i.id === id);
+      const clarify = item && item.kind === 'clarify' ? (item as Clarify) : undefined;
+      if (clarify?.serverRequestId) {
+        const answers =
+          typeof answer === 'string'
+            ? Object.fromEntries((clarify.questions ?? []).map((question, index) => [question.qid, index === 0 ? answer : null]))
+            : answer;
+        rpc.respond(clarify.serverRequestId, { answers });
+        set((s) => ({ items: removeById(s.items, id) }));
+        return;
+      }
+      await rpc.request('clarify.respond', { id, answer: typeof answer === 'string' ? answer : JSON.stringify(answer) });
       set((s) => ({ items: removeById(s.items, id) }));
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Failed to respond.';
       set({ error: msg });
       throw err;
     }
+  },
+
+  attachServerRequests(rpc) {
+    const onApproval = (request: ServerRequest) => {
+      const item = approvalFromServerRequest(request.id, request.params, request.sessionId);
+      set((s) => ({ items: upsertActivityItem(s.items, item) }));
+      if (item.requestId && request.sessionId) {
+        // Tells the gateway a client holds the prompt; best effort, the answer is what matters.
+        rpc.request('approval.received', { request_id: item.requestId, session_id: request.sessionId }).catch(() => undefined);
+      }
+    };
+    const onClarify = (request: ServerRequest) => {
+      const item = clarifyFromServerRequest(request.id, request.params, request.sessionId);
+      if (item.questions && item.questions.length === 0) {
+        rpc.respond(request.id, { answers: {} });
+        return;
+      }
+      set((s) => ({ items: upsertActivityItem(s.items, item) }));
+    };
+    const onCancel = (event: RpcEvent) => {
+      const payload = (event.payload ?? {}) as Record<string, unknown>;
+      const requestId = typeof payload.id === 'string' ? payload.id : undefined;
+      if (!requestId) return;
+      set((s) => ({
+        items: s.items.filter((item) => {
+          const serverRequestId = (item as Approval | Clarify).serverRequestId;
+          return serverRequestId !== requestId;
+        }),
+      }));
+    };
+    const detachApproval = rpc.onServerRequest('approval', onApproval);
+    const detachClarify = rpc.onServerRequest('clarify', onClarify);
+    rpc.events.addEventListener('request.cancel', onCancel);
+    return () => {
+      detachApproval();
+      detachClarify();
+      rpc.events.removeEventListener('request.cancel', onCancel);
+    };
   },
 
   dismiss(id) {

@@ -245,3 +245,86 @@ describe('useActivityStore', () => {
     expect(useActivityStore.getState().error).toBeUndefined();
   });
 });
+
+describe('server→client approval and clarify requests', () => {
+  function makeRpc() {
+    const handlers = new Map<string, (request: unknown) => void>();
+    const listeners = new Map<string, Set<(event: unknown) => void>>();
+    const rpc = {
+      request: vi.fn().mockResolvedValue({}),
+      onFrame: vi.fn(),
+      events: {
+        addEventListener: (type: string, handler: (event: unknown) => void) => {
+          const set = listeners.get(type) ?? new Set();
+          set.add(handler);
+          listeners.set(type, set);
+        },
+        removeEventListener: (type: string, handler: (event: unknown) => void) => listeners.get(type)?.delete(handler),
+        dispatchEvent: (event: { type: string }) => listeners.get(event.type)?.forEach((h) => h(event)),
+      },
+      onServerRequest: vi.fn((method: string, handler: (request: unknown) => void) => {
+        handlers.set(method, handler);
+        return () => handlers.delete(method);
+      }),
+      respond: vi.fn(),
+      respondError: vi.fn(),
+      replayServerRequests: vi.fn(),
+      lastSeq: () => 0,
+      replayEvent: vi.fn(),
+      replayEpoch: () => undefined,
+      disconnect: vi.fn(),
+    };
+    return { rpc: rpc as unknown as RpcClient, handlers, dispatch: rpc.events.dispatchEvent };
+  }
+
+  beforeEach(() => {
+    useActivityStore.setState({ items: [], loading: false, error: undefined });
+  });
+
+  it('turns an approval request into a card and answers it on the same request', async () => {
+    const { rpc, handlers } = makeRpc();
+    const detach = useActivityStore.getState().attachServerRequests(rpc);
+    handlers.get('approval')!({
+      id: 'srq-1',
+      method: 'approval',
+      params: { session_id: 'live-1', request_id: 'q-1', command: 'rm -rf ~/Desktop/General/x', description: 'recursive delete', choices: ['once', 'deny'], smart_denied: true },
+      sessionId: 'live-1',
+      replayed: false,
+    });
+    const [item] = useActivityStore.getState().items;
+    expect(item).toMatchObject({ id: 'q-1', kind: 'approval', sessionId: 'live-1', command: 'rm -rf ~/Desktop/General/x', serverRequestId: 'srq-1', choices: ['once', 'deny'], smartDenied: true });
+    expect(rpc.request).toHaveBeenCalledWith('approval.received', { request_id: 'q-1', session_id: 'live-1' });
+
+    await useActivityStore.getState().respondApproval(rpc, 'q-1', 'reject', undefined, 'deny');
+    expect(rpc.respond).toHaveBeenCalledWith('srq-1', { choice: 'deny' });
+    expect(rpc.request).not.toHaveBeenCalledWith('approval.respond', expect.anything());
+    expect(useActivityStore.getState().items).toHaveLength(0);
+    detach();
+  });
+
+  it('drops the card when the gateway withdraws the request', () => {
+    const { rpc, handlers, dispatch } = makeRpc();
+    useActivityStore.getState().attachServerRequests(rpc);
+    handlers.get('approval')!({ id: 'srq-2', method: 'approval', params: { session_id: 'live-1', command: 'x' }, sessionId: 'live-1', replayed: true });
+    expect(useActivityStore.getState().items).toHaveLength(1);
+    dispatch({ type: 'request.cancel', sessionId: 'live-1', payload: { id: 'srq-2', method: 'approval', reason: 'resolved' } });
+    expect(useActivityStore.getState().items).toHaveLength(0);
+  });
+
+  it('answers a batch clarify with one answer per question', async () => {
+    const { rpc, handlers } = makeRpc();
+    useActivityStore.getState().attachServerRequests(rpc);
+    handlers.get('clarify')!({
+      id: 'srq-3',
+      method: 'clarify',
+      params: { session_id: 'live-1', questions: [{ qid: 'q1', question: 'Which vault?', choices: ['General', 'Work'], multi_select: false }, { qid: 'q2', question: 'Tags?', choices: [], multi_select: true }] },
+      sessionId: 'live-1',
+      replayed: false,
+    });
+    const [item] = useActivityStore.getState().items;
+    expect(item).toMatchObject({ id: 'srq-3', kind: 'clarify', title: '2 questions', question: 'Which vault?' });
+    await useActivityStore.getState().respondClarify(rpc, 'srq-3', { q1: 'General', q2: null });
+    expect(rpc.respond).toHaveBeenCalledWith('srq-3', { answers: { q1: 'General', q2: null } });
+    expect(useActivityStore.getState().items).toHaveLength(0);
+  });
+});

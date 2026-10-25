@@ -187,6 +187,8 @@ describe('useConnectionStore', () => {
 
     expect(useConnectionStore.getState().state).toBe('connected');
     expect(restMock.wsTicket).toHaveBeenCalledTimes(1);
+    // Every connection tells the gateway this client answers its approval and clarify questions.
+    expect(rpcMock.request).toHaveBeenCalledWith('client.capabilities', { server_requests: true });
   });
 
   it('reports unsupported websocket ticket transport without reconnect backoff', async () => {

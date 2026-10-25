@@ -3801,3 +3801,22 @@ html.hm-keyboard-open .hm-login {
     animation: none;
   }
 }
+
+/* Clarify: several questions in one card, choices as chips, a free-text line each */
+.hm-clarify-form--batch {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.hm-clarify-q {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.hm-clarify-choices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}

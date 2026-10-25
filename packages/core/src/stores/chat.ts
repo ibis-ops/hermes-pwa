@@ -1277,6 +1277,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
     if (!sessionId) return 'skipped';
     const cacheProfile = resolveCacheProfile(profile, get().cacheProfile);
     let running = false;
+    let openRequests: unknown;
     try {
       const live = await rpc.request<Record<string, unknown>>(
         'session.activate',
@@ -1287,6 +1288,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
         throw new Error('session.activate did not return the live session');
       }
       running = live.running === true;
+      openRequests = live.open_requests;
     } catch {
       // The parked session was reaped while the app was away. Drop the dead
       // runtime id; the caller reopens the durable session (restore).
@@ -1322,6 +1324,11 @@ export const useChatStore = create<ChatStore>((set, get) => ({
       await get().refreshHistory(rest, cacheProfile).catch(() => undefined);
     }
     if (get().sessionId !== sessionId) return 'skipped';
+    // Questions the gateway asked while the socket was down (an approval it
+    // is still waiting on) come back with the snapshot; hand them to the cards.
+    if (Array.isArray(openRequests) && openRequests.length > 0 && typeof rpc.replayServerRequests === 'function') {
+      rpc.replayServerRequests(openRequests);
+    }
     if (running) {
       get().beginAssistant();
     } else if (get().streaming) {

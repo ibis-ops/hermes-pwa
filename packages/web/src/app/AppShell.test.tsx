@@ -7,6 +7,10 @@ const rpcMock = {
   request: vi.fn(),
   onFrame: vi.fn(),
   events: makeRpcEvents(),
+  onServerRequest: vi.fn(() => () => undefined),
+  respond: vi.fn(),
+  respondError: vi.fn(),
+  replayServerRequests: vi.fn(),
 } as unknown as import('@hermes-pwa/core').RpcClient;
 
 const restMock = {

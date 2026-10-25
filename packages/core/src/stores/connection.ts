@@ -275,6 +275,14 @@ export const useConnectionStore = create<ConnectionStore>((set, get) => {
         wsAttempt = 0;
         set({ state: 'connected', error: undefined });
         removeReadyListener();
+        // Once per connection: tell the gateway this client answers its
+        // questions (approval, clarify). Without this it never sends them and
+        // withdraws every approval as "the attached client cannot answer".
+        void Promise.resolve()
+          .then(() => rpc.request('client.capabilities', { server_requests: true }))
+          .catch((error: unknown) => {
+            console.warn('[Hermes PWA] client.capabilities not accepted', error);
+          });
       };
       rpc.events.addEventListener('gateway.ready', readyHandler);
     } catch (err) {

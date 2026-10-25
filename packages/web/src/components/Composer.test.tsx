@@ -22,6 +22,10 @@ function makeRpc(result: unknown): RpcClient {
     lastSeq: () => 0,
     replayEvent: vi.fn(),
     replayEpoch: () => undefined,
+    onServerRequest: () => () => undefined,
+    respond: vi.fn(),
+    respondError: vi.fn(),
+    replayServerRequests: vi.fn(),
   };
 }
 

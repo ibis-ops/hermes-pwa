@@ -163,6 +163,10 @@ const noopRpc: RpcClient = {
   lastSeq: () => 0,
   replayEvent: () => undefined,
   replayEpoch: () => undefined,
+  onServerRequest: () => () => undefined,
+  respond: () => undefined,
+  respondError: () => undefined,
+  replayServerRequests: () => undefined,
 };
 
 const PREVIEW_STATUSES: TaskStatus[] = [

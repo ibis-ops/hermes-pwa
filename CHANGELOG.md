@@ -19,6 +19,13 @@ All notable changes are documented here. The format follows
   every delegated run across all profiles (`/agents/history`, read from each profile's subagent
   sessions), grouped by day, with the bot that ran it, the goal, status, duration, model, tool and
   token counts, the chat that asked, and the run's final answer on tap.
+- **Approvals and clarify questions answered from the phone.** The gateway asks its clients
+  questions as server→client JSON-RPC requests (`approval`, `clarify`) and only sends them to a
+  client that advertised `client.capabilities {server_requests: true}`; the app never did, so every
+  approval was withdrawn as "the attached client cannot answer". The app now advertises on every
+  connection, turns the requests into cards (choices as the gateway offers them, a note when the
+  safety check refused the command, batch clarify with chips and free text), answers on the same
+  request id, honors `request.cancel`, and re-delivers `open_requests` from a reconnect snapshot.
 - **Whole transcript after compaction.** History is requested with the turns Hermes folded away
   (`include_compacted=true`) and the compaction handoff row is dropped, so a long chat keeps
   showing its earlier turns instead of collapsing to the latest page.

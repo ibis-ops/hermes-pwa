@@ -42,6 +42,11 @@ export function ApprovalCard({ item, onApprove, onReject }: ApprovalCardProps) {
             The command text is incomplete. Deny unless you know exactly what this is.
           </div>
         )}
+        {item.smartDenied ? (
+          <div className="hm-approval-card__warning" role="alert">
+            The safety check refused this command; approving overrides it for this one run.
+          </div>
+        ) : null}
         <div className="hm-approval-card__actions">
           <button
             type="button"
