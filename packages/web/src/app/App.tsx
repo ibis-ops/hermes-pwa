@@ -10,6 +10,7 @@ import { Login } from '../screens/Login';
 import { AppShell } from './AppShell';
 import { AppPreview } from './AppPreview';
 import { useNativeViewportLock } from './useNativeViewportLock';
+import { hasCachedTranscript } from '../lib/screenStorage';
 import './App.css';
 import '../styles/prototype.css';
 import '../styles/apple.css';
@@ -33,6 +34,11 @@ export function App() {
   // flashed "Connecting" for a moment. The shell shows its own banner instead.
   const shellShownRef = useRef(false);
   if (connection.state === 'connected') shellShownRef.current = true;
+  // A launch shows the shell at once with whatever is cached (the last
+  // transcript, the last screen) while the socket comes up; the banner in the
+  // shell says "Connecting". Only an answer that sign-in is needed, or an
+  // unsupported server, replaces it.
+  const hasCachedShell = useRef(hasCachedTranscript()).current;
 
   useEffect(() => {
     if (isPreview) return;
@@ -57,18 +63,23 @@ export function App() {
     return <Login store={connection} error={connection.error} />;
   }
 
-  if ((connection.state === 'init' || connection.state === 'ticketing') && !shellShownRef.current) {
+  if ((connection.state === 'init' || connection.state === 'ticketing') && !shellShownRef.current && !hasCachedShell) {
     return (
       <div className="hm-app-shell">
-        <div className="hm-empty-state">
-          <h1>Hermes Mobile</h1>
+        <div className="hm-empty-state hm-empty-state--launch">
+          <img className="hm-empty-state__logo" src="./icons/icon-192.png" alt="" aria-hidden="true" />
           <p className="hm-muted">Connecting…</p>
         </div>
       </div>
     );
   }
 
-  if (connection.state === 'offline' || connection.state === 'unsupported' || connection.state === 'incompatible-transport') {
+  // A transient offline moment (a tunnel, an elevator) keeps the shell, its
+  // draft and its queue; the banner offers Retry. The dead-end screen is for
+  // a launch that could not reach Hermes at all.
+  const keepShellWhileOffline = connection.state === 'offline' && (shellShownRef.current || hasCachedShell);
+
+  if (!keepShellWhileOffline && (connection.state === 'offline' || connection.state === 'unsupported' || connection.state === 'incompatible-transport')) {
     const canRetry = connection.state === 'offline';
     const fallback = connection.state === 'unsupported'
       ? 'Unsupported Hermes server'

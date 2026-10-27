@@ -41,10 +41,11 @@ const TILES: {
 ];
 
 export function Home({ rpc, rest, onNavigate }: HomeProps) {
-  const { items: activityItems } = useActivityStore();
-  const { sessions } = useSessionsStore();
+  const activityItems = useActivityStore((s) => s.items);
+  const sessions = useSessionsStore((s) => s.sessions);
   const activeName = useProfilesStore((s) => s.activeName);
-  const { startNewSession, resumeSessionIntoChat } = useChatStore();
+  const startNewSession = useChatStore((s) => s.startNewSession);
+  const resumeSessionIntoChat = useChatStore((s) => s.resumeSessionIntoChat);
 
   const pendingApprovals = activityItems.filter((i) => i.status === 'needs_you').length;
   const liveSessions = sessions.filter((s) => s.isActive || s.active).length;

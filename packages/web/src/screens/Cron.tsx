@@ -12,6 +12,7 @@ import type { CronJob, CronJobRun, RestClient, ScheduleBuilderState } from '@her
 import { Icon } from '../components/Icon';
 import { ScheduleBuilder } from '../components/ScheduleBuilder';
 import { BottomSheet } from '../components/BottomSheet';
+import { SkeletonRows } from '../components/Skeleton';
 
 interface CronProps {
   rest: RestClient;
@@ -239,7 +240,7 @@ export function Cron({ rest }: CronProps) {
       </div>
 
       {error && <div className="hm-warning-banner hm-warning-banner--error">{error}</div>}
-      {loading && jobs.length === 0 && <p className="hm-muted hm-loading">Loading cron jobs…</p>}
+      {loading && jobs.length === 0 && <SkeletonRows rows={4} label="Loading cron jobs" />}
 
       <div className="hm-cron__list">
         {jobs.length === 0 && !loading && (

@@ -11,6 +11,7 @@ import {
 import { BottomSheet } from './BottomSheet';
 import { MessageBubble } from './MessageBubble';
 import { formatDividerTime, needsTimeDivider, toMillis } from '../lib/chatTime';
+import { SkeletonRows } from './Skeleton';
 
 interface SessionTranscriptProps {
   session: Session;
@@ -73,7 +74,7 @@ export function SessionTranscript({ session, rpc, rest, onClose }: SessionTransc
       }
     >
       {error ? <div className="hm-warning-banner hm-warning-banner--error">{error}</div> : null}
-      {messages === undefined && !error ? <p className="hm-muted hm-loading">Loading…</p> : null}
+      {messages === undefined && !error ? <SkeletonRows rows={5} kind="chat" label="Loading transcript" /> : null}
       {messages && messages.length === 0 ? <p className="hm-muted hm-transcript__empty">Nothing recorded in this session.</p> : null}
       {messages ? (
         <div className="hm-transcript__list" data-testid="transcript">

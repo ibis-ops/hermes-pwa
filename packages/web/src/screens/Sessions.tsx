@@ -14,6 +14,7 @@ import {
 } from '@hermes-pwa/core';
 import { Icon } from '../components/Icon';
 import { SessionTranscript } from '../components/SessionTranscript';
+import { SkeletonRows } from '../components/Skeleton';
 
 interface SessionsProps {
   rpc: RpcClient;
@@ -351,7 +352,7 @@ export function Sessions({ rpc, rest, onSessionOpen }: SessionsProps) {
       )}
 
       {error && <div className="hm-warning-banner hm-warning-banner--error">{error}</div>}
-      {loading && sessions.length === 0 && <p className="hm-muted hm-loading">Loading…</p>}
+      {loading && sessions.length === 0 && <SkeletonRows rows={6} label="Loading sessions" />}
 
       {searched.length === 0 && !loading ? (
         <div className="hm-empty-state">

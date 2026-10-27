@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useChatStore, useModelStore, useProfilesStore, type Profile, type ReasoningEffort, type RestClient } from '@hermes-pwa/core';
 import { Icon } from '../components/Icon';
 import { BottomSheet } from '../components/BottomSheet';
+import { SkeletonRows } from '../components/Skeleton';
 
 interface ProfilesProps {
   rest: RestClient;
@@ -185,7 +186,7 @@ export function Profiles({ rest, onActivated }: ProfilesProps) {
 
       {error && <div className="hm-warning-banner hm-warning-banner--error">{error}</div>}
       {modelError && <div className="hm-warning-banner hm-warning-banner--error">{modelError}</div>}
-      {loading && <p className="hm-muted hm-loading">Loading bots…</p>}
+      {loading && profiles.length === 0 && <SkeletonRows rows={3} kind="cards" label="Loading bots" />}
       <button className="hm-agents__new-btn" aria-label="New bot" onClick={openSheet}>
         <Icon name="plus" size={16} /> New bot
       </button>

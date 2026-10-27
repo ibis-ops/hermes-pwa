@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { localFileUrl, useChatStore, type RestClient, type Artifact as DomainArtifact } from '@hermes-pwa/core';
+import { SkeletonRows } from '../components/Skeleton';
 
 interface ArtifactsProps {
   rest: RestClient;
@@ -143,7 +144,7 @@ export function Artifacts({ rest }: ArtifactsProps) {
           </div>
 
           {error && <div className="hm-warning-banner hm-warning-banner--error">{error}</div>}
-          {loading && <p className="hm-muted hm-loading">Loading artifacts…</p>}
+          {loading && <SkeletonRows rows={4} label="Loading artifacts" />}
 
           {filtered.length === 0 && !loading ? (
             <div className="hm-empty-state">

@@ -1,7 +1,9 @@
+import { useShallow } from 'zustand/react/shallow';
 import { useActivityStore, useConnectionStore } from '@hermes-pwa/core';
 import type { ActionItem, Approval, Clarify, RpcClient } from '@hermes-pwa/core';
 import { ApprovalCard } from '../components/ApprovalCard';
 import { ClarifyCard } from '../components/ClarifyCard';
+import { SkeletonRows } from '../components/Skeleton';
 
 interface ActivityProps {
   rpc: RpcClient;
@@ -16,8 +18,12 @@ function isClarify(item: ActionItem): item is Clarify {
 }
 
 export function Activity({ rpc }: ActivityProps) {
-  const { items, loading, error, respondApproval, respondClarify } = useActivityStore();
-  const connection = useConnectionStore();
+  const items = useActivityStore((s) => s.items);
+  const loading = useActivityStore((s) => s.loading);
+  const error = useActivityStore((s) => s.error);
+  const respondApproval = useActivityStore((s) => s.respondApproval);
+  const respondClarify = useActivityStore((s) => s.respondClarify);
+  const connection = useConnectionStore(useShallow((s) => ({ state: s.state, error: s.error })));
 
   if (connection.state === 'init' || connection.state === 'login' || connection.state === 'offline') {
     return (
@@ -36,7 +42,7 @@ export function Activity({ rpc }: ActivityProps) {
 
       {error && <div className="hm-warning-banner hm-warning-banner--error">{error}</div>}
 
-      {loading && items.length === 0 && <p className="hm-muted hm-loading">Loading…</p>}
+      {loading && items.length === 0 && <SkeletonRows rows={3} kind="cards" label="Loading approvals" />}
 
       {items.length === 0 && !loading ? (
         <div className="hm-empty-state">

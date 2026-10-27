@@ -14,6 +14,7 @@ import {
 import { Icon } from '../components/Icon';
 import { MARKDOWN_COMPONENTS, REHYPE_PLUGINS, REMARK_PLUGINS } from '../components/MessageBubble.helpers';
 import { formatClockTime, formatDayLabel, formatElapsed } from '../lib/chatTime';
+import { SkeletonRows } from '../components/Skeleton';
 
 interface AgentsProps {
   rpc: RpcClient;
@@ -21,7 +22,7 @@ interface AgentsProps {
 }
 
 const HISTORY_DAYS = 30;
-const HISTORY_REFRESH_MS = 20_000;
+const HISTORY_REFRESH_MS = 30_000;
 
 
 function fmtDuration(s: number | undefined): string {
@@ -238,7 +239,9 @@ export function Agents({ rpc, rest }: AgentsProps) {
   useEffect(() => {
     if (!rest) return undefined;
     void loadHistory();
-    const timer = window.setInterval(() => void loadHistory(), HISTORY_REFRESH_MS);
+    const timer = window.setInterval(() => {
+      if (document.visibilityState === 'visible') void loadHistory();
+    }, HISTORY_REFRESH_MS);
     const onVisible = () => {
       if (document.visibilityState === 'visible') void loadHistory();
     };
@@ -285,7 +288,7 @@ export function Agents({ rpc, rest }: AgentsProps) {
         {history ? <span className="hm-run-history__count hm-muted">{history.total}</span> : null}
       </h3>
       {historyError ? <div className="hm-warning-banner hm-warning-banner--error">{historyError}</div> : null}
-      {history === undefined && !historyError ? <p className="hm-muted hm-loading">Loading…</p> : null}
+      {history === undefined && !historyError ? <SkeletonRows rows={5} label="Loading agent history" /> : null}
       {history && dayGroups.length === 0 ? (
         <p className="hm-run-history__empty hm-muted">No bot has been delegated to in the last {HISTORY_DAYS} days.</p>
       ) : null}

@@ -31,9 +31,6 @@ textarea {
   outline-offset: 2px;
 }
 
-/* Hairline helper: iOS separators are 1px at 0.29 alpha on light, 0.65 on dark. */
-.hm-hairline-top { border-top: 1px solid var(--hm-color-border); }
-
 /* ── Top bar ─────────────────────────────────────────────────────────── */
 .hm-header {
   gap: 4px;
@@ -282,89 +279,12 @@ textarea {
   background: var(--hm-color-bg);
 }
 
-.hm-chat__messages {
-  padding: 12px 16px 20px;
-  gap: 10px;
-}
-
-.hm-chat__context {
-  gap: 8px;
-  font-size: var(--hm-fs-label);
-  color: var(--hm-color-text-muted);
-}
-
-.hm-chat__context-chip {
-  gap: 5px;
-  padding: 5px 10px;
-  border-radius: var(--hm-radius-full);
-  font-size: var(--hm-fs-label);
-  font-weight: var(--hm-fw-semibold);
-}
-
-.hm-chat__context-chip--secondary {
-  background: var(--hm-color-fill);
-  border: 0;
-  color: var(--hm-color-text);
-}
-
 .hm-message {
   max-width: 84%;
   padding: 10px 14px;
   border-radius: var(--hm-radius-xl);
   font-size: var(--hm-fs-body);
   line-height: 1.33;
-}
-
-.hm-message--user {
-  background: var(--hm-color-primary);
-  color: #fff;
-  border-radius: 20px 20px 6px 20px;
-  box-shadow: none;
-}
-
-.hm-message--assistant {
-  gap: 6px;
-  max-width: 100%;
-  width: 100%;
-  padding: 0;
-  background: transparent;
-}
-
-.hm-message__header {
-  gap: 8px;
-  padding-left: 2px;
-}
-
-.hm-message__avatar {
-  width: 22px;
-  height: 22px;
-  border-radius: 7px;
-  background: var(--hm-color-primary);
-  color: #fff;
-  box-shadow: none;
-}
-
-.hm-message__author {
-  font-family: var(--hm-font-sans);
-  font-size: var(--hm-fs-label);
-  font-weight: var(--hm-fw-semibold);
-  color: var(--hm-color-text-muted);
-}
-
-.hm-message__state {
-  font-size: var(--hm-fs-label);
-  color: var(--hm-color-text-faint);
-}
-
-.hm-message--assistant .hm-message__text {
-  width: fit-content;
-  max-width: 92%;
-  padding: 10px 14px;
-  background: var(--hm-color-bubble);
-  color: var(--hm-color-text);
-  border-radius: 6px 20px 20px 20px;
-  font-size: var(--hm-fs-body);
-  line-height: 1.38;
 }
 
 .hm-message--assistant .hm-message__text :where(p, ul, ol, blockquote, pre, h1, h2, h3, h4, h5, h6) + :where(p, ul, ol, blockquote, pre, h1, h2, h3, h4, h5, h6) {
@@ -388,12 +308,6 @@ textarea {
   background: var(--hm-color-fill);
   border-radius: 6px;
   padding: 1px 5px;
-}
-
-.hm-message--user .hm-message__text code,
-.hm-message--user code {
-  background: rgba(255, 255, 255, 0.2);
-  color: #fff;
 }
 
 .hm-message__text pre {
@@ -437,31 +351,14 @@ textarea {
   color: var(--hm-color-text-muted);
 }
 
-.hm-message__tools {
-  border: 0;
-  border-radius: var(--hm-radius-card);
-  background: var(--hm-color-surface);
-}
-
 .hm-message__caret {
   height: 17px;
   background: var(--hm-color-text);
 }
 
 /* ── Composer ────────────────────────────────────────────────────────── */
-.hm-composer {
-  padding: 8px 12px max(12px, env(safe-area-inset-bottom));
-  background: var(--hm-color-bg);
-  border-top: 1px solid var(--hm-color-border);
-}
 
 .hm-composer__pill {
-  gap: 6px;
-  min-height: 44px;
-  background: var(--hm-color-surface);
-  border: 1px solid var(--hm-color-border);
-  border-radius: 22px;
-  padding: 4px 4px 4px 14px;
   box-shadow: none;
 }
 
@@ -480,22 +377,6 @@ textarea {
 .hm-composer__send {
   width: 36px;
   height: 36px;
-  background: var(--hm-color-primary);
-  color: #fff;
-}
-
-.hm-composer__send:disabled {
-  background: var(--hm-color-fill);
-  color: var(--hm-color-text-faint);
-}
-
-.hm-composer__stop {
-  background: var(--hm-color-danger);
-  color: #fff;
-}
-
-.hm-composer__action {
-  color: var(--hm-color-text-muted);
 }
 
 /* ── Drawer ──────────────────────────────────────────────────────────── */
@@ -616,7 +497,6 @@ textarea {
 
 .hm-session-row {
   position: relative;
-  padding: 12px 16px;
   background: transparent;
   border: 0;
   border-radius: 0;
@@ -689,7 +569,6 @@ textarea {
 
 /* ── Buttons ─────────────────────────────────────────────────────────── */
 .hm-primary,
-.hm-secondary,
 .hm-ghost {
   min-height: 48px;
   padding: 0 18px;
@@ -699,12 +578,6 @@ textarea {
   letter-spacing: -0.3px;
 }
 
-.hm-secondary {
-  background: var(--hm-color-primary-tint);
-  border: 0;
-  color: var(--hm-color-primary);
-}
-
 .hm-ghost {
   border: 0;
   background: var(--hm-color-fill);
@@ -712,56 +585,21 @@ textarea {
 }
 
 /* ── Cards, banners, badges ──────────────────────────────────────────── */
-.hm-hero {
-  background: var(--hm-color-surface);
-  border: 0;
-  border-radius: 16px;
-  box-shadow: none;
-  padding: 20px;
-}
 
-.hm-hero h1 {
-  font-size: 28px;
-  font-weight: var(--hm-fw-bold);
-  letter-spacing: -0.5px;
-  line-height: 1.15;
-}
-
-.hm-mark {
-  border-radius: 14px;
-  background: var(--hm-color-primary);
-  color: #fff;
-}
-
-.hm-eyebrow {
-  text-transform: none;
-  letter-spacing: 0;
-  font-size: var(--hm-fs-small);
-  font-weight: var(--hm-fw-semibold);
-}
-
-.hm-subtitle,
 .hm-note,
-.hm-check-card p,
-.hm-ios-card li {
+.hm-check-card p {
   font-size: var(--hm-fs-small);
   line-height: 1.4;
 }
 
-.hm-check-card,
-.hm-ios-card,
-.hm-auth-required,
-.hm-ready-card {
+.hm-check-card {
   border: 0;
   border-radius: var(--hm-radius-card);
   box-shadow: none;
   background: var(--hm-color-surface);
 }
 
-.hm-check-card h2,
-.hm-ios-card h2,
-.hm-auth-required h2,
-.hm-ready-card h2 {
+.hm-check-card h2 {
   font-size: var(--hm-fs-heading);
   font-weight: var(--hm-fw-semibold);
   letter-spacing: -0.3px;
@@ -773,8 +611,6 @@ textarea {
 }
 
 .hm-badge--pass { color: var(--hm-color-success-strong); }
-.hm-badge--warn { color: var(--hm-color-warning-strong); }
-.hm-badge--danger { color: var(--hm-color-danger-strong); }
 
 .hm-warning-banner {
   border: 0;
@@ -783,8 +619,7 @@ textarea {
   line-height: 1.35;
 }
 
-.hm-empty-state,
-.hm-empty-state--all-clear {
+.hm-empty-state {
   font-size: var(--hm-fs-body);
   color: var(--hm-color-text-muted);
 }
@@ -792,9 +627,6 @@ textarea {
 .hm-empty-state h2,
 .hm-empty-state h3 {
   color: var(--hm-color-text);
-  font-size: var(--hm-fs-title);
-  font-weight: var(--hm-fw-bold);
-  letter-spacing: -0.4px;
 }
 
 .hm-muted {
@@ -813,28 +645,13 @@ textarea {
 /* ── Sheets ──────────────────────────────────────────────────────────── */
 .hm-sheet__content {
   background: var(--hm-color-surface);
-  border-radius: 16px 16px 0 0;
 }
 
 .hm-sheet__title {
-  font-size: var(--hm-fs-heading);
-  font-weight: var(--hm-fw-semibold);
   letter-spacing: -0.3px;
 }
 
 /* ── Tool rows and thinking ──────────────────────────────────────────── */
-.hm-tool-group,
-.hm-thinking {
-  border: 0;
-  border-radius: var(--hm-radius-card);
-  background: var(--hm-color-surface);
-}
-
-.hm-tool-row__name,
-.hm-tool-row__target,
-.hm-thinking__body {
-  font-size: var(--hm-fs-small);
-}
 
 .hm-tool-group__row-output {
   font-family: var(--hm-font-mono);
@@ -1537,9 +1354,7 @@ textarea {
 .hm-message-group--user {
   display: flex;
   flex-direction: column;
-  align-items: flex-end;
   gap: 6px;
-  max-width: 100%;
 }
 
 .hm-message-group--user .hm-message--user {
@@ -1733,7 +1548,6 @@ textarea {
 }
 
 .hm-attach-menu {
-  min-width: 260px;
   padding: 6px;
   border: 0;
   border-radius: 14px;
@@ -2037,20 +1851,12 @@ textarea {
 
 /* The composer shows mic and voice mode while the field is empty and swaps
    them for the send button once there is text, like Messages. */
-.hm-composer__pill[data-has-text='true'] .hm-composer__action--mic,
-.hm-composer__pill[data-has-text='true'] .hm-composer__action--voice {
+.hm-composer__pill[data-has-text='true'] .hm-composer__action--mic {
   display: none;
 }
 
 .hm-composer__pill[data-has-text='false'][data-busy='false'] .hm-composer__send {
   display: none;
-}
-
-.hm-composer__pill {
-  align-items: flex-end;
-  min-height: 46px;
-  padding: 5px 5px 5px 6px;
-  gap: 2px;
 }
 
 .hm-composer__action {
@@ -2065,25 +1871,6 @@ textarea {
 
 .hm-composer__action:active {
   background: var(--hm-color-fill);
-}
-
-.hm-composer__action--attach {
-  color: var(--hm-color-text-muted);
-}
-
-.hm-composer__action--active {
-  background: var(--hm-color-primary-tint);
-  color: var(--hm-color-primary);
-}
-
-.hm-composer__action--recording {
-  background: var(--hm-color-danger);
-  color: #fff;
-}
-
-.hm-composer textarea {
-  padding: 8px 6px;
-  min-height: 36px;
 }
 
 .hm-composer__send,
@@ -2139,65 +1926,16 @@ textarea {
   line-height: 1.4;
 }
 
-/* Context chips at the top of a chat: quieter. */
-.hm-chat__context {
-  padding: 2px 0 6px;
-}
-
-.hm-chat__context-chip {
-  min-height: 26px;
-  padding: 0 10px;
-  font-size: 12px;
-  font-weight: var(--hm-fw-medium);
-}
-
-/* Assistant header row: smaller avatar, no stray status dot on the far right. */
-.hm-message__header {
-  min-height: 22px;
-}
-
-.hm-message__activity {
-  margin-left: 0;
-}
-
-.hm-message__activity-dot {
-  width: 6px;
-  height: 6px;
-  opacity: 0.6;
-}
-
 /* Thinking and tool groups: one quiet card, not nested boxes. */
 .hm-message__actions {
-  gap: 6px;
   padding: 0;
   border: 0;
   background: transparent;
 }
 
-.hm-thinking,
-.hm-tool-group {
-  border-radius: 12px;
-}
-
-.hm-thinking__summary,
-.hm-tool-group__header {
-  min-height: 40px;
-  font-size: var(--hm-fs-small);
-}
-
 .hm-tool-group__row {
   min-height: 40px;
   border-radius: 10px;
-}
-
-.hm-tool-row__name {
-  font-weight: var(--hm-fw-medium);
-}
-
-.hm-tool-group__count,
-.hm-tool-group__status {
-  font-size: var(--hm-fs-label);
-  color: var(--hm-color-text-muted);
 }
 
 /* ════════════════════════════════════════════════════════════════════
@@ -2387,12 +2125,6 @@ textarea {
   padding: 6px 16px;
 }
 
-.hm-projects__board-selector-toggle,
-.hm-projects__board-toggle {
-  font-size: var(--hm-fs-heading);
-  font-weight: var(--hm-fw-semibold);
-}
-
 /* ── Image viewer ────────────────────────────────────────────────────── */
 .hm-file-image {
   padding: 0;
@@ -2504,12 +2236,6 @@ textarea {
   max-height: 240px;
 }
 
-/* Live status line next to the avatar */
-.hm-live-status--inline {
-  font-size: var(--hm-fs-label);
-  color: var(--hm-color-text-muted);
-}
-
 /* ── Wide screens (iPad, Mac, a car display): keep a phone-width column ── */
 @media (min-width: 760px) {
   body {
@@ -2548,8 +2274,6 @@ textarea {
 .hm-approval-card__cmd,
 .hm-approval-inline__cmd {
   margin: 0;
-  max-height: 240px;
-  overflow: auto;
   padding: 10px 12px;
   border-radius: 10px;
   background: var(--hm-color-fill);
@@ -2638,10 +2362,8 @@ html.hm-keyboard-open .hm-login {
 }
 
 .hm-thinking__header {
-  min-height: 40px;
   padding: 0 12px;
   gap: 8px;
-  font-size: var(--hm-fs-small);
   font-weight: var(--hm-fw-medium);
   color: var(--hm-color-text-muted);
   -webkit-tap-highlight-color: transparent;
@@ -2908,16 +2630,11 @@ html.hm-keyboard-open .hm-login {
   flex-direction: column;
   min-width: 0;
   max-width: 100%;
-  gap: 10px;
 }
 
 .hm-chat__time {
   align-self: center;
-  margin: 8px 0 0;
   padding: 0 12px;
-  font-size: var(--hm-fs-label);
-  font-weight: var(--hm-fw-medium);
-  color: var(--hm-color-text-faint);
   text-align: center;
   user-select: none;
   -webkit-user-select: none;
@@ -3065,11 +2782,6 @@ html.hm-keyboard-open .hm-login {
 
 /* ── Per-message time and reply duration ───────────────────────────── */
 .hm-message__meta {
-  margin: 2px 4px 0;
-  font-size: 11px;
-  font-weight: var(--hm-fw-medium);
-  color: var(--hm-color-text-faint);
-  letter-spacing: 0.1px;
   user-select: none;
   -webkit-user-select: none;
 }
@@ -3077,10 +2789,6 @@ html.hm-keyboard-open .hm-login {
 .hm-message__meta--user {
   align-self: flex-end;
   margin-right: 6px;
-}
-
-.hm-message__meta--assistant {
-  margin-left: 2px;
 }
 
 .hm-message__elapsed[data-live='true'] {
@@ -3215,15 +2923,6 @@ html.hm-keyboard-open .hm-login {
 
 .hm-message__meta--queued {
   color: var(--hm-color-text-muted);
-}
-
-.hm-message__meta-action {
-  padding: 0;
-  border: 0;
-  background: transparent;
-  color: var(--hm-color-accent);
-  font: inherit;
-  font-weight: var(--hm-fw-medium);
 }
 
 /* ── Obsidian: notes the bots wrote, by day, each a link into the app ── */
@@ -4198,8 +3897,7 @@ html.hm-keyboard-open .hm-login {
   color: var(--hm-color-text-muted);
 }
 
-.hm-tool-group__row-title,
-.hm-tool-row__name {
+.hm-tool-group__row-title {
   font-weight: var(--hm-fw-regular);
 }
 
@@ -4283,17 +3981,12 @@ html.hm-keyboard-open .hm-login {
   color: var(--hm-color-text-muted);
 }
 
-.hm-settings-row__value--unset {
-  color: var(--hm-color-text-faint);
-}
-
 .hm-message--user .hm-message__text code,
 .hm-message--user code {
   background: color-mix(in srgb, var(--hm-color-primary-text) 20%, transparent);
   color: var(--hm-color-primary-text);
 }
 
-.hm-message__avatar,
 .hm-drawer__session-dot[data-live] {
   color: var(--hm-color-primary-text);
 }
@@ -4656,4 +4349,129 @@ html.hm-keyboard-open .hm-chat .hm-composer {
   color: var(--hm-color-primary);
   font-size: var(--hm-fs-label);
   font-weight: var(--hm-fw-medium);
+}
+
+/* ------------------------------------------------------------------ */
+/* Pass 9: loading. Placeholder rows in the shape of the content, and  */
+/* a quiet launch screen for the very first open on a device.          */
+/* ------------------------------------------------------------------ */
+
+.hm-skeleton {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 12px 16px;
+}
+
+.hm-skeleton__row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.hm-skeleton__dot,
+.hm-skeleton__line,
+.hm-skeleton__bubble,
+.hm-skeleton__card {
+  display: block;
+  background: var(--hm-color-fill);
+  border-radius: 8px;
+  animation: hm-skeleton-pulse 1.4s ease-in-out infinite;
+}
+
+.hm-skeleton__dot {
+  flex: none;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+}
+
+.hm-skeleton__lines {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.hm-skeleton__line {
+  height: 12px;
+  border-radius: 6px;
+}
+
+.hm-skeleton__line--short {
+  height: 10px;
+  opacity: 0.7;
+}
+
+.hm-skeleton--chat {
+  gap: 10px;
+  padding: 16px;
+}
+
+.hm-skeleton--chat .hm-skeleton__row {
+  justify-content: flex-start;
+}
+
+.hm-skeleton--chat .hm-skeleton__row:nth-child(even) {
+  justify-content: flex-end;
+}
+
+.hm-skeleton__bubble {
+  height: 40px;
+  border-radius: 18px;
+}
+
+.hm-skeleton__bubble--user {
+  background: color-mix(in srgb, var(--hm-color-primary) 22%, var(--hm-color-fill));
+}
+
+.hm-skeleton--cards {
+  gap: 12px;
+}
+
+.hm-skeleton__card {
+  width: 100%;
+  height: 84px;
+  border-radius: 14px;
+}
+
+@keyframes hm-skeleton-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.45; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hm-skeleton__dot,
+  .hm-skeleton__line,
+  .hm-skeleton__bubble,
+  .hm-skeleton__card {
+    animation: none;
+  }
+}
+
+/* The first open on a device, before anything is cached: the mark and one word. */
+.hm-empty-state--launch {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  margin: 0;
+  max-width: none;
+  border: 0;
+  background: var(--hm-color-bg);
+  box-shadow: none;
+}
+
+.hm-empty-state--launch .hm-empty-state__logo {
+  width: 72px;
+  height: 72px;
+  border-radius: 18px;
+  margin-bottom: 4px;
+}
+
+.hm-empty-state--launch p {
+  font-size: var(--hm-fs-small);
 }

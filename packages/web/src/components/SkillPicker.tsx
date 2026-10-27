@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { skillCommandSlug, type RestClient, type Skill } from '@hermes-pwa/core';
 import { BottomSheet } from './BottomSheet';
 import { Icon } from './Icon';
+import { SkeletonRows } from './Skeleton';
 
 interface SkillPickerProps {
   rest: RestClient;
@@ -85,7 +86,7 @@ export function SkillPicker({ rest, title = 'Skills', selected, allowNone = fals
         />
       </div>
       {error ? <div className="hm-warning-banner hm-warning-banner--error">{error}</div> : null}
-      {skills === undefined && !error ? <p className="hm-muted hm-loading">Loading…</p> : null}
+      {skills === undefined && !error ? <SkeletonRows rows={5} label="Loading skills" /> : null}
       {allowNone && !query ? (
         <div className="hm-skill-picker__group">
           <button

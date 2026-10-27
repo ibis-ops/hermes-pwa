@@ -1,5 +1,5 @@
 const CACHE_PREFIX = 'hermes-mobile-';
-const CACHE_VERSION = 'hermes-mobile-v78';
+const CACHE_VERSION = 'hermes-mobile-v79';
 const SHELL_CACHE = `${CACHE_VERSION}:shell`;
 const RUNTIME_ASSET_CACHE = 'hermes-mobile-runtime-assets';
 const RUNTIME_ASSET_CACHE_MAX_ENTRIES = 60;
@@ -13,11 +13,32 @@ const APP_SHELL = [
   './icons/apple-touch-icon.png',
 ];
 
+// The hashed bundle files index.html references. Caching them at install
+// means a cold launch (and the first launch after an update) never waits on
+// the network for the shell, and an offline launch still works.
+async function entryAssetsFromIndex() {
+  try {
+    const response = await fetch('./index.html', { cache: 'no-store' });
+    if (!response.ok) return [];
+    const html = await response.text();
+    const found = new Set();
+    const pattern = /(?:src|href)="(\.\/assets\/[^"]+\.(?:js|css))"/g;
+    let match;
+    while ((match = pattern.exec(html)) !== null) found.add(match[1]);
+    return [...found];
+  } catch {
+    return [];
+  }
+}
+
 self.addEventListener('install', (event) => {
   event.waitUntil(
     caches
       .open(SHELL_CACHE)
-      .then((cache) => Promise.allSettled(APP_SHELL.map((asset) => cache.add(asset))))
+      .then(async (cache) => {
+        const assets = await entryAssetsFromIndex();
+        return Promise.allSettled([...APP_SHELL, ...assets].map((asset) => cache.add(asset)));
+      })
       .then(() => self.skipWaiting()),
   );
 });
@@ -73,6 +94,13 @@ function isStaticShellAsset(url) {
     url.pathname.endsWith('.png') ||
     url.pathname.endsWith('.svg') ||
     url.pathname.endsWith('.webmanifest');
+}
+
+function isCacheableAssetResponse(response) {
+  if (!response || !response.ok) return false;
+  if (response.type === 'opaque' || response.type === 'error') return false;
+  const type = (response.headers && response.headers.get('content-type')) || '';
+  return !/text\/html/i.test(type);
 }
 
 function staticAssetCacheName(url) {
@@ -188,6 +216,10 @@ self.addEventListener('fetch', (event) => {
       caches.match(request).then((cached) => {
         if (cached) return cached;
         return fetch(request).then((response) => {
+          // Only a real asset goes in the cache. An error page, or the HTML
+          // shell served in place of a missing chunk, must not be kept and
+          // served as that file forever.
+          if (!isCacheableAssetResponse(response)) return response;
           const copy = response.clone();
           const cacheName = staticAssetCacheName(url);
           caches.open(cacheName).then((cache) => cache

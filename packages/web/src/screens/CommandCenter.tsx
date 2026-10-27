@@ -8,6 +8,7 @@ import type {
 } from '@hermes-pwa/core';
 import { Icon } from '../components/Icon';
 import { HERMES_PWA_VERSION_LABEL } from '../app/version';
+import { SkeletonRows } from '../components/Skeleton';
 
 interface SystemScreenProps {
   rest: RestClient;
@@ -334,7 +335,7 @@ export function CommandCenter({ rest }: SystemScreenProps) {
   if (loading) {
     return (
       <div className="hm-command">
-        <p className="hm-muted hm-loading">Loading system info…</p>
+        <SkeletonRows rows={4} kind="cards" label="Loading system info" />
       </div>
     );
   }

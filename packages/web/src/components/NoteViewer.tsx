@@ -5,6 +5,7 @@ import { BottomSheet } from './BottomSheet';
 import { Icon } from './Icon';
 import { MARKDOWN_COMPONENTS, REHYPE_PLUGINS, REMARK_PLUGINS } from './MessageBubble.helpers';
 import { formatClockTime, formatDayLabel } from '../lib/chatTime';
+import { SkeletonRows } from './Skeleton';
 
 interface NoteViewerProps {
   rest: RestClient;
@@ -69,7 +70,7 @@ export function NoteViewer({ rest, note, linkVault, onClose }: NoteViewerProps) 
       }
     >
       {error ? <div className="hm-warning-banner hm-warning-banner--error">{error}</div> : null}
-      {!content && !error ? <p className="hm-muted hm-loading">Loading…</p> : null}
+      {!content && !error ? <SkeletonRows rows={5} kind="chat" label="Loading note" /> : null}
       {parsed && parsed.properties.length > 0 ? (
         <dl className="hm-note-view__props" data-testid="note-properties">
           {parsed.properties.map((property) => (

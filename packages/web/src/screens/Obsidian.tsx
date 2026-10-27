@@ -10,6 +10,7 @@ import { BottomSheet } from '../components/BottomSheet';
 import { Icon } from '../components/Icon';
 import { NoteViewer } from '../components/NoteViewer';
 import { formatClockTime, formatDayLabel } from '../lib/chatTime';
+import { SkeletonRows } from '../components/Skeleton';
 
 interface ObsidianProps {
   rest: RestClient;
@@ -191,7 +192,9 @@ export function Obsidian({ rest }: ObsidianProps) {
 
   useEffect(() => {
     void load();
-    const timer = window.setInterval(() => void load(), REFRESH_MS);
+    const timer = window.setInterval(() => {
+      if (document.visibilityState === 'visible') void load();
+    }, REFRESH_MS);
     const onVisible = () => {
       if (document.visibilityState === 'visible') void load();
     };
@@ -267,7 +270,7 @@ export function Obsidian({ rest }: ObsidianProps) {
         </div>
       ) : null}
 
-      {activity === undefined && !error ? <p className="hm-muted hm-loading">Loading…</p> : null}
+      {activity === undefined && !error ? <SkeletonRows rows={6} label="Loading notes" /> : null}
 
       {activity?.available && groups.length === 0 ? (
         <p className="hm-obsidian__empty hm-muted">

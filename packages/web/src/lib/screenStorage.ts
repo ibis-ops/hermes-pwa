@@ -28,6 +28,24 @@ export function screenFromLocationHash(hash = typeof window === 'undefined' ? ''
   return VALID_SCREENS.has(normalized as Screen) ? (normalized as Screen) : undefined;
 }
 
+const ACTIVE_SESSION_KEY_PREFIXES = ['hermes-pwa.activeSession.v3', 'hermes-pwa.activeSession.v4:'];
+
+/** True when a transcript is cached on this phone, so the shell can show it before the socket is up. */
+export function hasCachedTranscript(): boolean {
+  if (typeof window === 'undefined') return false;
+  try {
+    for (let i = 0; i < window.localStorage.length; i += 1) {
+      const key = window.localStorage.key(i);
+      if (!key || !ACTIVE_SESSION_KEY_PREFIXES.some((prefix) => key.startsWith(prefix))) continue;
+      const raw = window.localStorage.getItem(key);
+      if (raw && raw.includes('"messages":[{')) return true;
+    }
+  } catch {
+    return false;
+  }
+  return false;
+}
+
 /** The chat is the app; it is where a launch lands unless the last screen was another. */
 export function getInitialScreen(): Screen {
   if (typeof window === 'undefined') return 'chat';

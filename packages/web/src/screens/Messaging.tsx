@@ -6,12 +6,13 @@ import {
   type RestClient,
 } from '@hermes-pwa/core';
 import { Icon } from '../components/Icon';
+import { SkeletonRows } from '../components/Skeleton';
 
 interface MessagingProps {
   rest: RestClient;
 }
 
-const REFRESH_MS = 15_000;
+const REFRESH_MS = 30_000;
 
 function fmtAge(updatedAt: number | undefined, nowMs: number): string {
   if (!updatedAt) return '';
@@ -100,8 +101,17 @@ export function Messaging({ rest }: MessagingProps) {
 
   useEffect(() => {
     void load();
-    const timer = window.setInterval(() => void load(), REFRESH_MS);
-    return () => window.clearInterval(timer);
+    const timer = window.setInterval(() => {
+      if (document.visibilityState === 'visible') void load();
+    }, REFRESH_MS);
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') void load();
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
   }, [load]);
 
   const active = (platforms ?? []).filter((p) => p.state !== 'disabled');
@@ -117,7 +127,7 @@ export function Messaging({ rest }: MessagingProps) {
         <div className="hm-warning-banner">The gateway is stopped, so no bot is online. Start it from System.</div>
       ) : null}
 
-      {platforms === undefined && !error ? <p className="hm-muted hm-loading">Loading…</p> : null}
+      {platforms === undefined && !error ? <SkeletonRows rows={4} label="Loading messaging" /> : null}
 
       {platforms !== undefined ? (
         <>

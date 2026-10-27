@@ -130,7 +130,7 @@ function makeHarness() {
     return responsePromise as Promise<Response>;
   }
 
-  return { cacheStores, dispatch, fetchThroughServiceWorker, navigateOffline };
+  return { cacheStores, dispatch, fetchThroughServiceWorker, navigateOffline, fetchMock };
 }
 
 describe('service worker runtime cache behavior', () => {
@@ -148,7 +148,7 @@ describe('service worker runtime cache behavior', () => {
       }
     }
 
-    const shellCache = harness.cacheStores.get('hermes-mobile-v78:shell');
+    const shellCache = harness.cacheStores.get('hermes-mobile-v79:shell');
     const runtimeCache = harness.cacheStores.get('hermes-mobile-runtime-assets');
     if (!shellCache || !runtimeCache) throw new Error('missing expected caches');
 
@@ -162,6 +162,38 @@ describe('service worker runtime cache behavior', () => {
 
     const offlineShell = await harness.navigateOffline();
     await expect(offlineShell.text()).resolves.toBe('cached:./index.html');
+  });
+
+  it('refuses to cache an error page or an HTML fallback served for an asset', async () => {
+    const harness = makeHarness();
+    await harness.dispatch('install', {});
+    await harness.dispatch('activate', {});
+
+    harness.fetchMock.mockResolvedValueOnce(new Response('not here', { status: 404 }));
+    await harness.fetchThroughServiceWorker('https://example.test/api/plugins/hermes-pwa/app/assets/Missing-1.js');
+    harness.fetchMock.mockResolvedValueOnce(new Response('<!doctype html>', { status: 200, headers: { 'content-type': 'text/html; charset=utf-8' } }));
+    await harness.fetchThroughServiceWorker('https://example.test/api/plugins/hermes-pwa/app/assets/Fallback-1.js');
+    harness.fetchMock.mockResolvedValueOnce(new Response('console.log(1)', { status: 200, headers: { 'content-type': 'application/javascript' } }));
+    await harness.fetchThroughServiceWorker('https://example.test/api/plugins/hermes-pwa/app/assets/Good-1.js');
+
+    const runtimeCache = harness.cacheStores.get('hermes-mobile-runtime-assets');
+    const keys = runtimeCache ? (await runtimeCache.keys()).map((request) => request.url) : [];
+    expect(keys).not.toContain('https://example.test/api/plugins/hermes-pwa/app/assets/Missing-1.js');
+    expect(keys).not.toContain('https://example.test/api/plugins/hermes-pwa/app/assets/Fallback-1.js');
+    expect(keys).toContain('https://example.test/api/plugins/hermes-pwa/app/assets/Good-1.js');
+  });
+
+  it('pre-caches the hashed entry files named by index.html at install', async () => {
+    const harness = makeHarness();
+    harness.fetchMock.mockImplementationOnce(async () => new Response(
+      '<html><head><script type="module" src="./assets/index-abc.js"></script><link rel="stylesheet" href="./assets/index-abc.css"></head></html>',
+      { status: 200, headers: { 'content-type': 'text/html' } },
+    ));
+    await harness.dispatch('install', {});
+    const shellCache = harness.cacheStores.get('hermes-mobile-v79:shell');
+    const keys = shellCache ? (await shellCache.keys()).map((request) => request.url) : [];
+    expect(keys).toContain('https://example.test/api/plugins/hermes-pwa/app/assets/index-abc.js');
+    expect(keys).toContain('https://example.test/api/plugins/hermes-pwa/app/assets/index-abc.css');
   });
 
   it('removes legacy entry chunks from the preserved runtime cache on activate', async () => {

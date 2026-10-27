@@ -4,6 +4,7 @@ import type { RestClient, TaskStatus } from '@hermes-pwa/core';
 import { TaskCard } from '../components/TaskCard';
 import { Icon } from '../components/Icon';
 import { BottomSheet } from '../components/BottomSheet';
+import { SkeletonRows } from '../components/Skeleton';
 
 interface ProjectsProps {
   rest: RestClient;
@@ -350,7 +351,7 @@ export function Projects({ rest }: ProjectsProps) {
       )}
 
       {error && <div className="hm-warning-banner hm-warning-banner--error">{error}</div>}
-      {loading && tasks.length === 0 && <p className="hm-muted hm-loading">Loading board…</p>}
+      {loading && tasks.length === 0 && <SkeletonRows rows={4} kind="cards" label="Loading board" />}
 
       <div className="hm-projects__board">
         {columns.map((col) => (

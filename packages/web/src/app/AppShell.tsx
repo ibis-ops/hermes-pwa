@@ -5,6 +5,7 @@ import { Home } from '../screens/Home';
 import { ConnectionBanner } from '../components/ConnectionBanner';
 import { Icon, type IconName } from '../components/Icon';
 import { UpdateNotification } from '../components/UpdateNotification';
+import { SkeletonRows } from '../components/Skeleton';
 import { LazyScreenErrorBoundary } from './LazyScreenErrorBoundary';
 import { usePresence } from '../hooks/usePresence';
 import { useVisualViewport } from '../hooks/useVisualViewport';
@@ -303,16 +304,19 @@ export function AppShell({ connectionState, rpc, rest, onRetry }: AppShellProps)
   const drawer = usePresence(drawerOpen, 260);
   const activeName = useProfilesStore((s) => s.activeName);
   const currentName = useProfilesStore((s) => s.currentName);
-  const { profiles, load: loadProfiles } = useProfilesStore();
-  const { sessions, load } = useSessionsStore();
-  const { sessionId, storedSessionId } = useChatStore();
-  const { startNewSession } = useChatStore();
+  const profiles = useProfilesStore((s) => s.profiles);
+  const loadProfiles = useProfilesStore((s) => s.load);
+  const sessions = useSessionsStore((s) => s.sessions);
+  const load = useSessionsStore((s) => s.load);
+  const sessionId = useChatStore((s) => s.sessionId);
+  const storedSessionId = useChatStore((s) => s.storedSessionId);
+  const startNewSession = useChatStore((s) => s.startNewSession);
   const addActivityItem = useActivityStore((s) => s.addItem);
   const loadActivity = useActivityStore((s) => s.load);
   const pendingApprovals = useActivityStore(
     (s) => s.items.filter((item) => item.kind === 'approval' && item.status === 'needs_you').length,
   );
-  const { loadBoards } = useProjectsStore();
+  const loadBoards = useProjectsStore((s) => s.loadBoards);
 
   const currentSession = sessions.find((s) => {
     if (storedSessionId && (s.id === storedSessionId || s.lineageRootId === storedSessionId)) return true;
@@ -532,7 +536,7 @@ export function AppShell({ connectionState, rpc, rest, onRetry }: AppShellProps)
     void probeGateway();
     if (connectionState === 'connected') {
       timer = window.setInterval(() => {
-        void probeGateway();
+        if (document.visibilityState === 'visible') void probeGateway();
       }, 30_000);
     }
 
@@ -789,7 +793,7 @@ export function AppShell({ connectionState, rpc, rest, onRetry }: AppShellProps)
       {/* ── Screen ───────────────────────────────────────────────── */}
       <main className="hm-screen">
         <LazyScreenErrorBoundary key={screen}>
-          <Suspense fallback={<p className="hm-muted hm-loading">Loading…</p>}>
+          <Suspense fallback={<SkeletonRows rows={5} kind={screen === 'chat' ? 'chat' : 'list'} />}>
             {screen === 'chat'      && <Chat key={activeName ?? 'default'} rpc={rpc} rest={rest} />}
             {screen === 'sessions'  && <Sessions key={activeName ?? 'default'} rpc={rpc} rest={rest} onSessionOpen={() => navigate('chat')} />}
             {screen === 'approvals' && <Activity key={activeName ?? 'default'} rpc={rpc} />}

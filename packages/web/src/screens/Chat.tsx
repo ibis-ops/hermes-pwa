@@ -38,7 +38,8 @@ const ANSI_ESCAPE_PATTERN = new RegExp(`${String.fromCharCode(27)}\\[[0-?]*[ -/]
 const CONTROL_CHAR_PATTERN = /[\u0000-\u001F\u007F]+/gu;
 const NON_CHAT_STATUS_KINDS = new Set(['lifecycle', 'compress', 'compressing', 'compression']);
 const NON_CHAT_STATUS_TEXT = /\b(compacting context|summarizing earlier conversation|compression summary|preflight compression)\b/i;
-const CHAT_HISTORY_REFRESH_INTERVAL_MS = 5_000;
+/** Live events drive the transcript; this is only the safety net for a lost event. */
+const CHAT_HISTORY_REFRESH_INTERVAL_MS = 30_000;
 const SILENT_WAV_DATA_URL =
   'data:audio/wav;base64,UklGRigAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQQAAAAAAA==';
 
@@ -98,17 +99,15 @@ function promptTimeBefore(messages: import('@hermes-pwa/core').Message[], index:
 }
 
 export function Chat({ rpc, rest }: ChatProps) {
-  const {
-    messages,
-    streaming,
-    submit,
-    steer,
-    interrupt,
-    ensureLiveSession,
-    error,
-    sessionId,
-    storedSessionId,
-  } = useChatStore();
+  // Narrow subscriptions: a streaming delta re-renders this screen for the
+  // transcript, nothing else needs to.
+  const { messages, streaming, error, sessionId, storedSessionId } = useChatStore(
+    useShallow((s) => ({ messages: s.messages, streaming: s.streaming, error: s.error, sessionId: s.sessionId, storedSessionId: s.storedSessionId })),
+  );
+  const submit = useChatStore((s) => s.submit);
+  const steer = useChatStore((s) => s.steer);
+  const interrupt = useChatStore((s) => s.interrupt);
+  const ensureLiveSession = useChatStore((s) => s.ensureLiveSession);
   const pendingApprovals = useActivityStore(useShallow((s) => selectPendingApprovals(s.items)));
   const pendingApprovalCount = pendingApprovals.length;
   const load = useSessionsStore((s) => s.load);
@@ -117,7 +116,7 @@ export function Chat({ rpc, rest }: ChatProps) {
   const busyInputMode = normalizeBusyInputMode(config?.display?.busy_input_mode);
   const activeName = useProfilesStore((s) => s.activeName);
   const currentName = useProfilesStore((s) => s.currentName);
-  const connection = useConnectionStore();
+  const connection = useConnectionStore(useShallow((s) => ({ state: s.state, error: s.error })));
   const listRef = useRef<HTMLDivElement>(null);
   const atBottomRef = useRef(true);
   const forceScrollRef = useRef(false);
@@ -234,8 +233,9 @@ export function Chat({ rpc, rest }: ChatProps) {
         try {
           // Refresh the session list first. Sessions can rotate to a newer stored
           // head after compression or gateway resume; refreshHistory resolves
-          // stale aliases through useSessionsStore.
-          await load(rest);
+          // stale aliases through useSessionsStore. While a reply streams the
+          // list can wait; refreshHistory itself knows when a stream went quiet.
+          if (!useChatStore.getState().streaming) await load(rest);
           await useChatStore.getState().refreshHistory(rest, activeName);
         } finally {
           refreshInFlightRef.current = false;
