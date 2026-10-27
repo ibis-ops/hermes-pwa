@@ -1,5 +1,5 @@
 const CACHE_PREFIX = 'hermes-mobile-';
-const CACHE_VERSION = 'hermes-mobile-v79';
+const CACHE_VERSION = 'hermes-mobile-v80';
 const SHELL_CACHE = `${CACHE_VERSION}:shell`;
 const RUNTIME_ASSET_CACHE = 'hermes-mobile-runtime-assets';
 const RUNTIME_ASSET_CACHE_MAX_ENTRIES = 60;
@@ -180,6 +180,12 @@ self.addEventListener('notificationclick', (event) => {
         if (client.url && client.url.startsWith(scope)) {
           if ('focus' in client) {
             client.focus();
+          }
+          // The running app switches screens itself: no reload, the chat and
+          // its scroll position stay as they were.
+          if ('postMessage' in client) {
+            client.postMessage({ type: 'hermes-open', url: target });
+            return undefined;
           }
           if ('navigate' in client) {
             return client.navigate(target);

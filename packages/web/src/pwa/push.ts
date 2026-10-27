@@ -66,6 +66,17 @@ async function currentBrowserSubscription(): Promise<PushSubscription | null> {
   return registration.pushManager.getSubscription();
 }
 
+/** Whether this browser holds a live push subscription with permission granted: the switch's state. */
+export async function hasBrowserPushSubscription(): Promise<boolean> {
+  if (!getPushCapability().supported) return false;
+  if (typeof Notification !== 'undefined' && Notification.permission !== 'granted') return false;
+  try {
+    return (await currentBrowserSubscription()) !== null;
+  } catch {
+    return false;
+  }
+}
+
 export async function enablePushNotifications(
   rest: RestClient,
   vapidPublicKey: string,

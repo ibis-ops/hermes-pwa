@@ -43,7 +43,9 @@ export type IconName =
   | 'copy'
   | 'image'
   | 'camera'
-  | 'paperclip';
+  | 'paperclip'
+  | 'more'
+  | 'sun';
 
 interface IconProps extends Omit<SVGProps<SVGSVGElement>, 'ref'> {
   name: IconName;
@@ -150,6 +152,12 @@ const ICONS: Record<IconName, IconPart[]> = {
   ],
   paperclip: ['M21 11.5 12.3 20.2a5 5 0 0 1-7.1-7.1l8.5-8.5a3.3 3.3 0 0 1 4.7 4.7l-8.5 8.5a1.7 1.7 0 0 1-2.4-2.4L15.4 7.5'],
   sparkle: ['M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9z'],
+  more: [['circle', { cx: 6, cy: 12, r: 1.3 }], ['circle', { cx: 12, cy: 12, r: 1.3 }], ['circle', { cx: 18, cy: 12, r: 1.3 }]],
+  sun: [
+    ['circle', { cx: 12, cy: 12, r: 4 }],
+    'M12 2.5v2.2', 'M12 19.3v2.2', 'M2.5 12h2.2', 'M19.3 12h2.2',
+    'M5.3 5.3l1.6 1.6', 'M17.1 17.1l1.6 1.6', 'M5.3 18.7l1.6-1.6', 'M17.1 6.9l1.6-1.6',
+  ],
   archive: [
     ['rect', { x: 3, y: 4, width: 18, height: 5, rx: 1.2 }],
     'M5 9v10h14V9',

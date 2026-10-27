@@ -148,37 +148,40 @@ describe('Sessions screen', () => {
     await waitFor(() => expect(onOpen).toHaveBeenCalled());
   });
 
-  it('archives and restores a session through backend patch', async () => {
-    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
+  it('archives and restores a session from its action sheet', async () => {
     vi.mocked(restMock.profileSessions).mockResolvedValue([
       session({ id: 'sess-1', title: 'Old session', profile: 'default', archived: false }),
     ]);
 
     render(<Sessions rpc={rpcMock} rest={restMock} onSessionOpen={vi.fn()} />);
     await waitFor(() => expect(screen.getByText('Old session')).toBeInTheDocument());
-    fireEvent.click(screen.getByRole('button', { name: /Archive session: Old session/i }));
+    fireEvent.click(screen.getByRole('button', { name: /More actions for Old session/i }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Archive' }));
 
     await waitFor(() => expect(restMock.sessionUpdate).toHaveBeenCalledWith('sess-1', { archived: true, profile: 'default' }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
     fireEvent.click(screen.getByRole('tab', { name: 'Archived' }));
     expect(screen.getByText('Old session')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: /Restore session: Old session/i }));
+    fireEvent.click(screen.getByRole('button', { name: /More actions for Old session/i }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Restore' }));
     await waitFor(() => expect(restMock.sessionUpdate).toHaveBeenLastCalledWith('sess-1', { archived: false, profile: 'default' }));
-    confirm.mockRestore();
   });
 
-  it('deletes a session after confirmation', async () => {
-    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
+  it('deletes a session only after the second question in the sheet', async () => {
     vi.mocked(restMock.profileSessions).mockResolvedValue([
       session({ id: 'sess-1', title: 'Trash me', profile: 'default' }),
     ]);
 
     render(<Sessions rpc={rpcMock} rest={restMock} onSessionOpen={vi.fn()} />);
     await waitFor(() => expect(screen.getByText('Trash me')).toBeInTheDocument());
-    fireEvent.click(screen.getByRole('button', { name: /Delete session: Trash me/i }));
+    fireEvent.click(screen.getByRole('button', { name: /More actions for Trash me/i }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Delete' }));
+    expect(restMock.sessionDelete).not.toHaveBeenCalled();
+    expect(screen.getByTestId('action-sheet-confirm')).toHaveTextContent(/cannot be undone/);
+    fireEvent.click(screen.getByRole('button', { name: 'Delete chat' }));
 
     await waitFor(() => expect(restMock.sessionDelete).toHaveBeenCalledWith('sess-1', 'default'));
-    expect(screen.queryByText('Trash me')).not.toBeInTheDocument();
-    confirm.mockRestore();
+    await waitFor(() => expect(screen.queryByText('Trash me')).not.toBeInTheDocument());
   });
 
   it('browses Signal, scheduled and delegated sessions read-only with a transcript sheet', async () => {
@@ -201,7 +204,7 @@ describe('Sessions screen', () => {
     expect(restMock.browseOnlySessions).toHaveBeenCalledTimes(1);
     const rows = screen.getAllByTestId('session-row');
     expect(rows.every((row) => row.getAttribute('data-readonly') === 'true')).toBe(true);
-    expect(screen.queryByRole('button', { name: /Delete session/ })).toBeNull();
+    expect(screen.queryByRole('button', { name: /More actions for/ })).toBeNull();
     expect(screen.getAllByText('Delegated').length).toBeGreaterThan(0);
     expect(screen.getByText(/google-calander · 13 msgs/)).toBeInTheDocument();
 

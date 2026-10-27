@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useModelStore, useProfilesStore, type Profile, type ReasoningEffort, type RestClient } from '@hermes-pwa/core';
 import { Icon } from '../components/Icon';
 import { BottomSheet } from '../components/BottomSheet';
+import { ConfirmSheet } from '../components/ActionSheet';
 import { SkeletonRows } from '../components/Skeleton';
 
 interface ProfilesProps {
@@ -34,6 +35,7 @@ export function Profiles({ rest, onActivated }: ProfilesProps) {
   const [cloneFromDefault, setCloneFromDefault] = useState(true);
   const [creating, setCreating] = useState(false);
   const [actingName, setActingName] = useState<string | undefined>();
+  const [confirmDelete, setConfirmDelete] = useState<string | undefined>();
   const [formError, setFormError] = useState<string | undefined>();
   const [modelProfile, setModelProfile] = useState<Profile | undefined>();
   const [selectedProvider, setSelectedProvider] = useState('');
@@ -121,8 +123,6 @@ export function Profiles({ rest, onActivated }: ProfilesProps) {
   }
 
   async function handleDelete(profileName: string) {
-    const confirmed = window.confirm(`Delete profile "${profileName}"? This removes that profile directory and its local state.`);
-    if (!confirmed) return;
     setActingName(profileName);
     try {
       await deleteProfile(rest, profileName);
@@ -290,7 +290,7 @@ export function Profiles({ rest, onActivated }: ProfilesProps) {
                   <button
                     type="button"
                     className="hm-row-action hm-row-action--danger"
-                    onClick={() => void handleDelete(p.name)}
+                    onClick={() => setConfirmDelete(p.name)}
                     disabled={acting || protectedProfile}
                     aria-label={`Delete profile ${p.name}`}
                     title={protectedProfile ? 'Default/current/active profiles are protected' : 'Delete profile'}
@@ -462,6 +462,16 @@ export function Profiles({ rest, onActivated }: ProfilesProps) {
               {formError && <div className="hm-warning-banner hm-warning-banner--error">{formError}</div>}
         </BottomSheet>
       )}
+      {confirmDelete ? (
+        <ConfirmSheet
+          title={`Delete ${confirmDelete}?`}
+          message="This removes the bot's profile folder on the Mac, with its memory, skills and chats. It cannot be undone."
+          confirmLabel="Delete bot"
+          destructive
+          onConfirm={() => handleDelete(confirmDelete)}
+          onClose={() => setConfirmDelete(undefined)}
+        />
+      ) : null}
     </div>
   );
 }

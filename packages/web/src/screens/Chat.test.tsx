@@ -1136,7 +1136,6 @@ describe('Chat', () => {
       messages: [{ id: 'a-1', role: 'assistant', text: '', tool_calls: [{ id: 'tool-1', name: 'terminal' }] }],
     });
     core.useConnectionStore.setState({ state: 'reconnecting', error: undefined });
-    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true);
     core.useChatStore.setState({
       sessionId: 'sess-1',
       streaming: true,
@@ -1192,15 +1191,15 @@ describe('Chat', () => {
     const alwaysButton = await screen.findByRole('button', { name: 'Always allow' });
     await waitFor(() => expect(alwaysButton).not.toBeDisabled());
     fireEvent.click(alwaysButton);
+    expect(rpcMock.request).not.toHaveBeenCalledWith('approval.respond', expect.objectContaining({ choice: 'always' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Always allow' }));
 
     await waitFor(() => {
-      expect(confirmSpy).toHaveBeenCalled();
       expect(rpcMock.request).toHaveBeenCalledWith('approval.respond', {
         choice: 'always',
         session_id: 'sess-1',
       });
     });
-    confirmSpy.mockRestore();
   });
 
   it('does not surface another session approval inside the active chat tool row', () => {

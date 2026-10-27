@@ -6,6 +6,10 @@ import './pwa/install';
 import { installVitePreloadErrorReload } from './pwa/preloadError';
 import { registerServiceWorker } from './pwa/registerSW';
 import { installPushForegroundHandling } from './pwa/push';
+import { applyAppearance, readAppearance } from './lib/appearance';
+
+// Before the first paint, so a forced light or dark theme never flashes the other.
+applyAppearance(readAppearance());
 
 installVitePreloadErrorReload();
 void registerServiceWorker();

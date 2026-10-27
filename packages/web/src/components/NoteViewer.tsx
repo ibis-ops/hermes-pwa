@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { createElement, useEffect, useMemo, useState, type AnchorHTMLAttributes, type MouseEvent } from 'react';
 import ReactMarkdown from 'react-markdown';
 import { obsidianOpenUrl, parseObsidianNote, type ObsidianNote, type ObsidianNoteContent, type RestClient } from '@hermes-pwa/core';
 import { BottomSheet } from './BottomSheet';
@@ -6,6 +6,7 @@ import { Icon } from './Icon';
 import { MARKDOWN_COMPONENTS, REHYPE_PLUGINS, REMARK_PLUGINS } from './MessageBubble.helpers';
 import { formatClockTime, formatDayLabel } from '../lib/chatTime';
 import { SkeletonRows } from './Skeleton';
+import { linkifyWikilinks, wikilinkCandidates, wikilinkTarget } from '../lib/wikilinks';
 
 interface NoteViewerProps {
   rest: RestClient;
@@ -20,9 +21,24 @@ interface NoteViewerProps {
  * moment the agent writes it, whether or not the phone's Obsidian has synced
  * it yet. "Open in Obsidian" hands the same note to the app.
  */
-export function NoteViewer({ rest, note, linkVault, onClose }: NoteViewerProps) {
+function noteAt(from: ObsidianNote, path: string): ObsidianNote {
+  const slash = path.lastIndexOf('/');
+  return {
+    ...from,
+    path,
+    name: (slash >= 0 ? path.slice(slash + 1) : path).replace(/\.(md|canvas|base)$/i, ''),
+    folder: slash >= 0 ? path.slice(0, slash) : '',
+  };
+}
+
+export function NoteViewer({ rest, note: initialNote, linkVault, onClose }: NoteViewerProps) {
+  // Following a [[link]] opens the target here; Back in the header returns.
+  const [trail, setTrail] = useState<ObsidianNote[]>([initialNote]);
+  const note = trail[trail.length - 1] ?? initialNote;
   const [content, setContent] = useState<ObsidianNoteContent | undefined>(undefined);
   const [error, setError] = useState<string | undefined>(undefined);
+  const [missingLink, setMissingLink] = useState<string | undefined>(undefined);
+  const [following, setFollowing] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -42,7 +58,58 @@ export function NoteViewer({ rest, note, linkVault, onClose }: NoteViewerProps) 
   }, [rest, note.vault, note.path]);
 
   const parsed = useMemo(() => (content ? parseObsidianNote(content.text) : undefined), [content]);
+  const body = useMemo(() => (parsed ? linkifyWikilinks(parsed.body) : ''), [parsed]);
   const modified = content?.modifiedAt;
+
+  const followLink = async (target: string) => {
+    if (following) return;
+    setFollowing(true);
+    setMissingLink(undefined);
+    try {
+      for (const path of wikilinkCandidates(target, note.folder)) {
+        try {
+          const next = await rest.obsidianNote(note.vault, path);
+          if (next) {
+            setTrail((current) => [...current, noteAt(note, path)]);
+            return;
+          }
+        } catch {
+          // Not at this path; try the next.
+        }
+      }
+      setMissingLink(target);
+    } finally {
+      setFollowing(false);
+    }
+  };
+
+  const components = useMemo(
+    () => ({
+      ...MARKDOWN_COMPONENTS,
+      a: ({ href, children, ...rest }: AnchorHTMLAttributes<HTMLAnchorElement> & { node?: unknown }) => {
+        const target = wikilinkTarget(href);
+        if (!target) return MARKDOWN_COMPONENTS.a({ href, children, ...rest });
+        const { node: _hast, ...props } = rest;
+        void _hast;
+        return createElement(
+          'a',
+          {
+            ...props,
+            href,
+            className: 'hm-note-view__wikilink',
+            onClick: (event: MouseEvent<HTMLAnchorElement>) => {
+              event.preventDefault();
+              void followLink(target);
+            },
+          },
+          children,
+        );
+      },
+    }),
+    // followLink reads the note in view; rebuilt when it changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [note.path, note.vault, following],
+  );
 
   return (
     <BottomSheet
@@ -51,11 +118,26 @@ export function NoteViewer({ rest, note, linkVault, onClose }: NoteViewerProps) 
       className="hm-sheet--note"
       contentClassName="hm-note-view"
       meta={
-        <p className="hm-note-view__meta hm-muted">
-          {note.folder ? `${note.folder} · ` : ''}
-          {note.vault}
-          {modified ? ` · edited ${formatDayLabel(modified)} ${formatClockTime(modified)}` : ''}
-        </p>
+        <div className="hm-note-view__meta-row">
+          {trail.length > 1 ? (
+            <button
+              type="button"
+              className="hm-note-view__back"
+              onClick={() => {
+                setMissingLink(undefined);
+                setTrail((current) => current.slice(0, -1));
+              }}
+            >
+              <Icon name="chevR" size={14} />
+              <span>{trail[trail.length - 2]?.name ?? 'Back'}</span>
+            </button>
+          ) : null}
+          <p className="hm-note-view__meta hm-muted">
+            {note.folder ? `${note.folder} · ` : ''}
+            {note.vault}
+            {modified ? ` · edited ${formatDayLabel(modified)} ${formatClockTime(modified)}` : ''}
+          </p>
+        </div>
       }
       footer={
         <div className="hm-note-view__footer">
@@ -70,6 +152,12 @@ export function NoteViewer({ rest, note, linkVault, onClose }: NoteViewerProps) 
       }
     >
       {error ? <div className="hm-warning-banner hm-warning-banner--error">{error}</div> : null}
+      {missingLink ? (
+        <div className="hm-warning-banner" role="status" data-testid="wikilink-missing">
+          “{missingLink}” is not next to this note on the Mac.{' '}
+          <a href={obsidianOpenUrl(linkVault, missingLink)}>Look for it in Obsidian</a>
+        </div>
+      ) : null}
       {!content && !error ? <SkeletonRows rows={5} kind="chat" label="Loading note" /> : null}
       {parsed && parsed.properties.length > 0 ? (
         <dl className="hm-note-view__props" data-testid="note-properties">
@@ -83,8 +171,8 @@ export function NoteViewer({ rest, note, linkVault, onClose }: NoteViewerProps) 
       ) : null}
       {parsed ? (
         <div className="hm-message__text hm-note-view__body" data-testid="note-body">
-          <ReactMarkdown remarkPlugins={REMARK_PLUGINS} rehypePlugins={REHYPE_PLUGINS} components={MARKDOWN_COMPONENTS}>
-            {parsed.body}
+          <ReactMarkdown remarkPlugins={REMARK_PLUGINS} rehypePlugins={REHYPE_PLUGINS} components={components}>
+            {body}
           </ReactMarkdown>
         </div>
       ) : null}

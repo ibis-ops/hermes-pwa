@@ -1,3 +1,4 @@
+import { StrictMode } from 'react';
 import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { BottomSheet } from './BottomSheet';
@@ -61,6 +62,21 @@ describe('BottomSheet', () => {
     window.history.replaceState({}, '');
     fireEvent(window, new PopStateEvent('popstate', { state: {} }));
     expect(onClose).toHaveBeenCalledTimes(2);
+  });
+
+  it('stays open through a quick unmount and mount (StrictMode in development)', async () => {
+    const onClose = vi.fn();
+    render(
+      <StrictMode>
+        <BottomSheet title="Strict" onClose={onClose}>
+          <p>Body</p>
+        </BottomSheet>
+      </StrictMode>,
+    );
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    expect(onClose).not.toHaveBeenCalled();
+    expect(window.history.state?.sheet).toBeTruthy();
+    expect(screen.getByRole('dialog', { name: 'Strict' })).toBeInTheDocument();
   });
 
   it('closes after a long downward drag on the handle', () => {

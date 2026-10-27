@@ -7,6 +7,7 @@ import type {
   SystemStats as DomainSystemStats,
 } from '@hermes-pwa/core';
 import { Icon } from '../components/Icon';
+import { ConfirmSheet } from '../components/ActionSheet';
 import { HERMES_PWA_VERSION_LABEL } from '../app/version';
 import { SkeletonRows } from '../components/Skeleton';
 
@@ -201,6 +202,7 @@ export function CommandCenter({ rest }: SystemScreenProps) {
   const [opsRunning, setOpsRunning] = useState<string | null>(null);
   const [error, setError] = useState<string | undefined>(undefined);
   const [terminal, setTerminal] = useState<TerminalState | null>(null);
+  const [confirmGateway, setConfirmGateway] = useState<'restart' | 'stop' | undefined>();
   const [pollAction, setPollAction] = useState<string | null>(null);
 
   const refreshSystem = useCallback(async () => {
@@ -323,8 +325,6 @@ export function CommandCenter({ rest }: SystemScreenProps) {
   async function runGatewayAction(action: 'restart' | 'stop') {
     const label = action === 'restart' ? 'Restart gateway' : 'Stop gateway';
     const command = `hermes gateway ${action}`;
-    const ok = window.confirm(`${label}? This affects live messaging gateway runtime.`);
-    if (!ok) return;
     await startTerminalAction(label, command, () => rest.gatewayAction(action), `gateway-${action}`);
   }
 
@@ -380,7 +380,7 @@ export function CommandCenter({ rest }: SystemScreenProps) {
           <button
             className="hm-command__gw-btn"
             aria-label="Restart gateway"
-            onClick={() => void runGatewayAction('restart')}
+            onClick={() => setConfirmGateway('restart')}
             disabled={opsRunning === 'gateway-restart'}
           >
             {opsRunning === 'gateway-restart' ? '…' : 'Restart'}
@@ -388,7 +388,7 @@ export function CommandCenter({ rest }: SystemScreenProps) {
           <button
             className="hm-command__gw-btn hm-command__gw-btn--danger"
             aria-label="Stop gateway"
-            onClick={() => void runGatewayAction('stop')}
+            onClick={() => setConfirmGateway('stop')}
             disabled={opsRunning === 'gateway-stop'}
           >
             {opsRunning === 'gateway-stop' ? '…' : 'Stop'}
@@ -500,6 +500,23 @@ export function CommandCenter({ rest }: SystemScreenProps) {
         {stats?.version && <span className="hm-command__version-chip">backend {stats.version}</span>}
       </div>
 
+      {confirmGateway ? (
+        <ConfirmSheet
+          title={confirmGateway === 'restart' ? 'Restart the gateway?' : 'Stop the gateway?'}
+          message={
+            confirmGateway === 'restart'
+              ? 'Every bot drops its connections for a few seconds, and a reply in progress stops.'
+              : 'Every bot goes offline until the gateway is started again from the Mac or from here.'
+          }
+          confirmLabel={confirmGateway === 'restart' ? 'Restart gateway' : 'Stop gateway'}
+          destructive
+          onConfirm={() => {
+            // The terminal sheet takes over from here; the question closes at once.
+            void runGatewayAction(confirmGateway);
+          }}
+          onClose={() => setConfirmGateway(undefined)}
+        />
+      ) : null}
       {terminal?.open && (
         <div className="hm-sheet hm-command__terminal" role="dialog" aria-modal="true" aria-label={`${terminal.title} terminal`}>
           <button className="hm-sheet__overlay" onClick={closeTerminal} aria-label="Close terminal" />

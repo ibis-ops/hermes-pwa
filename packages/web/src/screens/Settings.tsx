@@ -1,12 +1,15 @@
 import { useEffect, useMemo, useState } from 'react';
-import { skillCommandSlug, useConnectionStore, useProfilesStore, useModelStore, useConfigStore } from '@hermes-pwa/core';
+import { skillCommandSlug, useChatStore, useConnectionStore, useProfilesStore, useModelStore, useConfigStore } from '@hermes-pwa/core';
 import type { RestClient, SystemStats, ModelProvider, ReasoningEffort, PushStatus } from '@hermes-pwa/core';
 import { Icon } from '../components/Icon';
 import { BottomSheet } from '../components/BottomSheet';
 import { SkillPicker } from '../components/SkillPicker';
+import { ConfirmSheet } from '../components/ActionSheet';
 import { readDefaultSkill, writeDefaultSkill } from '../lib/defaultSkill';
+import { readAppearance, writeAppearance, type Appearance } from '../lib/appearance';
+import { clearLocalChatCache } from '../lib/localCache';
 import { HERMES_PWA_VERSION_LABEL } from '../app/version';
-import { disablePushNotifications, enablePushNotifications, getPushCapability } from '../pwa/push';
+import { disablePushNotifications, enablePushNotifications, getPushCapability, hasBrowserPushSubscription } from '../pwa/push';
 import { canPromptInstall, INSTALL_PROMPT_CHANGED_EVENT, isIosSafari, promptInstall } from '../pwa/install';
 
 interface SettingsProps {
@@ -93,6 +96,22 @@ export function Settings({ rest, onNavigate, onLogout }: SettingsProps) {
   const [installPromptAvailable, setInstallPromptAvailable] = useState(false);
   const [installing, setInstalling] = useState(false);
   const [installOutcome, setInstallOutcome] = useState<string | undefined>();
+  const [appearance, setAppearance] = useState<Appearance>(() => readAppearance());
+  const [confirming, setConfirming] = useState<'logout' | 'clear-cache' | undefined>();
+  const [cacheCleared, setCacheCleared] = useState(false);
+  // This phone's own subscription, as the browser holds it; the server list
+  // also carries the other devices.
+  const [deviceSubscribed, setDeviceSubscribed] = useState(false);
+  const [deviceCheck, setDeviceCheck] = useState(0);
+  useEffect(() => {
+    let cancelled = false;
+    void hasBrowserPushSubscription().then((value) => {
+      if (!cancelled) setDeviceSubscribed(value);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [deviceCheck]);
 
   const gatewayHost = typeof window !== 'undefined' ? window.location.host : 'hermes.local:9119';
   const authLabel = status?.authRequired
@@ -104,6 +123,13 @@ export function Settings({ rest, onNavigate, onLogout }: SettingsProps) {
   const pushCapability = useMemo(() => getPushCapability(), []);
   const iosSafari = useMemo(() => isIosSafari(), []);
   const activePushSubscription = pushStatus?.subscriptions.find((sub) => sub.enabled) ?? pushStatus?.subscriptions[0];
+  const notificationsUnavailableReason = !pushCapability.supported
+    ? (pushCapability.reason ?? 'This browser cannot show notifications.')
+    : pushStatus && !pushStatus.available
+      ? (pushStatus.reason ?? 'Notifications are not set up on the Mac.')
+      : pushStatus && !pushStatus.vapidPublicKey
+        ? 'Notifications are not set up on the Mac.'
+        : undefined;
   const pushStatusLabel = pushLoading
     ? 'Loading…'
     : pushStatus?.available
@@ -220,6 +246,7 @@ export function Settings({ rest, onNavigate, onLogout }: SettingsProps) {
       }
       await enablePushNotifications(rest, pushStatus.vapidPublicKey, activeName || 'default');
       reloadPushStatus();
+      setDeviceCheck((n) => n + 1);
     } catch (err) {
       setPushError(err instanceof Error ? err.message : 'Failed to enable notifications');
     } finally {
@@ -233,6 +260,7 @@ export function Settings({ rest, onNavigate, onLogout }: SettingsProps) {
     try {
       await disablePushNotifications(rest, activePushSubscription?.id, pushProfile);
       reloadPushStatus();
+      setDeviceCheck((n) => n + 1);
     } catch (err) {
       setPushError(err instanceof Error ? err.message : 'Failed to disable notifications');
     } finally {
@@ -296,6 +324,27 @@ export function Settings({ rest, onNavigate, onLogout }: SettingsProps) {
         </button>
       </Section>
 
+      <Section title="Appearance">
+        <div className="hm-segmented" role="radiogroup" aria-label="Appearance">
+          {(['system', 'light', 'dark'] as const).map((value) => (
+            <button
+              key={value}
+              type="button"
+              role="radio"
+              aria-checked={appearance === value}
+              className={`hm-segmented__item${appearance === value ? ' hm-segmented__item--active' : ''}`}
+              onClick={() => {
+                setAppearance(value);
+                writeAppearance(value);
+              }}
+            >
+              {value === 'system' ? 'Automatic' : value === 'light' ? 'Light' : 'Dark'}
+            </button>
+          ))}
+        </div>
+        <p className="hm-settings__footnote hm-muted">Automatic follows the phone's light or dark setting.</p>
+      </Section>
+
       <Section title="Connection">
         <SettingsRow label="Gateway URL" value={gatewayHost} />
         <SettingsRow label="Auth" value={authLabel} />
@@ -315,8 +364,8 @@ export function Settings({ rest, onNavigate, onLogout }: SettingsProps) {
           }
         />
         <button
-          className="hm-settings-row hm-settings-row--link"
-          onClick={onLogout}
+          className="hm-settings-row hm-settings-row--link hm-settings-row--destructive"
+          onClick={() => setConfirming('logout')}
           aria-label="Log out"
         >
           <span className="hm-settings-row__label">Log out</span>
@@ -327,39 +376,46 @@ export function Settings({ rest, onNavigate, onLogout }: SettingsProps) {
       </Section>
 
       <Section title="Notifications">
-        <SettingsRow label="Browser" value={pushCapability.supported ? `Supported · permission ${pushCapability.permission}` : (pushCapability.reason ?? 'Unsupported')} />
-        <SettingsRow label="Server" value={pushStatusLabel} />
-        <SettingsRow label="Devices" value={pushLoading ? 'Loading…' : String(pushStatus?.subscriptions.filter((s) => s.enabled).length ?? 0)} />
-        {pushCapability.iosStandaloneRequired && (
-          <p className="hm-muted">iPhone/iPad: install Hermes Mobile to Home Screen before enabling notifications.</p>
-        )}
-        {!pushStatus?.available && pushStatus?.reason && <p className="hm-muted">{pushStatus.reason}</p>}
-        <div className="hm-settings__segmented" aria-label="Push notification actions">
+        <label className="hm-settings-row hm-settings-row--switch">
+          <span className="hm-settings-row__body">
+            <span className="hm-settings-row__label">Notify this phone</span>
+            <span className="hm-settings-row__sub hm-muted">
+              {pushLoading
+                ? 'Checking…'
+                : deviceSubscribed
+                  ? 'Approvals and finished replies arrive as notifications.'
+                  : notificationsUnavailableReason ?? 'Get a notification when Hermes needs you.'}
+            </span>
+          </span>
+          <input
+            type="checkbox"
+            role="switch"
+            className="hm-switch"
+            checked={deviceSubscribed}
+            disabled={pushBusy || pushLoading || (!deviceSubscribed && Boolean(notificationsUnavailableReason))}
+            onChange={(event) => void (event.target.checked ? handleEnablePush() : handleDisablePush())}
+            aria-label="Notify this phone"
+          />
+        </label>
+        {activePushSubscription?.enabled && activePushSubscription.id ? (
           <button
             type="button"
-            className="hm-filter-chip"
-            disabled={pushBusy || pushLoading || !pushCapability.supported || !pushStatus?.available || !pushStatus.vapidPublicKey}
-            onClick={() => void handleEnablePush()}
-          >
-            Enable on this device
-          </button>
-          <button
-            type="button"
-            className="hm-filter-chip"
-            disabled={pushBusy || pushLoading || !pushStatus?.available || !activePushSubscription?.id}
+            className="hm-settings-row hm-settings-row--link"
+            disabled={pushBusy}
             onClick={() => void handleTestPush()}
           >
-            Send test
+            <span className="hm-settings-row__label hm-settings-row__label--accent">{pushBusy ? 'Sending…' : 'Send a test notification'}</span>
           </button>
-          <button
-            type="button"
-            className="hm-filter-chip"
-            disabled={pushBusy || pushLoading || !activePushSubscription?.id}
-            onClick={() => void handleDisablePush()}
-          >
-            Disable device
-          </button>
-        </div>
+        ) : null}
+        {pushCapability.iosStandaloneRequired ? (
+          <p className="hm-settings__footnote hm-muted">On iPhone, add Hermes to the Home Screen first: notifications only work from the installed app.</p>
+        ) : null}
+        <details className="hm-settings__details">
+          <summary className="hm-muted">Details</summary>
+          <SettingsRow label="Browser" value={pushCapability.supported ? `Supported · permission ${pushCapability.permission}` : (pushCapability.reason ?? 'Unsupported')} />
+          <SettingsRow label="Server" value={pushStatusLabel} />
+          <SettingsRow label="Devices" value={pushLoading ? 'Loading…' : String(pushStatus?.subscriptions.filter((sub) => sub.enabled).length ?? 0)} />
+        </details>
       </Section>
 
       <Section title="Install app">
@@ -436,6 +492,21 @@ export function Settings({ rest, onNavigate, onLogout }: SettingsProps) {
         </div>
       </Section>
 
+      <Section title="This phone">
+        <button
+          type="button"
+          className="hm-settings-row hm-settings-row--link hm-settings-row--destructive"
+          onClick={() => setConfirming('clear-cache')}
+        >
+          <span className="hm-settings-row__body">
+            <span className="hm-settings-row__label">Clear saved chats on this phone</span>
+            <span className="hm-settings-row__sub hm-muted">
+              {cacheCleared ? 'Cleared. Chats are still on the Mac, under Sessions.' : 'Cached transcripts and unsent drafts. Chats on the Mac stay.'}
+            </span>
+          </span>
+        </button>
+      </Section>
+
       <Section title="About">
         <SettingsRow label="PWA client" value={HERMES_PWA_VERSION_LABEL} />
         <SettingsRow label="Hermes backend" value={statsLoading ? 'Loading…' : (stats?.version ?? '—')} />
@@ -453,6 +524,31 @@ export function Settings({ rest, onNavigate, onLogout }: SettingsProps) {
           </span>
         </button>
       </Section>
+
+      {confirming === 'logout' ? (
+        <ConfirmSheet
+          title="Log out of Hermes?"
+          message="Chats cached on this phone and unsent drafts are cleared. Everything on the Mac stays."
+          confirmLabel="Log out"
+          destructive
+          onConfirm={onLogout}
+          onClose={() => setConfirming(undefined)}
+        />
+      ) : null}
+      {confirming === 'clear-cache' ? (
+        <ConfirmSheet
+          title="Clear saved chats?"
+          message="The transcripts and drafts this phone keeps for a fast start are removed. The chats themselves stay on the Mac."
+          confirmLabel="Clear"
+          destructive
+          onConfirm={() => {
+            clearLocalChatCache();
+            useChatStore.getState().clear(activeName);
+            setCacheCleared(true);
+          }}
+          onClose={() => setConfirming(undefined)}
+        />
+      ) : null}
 
       {sheetOpen && (
         <BottomSheet

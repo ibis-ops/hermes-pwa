@@ -13,6 +13,7 @@ import {
   type Session,
 } from '@hermes-pwa/core';
 import { Icon } from '../components/Icon';
+import { ActionSheet } from '../components/ActionSheet';
 import { SessionTranscript } from '../components/SessionTranscript';
 import { SkeletonRows } from '../components/Skeleton';
 
@@ -105,16 +106,14 @@ function SessionRow({
   acting,
   readOnly,
   onSelect,
-  onArchiveToggle,
-  onDelete,
+  onMore,
 }: {
   session: Session;
   acting?: boolean;
   /** Browse-only rows open a transcript and carry no archive or delete actions. */
   readOnly?: boolean;
   onSelect: (s: Session) => void | Promise<void>;
-  onArchiveToggle: (s: Session) => void | Promise<void>;
-  onDelete: (s: Session) => void | Promise<void>;
+  onMore: (s: Session) => void;
 }) {
   const source = sessionSourceKey(session);
   const sourceLabel = sessionSourceLabel(source);
@@ -126,7 +125,6 @@ function SessionRow({
     session.messageCount != null ? `${session.messageCount} msgs` : undefined,
     fmtAge(session.updatedAt),
   ].filter(Boolean);
-  const archiveLabel = session.archived ? 'Restore session' : 'Archive session';
 
   return (
     <div className={`hm-session-row${readOnly ? ' hm-session-row--readonly' : ''}`} data-testid="session-row" data-readonly={readOnly ? 'true' : 'false'}>
@@ -150,30 +148,16 @@ function SessionRow({
         </span>
       </button>
       {readOnly ? null : (
-      <div className="hm-session-row__actions" aria-label={`Actions for ${sessionTitle(session)}`}>
         <button
           type="button"
-          className="hm-row-action"
-          onClick={() => void onArchiveToggle(session)}
+          className="hm-session-row__more"
+          onClick={() => onMore(session)}
           disabled={acting}
-          aria-label={`${archiveLabel}: ${sessionTitle(session)}`}
-          title={archiveLabel}
+          aria-label={`More actions for ${sessionTitle(session)}`}
+          aria-haspopup="dialog"
         >
-          <Icon name="archive" size={15} />
-          <span>{session.archived ? 'Restore' : 'Archive'}</span>
+          <Icon name="more" size={20} />
         </button>
-        <button
-          type="button"
-          className="hm-row-action hm-row-action--danger"
-          onClick={() => void onDelete(session)}
-          disabled={acting}
-          aria-label={`Delete session: ${sessionTitle(session)}`}
-          title="Delete session"
-        >
-          <Icon name="trash" size={15} />
-          <span>Delete</span>
-        </button>
-      </div>
       )}
     </div>
   );
@@ -199,6 +183,7 @@ export function Sessions({ rpc, rest, onSessionOpen }: SessionsProps) {
   const [search, setSearch] = useState('');
   const [actingId, setActingId] = useState<string | undefined>();
   const [reading, setReading] = useState<Session | undefined>(undefined);
+  const [actionsFor, setActionsFor] = useState<Session | undefined>(undefined);
 
   useEffect(() => {
     void load(rest);
@@ -228,23 +213,18 @@ export function Sessions({ rpc, rest, onSessionOpen }: SessionsProps) {
     setFilter('all');
   };
 
+  // Archiving is undone from the Archived filter, so it goes without a
+  // question; deleting cannot be, so the sheet asks once more.
   async function handleArchiveToggle(session: Session) {
-    const nextArchived = !session.archived;
-    if (nextArchived) {
-      const confirmed = window.confirm(`Archive session "${sessionTitle(session)}"? It will move to the Archived filter.`);
-      if (!confirmed) return;
-    }
     setActingId(session.id);
     try {
-      await archiveSession(rest, session, nextArchived);
+      await archiveSession(rest, session, !session.archived);
     } finally {
       setActingId(undefined);
     }
   }
 
   async function handleDelete(session: Session) {
-    const confirmed = window.confirm(`Delete session "${sessionTitle(session)}"? This removes it from the session database.`);
-    if (!confirmed) return;
     setActingId(session.id);
     try {
       await deleteSession(rest, session);
@@ -370,14 +350,38 @@ export function Sessions({ rpc, rest, onSessionOpen }: SessionsProps) {
               acting={actingId === s.id}
               readOnly={readOnly}
               onSelect={handleSelect}
-              onArchiveToggle={handleArchiveToggle}
-              onDelete={handleDelete}
+              onMore={setActionsFor}
             />
           ))}
         </div>
       )}
 
       {reading ? <SessionTranscript session={reading} rpc={rpc} rest={rest} onClose={() => setReading(undefined)} /> : null}
+      {actionsFor ? (
+        <ActionSheet
+          title={sessionTitle(actionsFor)}
+          actions={[
+            {
+              key: 'archive',
+              label: actionsFor.archived ? 'Restore' : 'Archive',
+              icon: 'archive',
+              onSelect: () => handleArchiveToggle(actionsFor),
+            },
+            {
+              key: 'delete',
+              label: 'Delete',
+              icon: 'trash',
+              destructive: true,
+              confirm: {
+                message: 'Delete this chat from Hermes on the Mac? This cannot be undone.',
+                label: 'Delete chat',
+              },
+              onSelect: () => handleDelete(actionsFor),
+            },
+          ]}
+          onClose={() => setActionsFor(undefined)}
+        />
+      ) : null}
     </div>
   );
 }

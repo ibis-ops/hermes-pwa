@@ -26,6 +26,14 @@ interface SheetHistoryState {
   sheet?: string;
 }
 
+/**
+ * A sheet that closes takes its history entry back on the next tick, not at
+ * once: a sheet that unmounts and mounts again straight away (React's
+ * development double mount, a key change) finds its entry still there and
+ * keeps it, instead of racing a pending Back that would close it again.
+ */
+const pendingSheetBacks = new Map<string, ReturnType<typeof setTimeout>>();
+
 function historyState(): SheetHistoryState | null {
   if (typeof window === 'undefined') return null;
   const state: unknown = window.history.state;
@@ -99,11 +107,19 @@ export function BottomSheet({
   // One history entry per open sheet, so Back closes it.
   useEffect(() => {
     if (typeof window === 'undefined' || typeof window.history.pushState !== 'function') return undefined;
-    const base = historyState() ?? {};
-    try {
-      window.history.pushState({ ...base, sheet: sheetId }, '');
-    } catch {
-      return undefined;
+    const pending = pendingSheetBacks.get(sheetId);
+    if (pending !== undefined) {
+      // Mounted again before the Back went out: the entry is still ours.
+      clearTimeout(pending);
+      pendingSheetBacks.delete(sheetId);
+    }
+    if (historyState()?.sheet !== sheetId) {
+      const base = historyState() ?? {};
+      try {
+        window.history.pushState({ ...base, sheet: sheetId }, '');
+      } catch {
+        return undefined;
+      }
     }
     const onPopState = () => {
       if (historyState()?.sheet === sheetId) return;
@@ -121,10 +137,16 @@ export function BottomSheet({
     window.addEventListener('popstate', onPopState);
     return () => {
       window.removeEventListener('popstate', onPopState);
-      // Closed by the app (Done, scrim, a parent): drop the sheet's entry.
-      if (historyState()?.sheet === sheetId) {
-        window.history.back();
-      }
+      // Closed by the app (Done, scrim, a parent): drop the sheet's entry,
+      // unless something was pushed on top of it meanwhile.
+      if (historyState()?.sheet !== sheetId) return;
+      pendingSheetBacks.set(
+        sheetId,
+        setTimeout(() => {
+          pendingSheetBacks.delete(sheetId);
+          if (historyState()?.sheet === sheetId) window.history.back();
+        }, 0),
+      );
     };
   }, [sheetId]);
 

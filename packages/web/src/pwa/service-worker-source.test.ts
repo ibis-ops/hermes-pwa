@@ -67,6 +67,7 @@ describe('service worker source', () => {
     expect(serviceWorkerSource).toContain("self.clients.matchAll({ type: 'window', includeUncontrolled: true })");
     expect(serviceWorkerSource).toContain('client.url.startsWith(scope)');
     expect(serviceWorkerSource).toContain('client.focus()');
+    expect(serviceWorkerSource).toContain("client.postMessage({ type: 'hermes-open', url: target })");
     expect(serviceWorkerSource).toContain('client.navigate(target)');
     expect(serviceWorkerSource).toContain('self.clients.openWindow(target)');
   });

@@ -126,15 +126,15 @@ describe('Profiles', () => {
 
   it('deletes a non-active profile after confirmation and protects default', async () => {
     const rest = makeRest();
-    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
     render(<Profiles rest={rest} />);
     await waitFor(() => expect(screen.getByText('Research')).toBeInTheDocument());
 
     expect(screen.getByRole('button', { name: /Delete profile default/i })).toBeDisabled();
     fireEvent.click(screen.getByRole('button', { name: /Delete profile research/i }));
+    expect(rest.profileDelete).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Delete bot' }));
 
     await waitFor(() => expect(rest.profileDelete).toHaveBeenCalledWith('research'));
-    confirm.mockRestore();
   });
 
   it('opens a profile model picker and saves the selected provider/model for that profile', async () => {

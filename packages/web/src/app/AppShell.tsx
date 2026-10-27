@@ -368,6 +368,27 @@ export function AppShell({ connectionState, rpc, rest, onRetry }: AppShellProps)
     return () => window.removeEventListener('popstate', onPopState);
   }, []);
 
+  // A tapped notification, with the app already open: the service worker
+  // hands over the screen to show instead of reloading the page.
+  useEffect(() => {
+    const serviceWorker = typeof navigator === 'undefined' ? undefined : (navigator.serviceWorker as ServiceWorkerContainer | undefined);
+    if (!serviceWorker || typeof serviceWorker.addEventListener !== 'function') return undefined;
+    const onMessage = (event: MessageEvent) => {
+      const data = event.data as { type?: unknown; url?: unknown } | null;
+      if (!data || data.type !== 'hermes-open' || typeof data.url !== 'string') return;
+      let hash = '';
+      try {
+        hash = new URL(data.url, window.location.href).hash;
+      } catch {
+        return;
+      }
+      const target = hash.replace(/^#\/?/, '').split(/[/?]/)[0] as Screen;
+      if (target && SCREEN_TITLES[target] !== undefined) navigateRef.current(target, { replace: true });
+    };
+    serviceWorker.addEventListener('message', onMessage);
+    return () => serviceWorker.removeEventListener('message', onMessage);
+  }, []);
+
   // The icon badge on the home screen mirrors the approvals waiting.
   useEffect(() => {
     const nav = navigator as Navigator & { setAppBadge?: (count?: number) => Promise<void>; clearAppBadge?: () => Promise<void> };
@@ -642,6 +663,9 @@ export function AppShell({ connectionState, rpc, rest, onRetry }: AppShellProps)
     persistScreen(s);
     setDrawerOpen(false);
   }
+
+  const navigateRef = useRef(navigate);
+  navigateRef.current = navigate;
 
   function openDrawer() {
     if (drawerOpenRef.current) return;

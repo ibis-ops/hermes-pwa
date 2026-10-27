@@ -38,6 +38,8 @@ const makeRest = (overrides = {}) =>
 
 describe('Settings', () => {
   beforeEach(() => {
+    window.localStorage.clear();
+    document.documentElement.removeAttribute('data-theme');
     Object.defineProperty(navigator, 'userAgent', { configurable: true, value: 'Mozilla/5.0 Chrome' });
     Object.defineProperty(navigator, 'platform', { configurable: true, value: 'Linux x86_64' });
     Object.defineProperty(navigator, 'maxTouchPoints', { configurable: true, value: 0 });
@@ -177,7 +179,7 @@ describe('Settings', () => {
     expect(screen.getByRole('heading', { name: 'Notifications' })).toBeInTheDocument();
     expect(screen.getByText('Available')).toBeInTheDocument();
     expect(screen.getByText('1')).toBeInTheDocument();
-    const testButton = screen.getByRole('button', { name: 'Send test' });
+    const testButton = screen.getByRole('button', { name: 'Send a test notification' });
     expect(testButton).toBeEnabled();
     fireEvent.click(testButton);
     await waitFor(() => expect(rest.pushTest).toHaveBeenCalledWith('sha256:sub', 'default'));
@@ -202,8 +204,39 @@ describe('Settings', () => {
     render(<Settings rest={rest} onNavigate={vi.fn()} onLogout={vi.fn()} />);
 
     await waitFor(() => expect(rest.pushStatus).toHaveBeenCalledWith('research'));
-    fireEvent.click(screen.getByRole('button', { name: 'Send test' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Send a test notification' }));
     await waitFor(() => expect(rest.pushTest).toHaveBeenCalledWith('sha256:research-sub', 'research'));
+  });
+
+  it('applies and remembers the appearance choice', async () => {
+    render(<Settings rest={makeRest()} onNavigate={vi.fn()} onLogout={vi.fn()} />);
+    fireEvent.click(screen.getByRole('radio', { name: 'Dark' }));
+    expect(document.documentElement.getAttribute('data-theme')).toBe('dark');
+    expect(window.localStorage.getItem('hermes-pwa.appearance.v1')).toBe('dark');
+    fireEvent.click(screen.getByRole('radio', { name: 'Automatic' }));
+    expect(document.documentElement.hasAttribute('data-theme')).toBe(false);
+    expect(window.localStorage.getItem('hermes-pwa.appearance.v1')).toBeNull();
+  });
+
+  it('asks before logging out', async () => {
+    const onLogout = vi.fn();
+    render(<Settings rest={makeRest()} onNavigate={vi.fn()} onLogout={onLogout} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Log out' }));
+    expect(onLogout).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Log out' }));
+    await waitFor(() => expect(onLogout).toHaveBeenCalled());
+  });
+
+  it('clears the chats cached on this phone after asking', async () => {
+    window.localStorage.setItem('hermes-pwa.activeSession.v4:default', '{"messages":[]}');
+    window.localStorage.setItem('hermes-pwa.draft.v1:default', '{"text":"hi","attachments":[]}');
+    window.localStorage.setItem('hermes-pwa.appearance.v1', 'dark');
+    render(<Settings rest={makeRest()} onNavigate={vi.fn()} onLogout={vi.fn()} />);
+    fireEvent.click(screen.getByRole('button', { name: /Clear saved chats on this phone/ }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Clear' }));
+    await waitFor(() => expect(window.localStorage.getItem('hermes-pwa.activeSession.v4:default')).toBeNull());
+    expect(window.localStorage.getItem('hermes-pwa.draft.v1:default')).toBeNull();
+    expect(window.localStorage.getItem('hermes-pwa.appearance.v1')).toBe('dark');
   });
 
   it('shows an install button when the browser install prompt is available', async () => {

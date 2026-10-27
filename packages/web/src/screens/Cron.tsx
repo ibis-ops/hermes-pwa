@@ -12,6 +12,7 @@ import type { CronJob, CronJobRun, RestClient, ScheduleBuilderState } from '@her
 import { Icon } from '../components/Icon';
 import { ScheduleBuilder } from '../components/ScheduleBuilder';
 import { BottomSheet } from '../components/BottomSheet';
+import { ConfirmSheet } from '../components/ActionSheet';
 import { SkeletonRows } from '../components/Skeleton';
 
 interface CronProps {
@@ -64,6 +65,7 @@ export function Cron({ rest }: CronProps) {
     loadJobRuns,
   } = useCronStore();
 
+  const [confirmDelete, setConfirmDelete] = useState<CronJob | undefined>();
   const [sheet, setSheet] = useState<SheetMode | null>(null);
   const [runs, setRuns] = useState<CronJobRun[]>([]);
   const [runsLoading, setRunsLoading] = useState(false);
@@ -186,7 +188,6 @@ export function Cron({ rest }: CronProps) {
   }
 
   async function handleDelete(job: CronJob) {
-    if (!confirm(`Delete job "${getJobTitle(job)}"?`)) return;
     await deleteJob(rest, job.id, job.profile);
   }
 
@@ -315,7 +316,7 @@ export function Cron({ rest }: CronProps) {
                 <button
                   type="button"
                   className="hm-cron-card__action hm-cron-card__action--danger"
-                  onClick={() => void handleDelete(job)}
+                  onClick={() => setConfirmDelete(job)}
                   disabled={actionLoading === `delete:${job.id}`}
                   aria-label="Delete"
                   title="Delete"
@@ -567,6 +568,16 @@ export function Cron({ rest }: CronProps) {
           </div>
         </BottomSheet>
       )}
+      {confirmDelete ? (
+        <ConfirmSheet
+          title={`Delete ${getJobTitle(confirmDelete)}?`}
+          message="The job stops running and its schedule is removed from Hermes."
+          confirmLabel="Delete job"
+          destructive
+          onConfirm={() => handleDelete(confirmDelete)}
+          onClose={() => setConfirmDelete(undefined)}
+        />
+      ) : null}
     </div>
   );
 }

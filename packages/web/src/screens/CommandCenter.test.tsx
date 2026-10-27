@@ -121,7 +121,6 @@ describe('CommandCenter', () => {
   });
 
   it('confirms and starts gateway restart in the terminal modal', async () => {
-    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
     const rest = makeRest({
       actionStatus: vi.fn().mockResolvedValue({
         name: 'gateway-restart',
@@ -134,11 +133,11 @@ describe('CommandCenter', () => {
     render(<CommandCenter rest={rest} />);
     await waitFor(() => expect(screen.getByRole('button', { name: /Restart gateway/i })).toBeInTheDocument());
     fireEvent.click(screen.getByRole('button', { name: /Restart gateway/i }));
+    expect(rest.gatewayAction).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Restart gateway' }));
     await waitFor(() => expect(screen.getByRole('dialog', { name: /Restart gateway terminal/i })).toBeInTheDocument());
     await waitFor(() => expect(screen.getByTestId('terminal-output')).toHaveTextContent('gateway restart ok'));
-    expect(confirm).toHaveBeenCalled();
     expect(rest.gatewayAction).toHaveBeenCalledWith('restart');
-    confirm.mockRestore();
   });
 
   it('shows error on load failure', async () => {

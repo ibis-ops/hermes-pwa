@@ -137,12 +137,13 @@ describe('Cron', () => {
   });
 
   it('deletes a job after confirm', async () => {
-    vi.spyOn(window, 'confirm').mockReturnValue(true);
     vi.mocked(restMock.cronDeleteJob).mockResolvedValue({ ok: true });
     render(<Cron rest={restMock} />);
     await waitFor(() => expect(screen.getByText('Daily backup')).toBeInTheDocument());
     vi.mocked(restMock.cronJobs).mockResolvedValue([jobs[1]!]);
     fireEvent.click(screen.getAllByRole('button', { name: 'Delete' })[0]!);
+    expect(restMock.cronDeleteJob).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Delete job' }));
     await waitFor(() => expect(restMock.cronDeleteJob).toHaveBeenCalledWith('job-1', 'default'));
   });
 

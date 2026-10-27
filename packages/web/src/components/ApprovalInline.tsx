@@ -3,6 +3,7 @@ import { useShallow } from 'zustand/react/shallow';
 import type { RpcClient, Approval, ApprovalChoice, ToolCall } from '@hermes-pwa/core';
 import { useActivityStore, useChatStore } from '@hermes-pwa/core';
 import { Icon } from './Icon';
+import { ConfirmSheet } from './ActionSheet';
 import { approvalText } from './approvalText';
 import { CommandBlock } from './approvalUi';
 import { needsConfirmation, riskLabel, useArmedAction } from '../lib/approvalRisk';
@@ -112,18 +113,11 @@ function ApprovalInlineView({ rpc, approval, toolScoped, toolName, submitting, s
   const risk = riskLabel(approval);
   const busy = submitting !== null;
 
+  // Allowing a pattern for longer than this one run asks once more.
+  const [asking, setAsking] = useState<'session' | 'always' | undefined>(undefined);
+
   async function respond(choice: ApprovalChoice) {
     if (busy) return;
-    if (choice === 'always') {
-      const ok = window.confirm(
-        'Always allow this approval pattern? This is persistent and can affect future Hermes actions.',
-      );
-      if (!ok) return;
-    }
-    if (choice === 'session') {
-      const ok = window.confirm('Allow this pattern for the rest of this session without asking again?');
-      if (!ok) return;
-    }
     setSubmitting(choice);
     setError(undefined);
     try {
@@ -204,7 +198,7 @@ function ApprovalInlineView({ rpc, approval, toolScoped, toolName, submitting, s
                 type="button"
                 className="hm-approval-inline__always"
                 disabled={busy}
-                onClick={() => void respond('session')}
+                onClick={() => setAsking('session')}
               >
                 {submitting === 'session' ? 'Allowing…' : 'Allow for this session'}
               </button>
@@ -214,7 +208,7 @@ function ApprovalInlineView({ rpc, approval, toolScoped, toolName, submitting, s
                 type="button"
                 className="hm-approval-inline__always hm-approval-inline__always--persistent"
                 disabled={busy}
-                onClick={() => void respond('always')}
+                onClick={() => setAsking('always')}
               >
                 {submitting === 'always' ? 'Allowing…' : 'Always allow'}
               </button>
@@ -222,6 +216,22 @@ function ApprovalInlineView({ rpc, approval, toolScoped, toolName, submitting, s
           </div>
         ) : null}
       </div>
+      {asking ? (
+        <ConfirmSheet
+          title={asking === 'always' ? 'Always allow this?' : 'Allow for this session?'}
+          message={
+            asking === 'always'
+              ? 'Hermes stops asking about commands like this one, in every chat, until you remove the rule on the Mac.'
+              : 'Hermes stops asking about commands like this one until this chat ends.'
+          }
+          confirmLabel={asking === 'always' ? 'Always allow' : 'Allow for this session'}
+          destructive={asking === 'always'}
+          onConfirm={() => {
+            void respond(asking);
+          }}
+          onClose={() => setAsking(undefined)}
+        />
+      ) : null}
     </div>
   );
 }
