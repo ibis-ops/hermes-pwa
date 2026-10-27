@@ -44,7 +44,6 @@ export function Home({ rpc, rest, onNavigate }: HomeProps) {
   const activityItems = useActivityStore((s) => s.items);
   const sessions = useSessionsStore((s) => s.sessions);
   const activeName = useProfilesStore((s) => s.activeName);
-  const startNewSession = useChatStore((s) => s.startNewSession);
   const resumeSessionIntoChat = useChatStore((s) => s.resumeSessionIntoChat);
 
   const pendingApprovals = activityItems.filter((i) => i.status === 'needs_you').length;
@@ -56,10 +55,9 @@ export function Home({ rpc, rest, onNavigate }: HomeProps) {
     onNavigate('chat');
   }
 
+  // The Chat tile opens the chat as it is; a running turn is never thrown
+  // away by a tap on a tile. New chats start from the menu.
   function handleTileNavigate(key: string) {
-    if (key === 'chat') {
-      startNewSession(activeName);
-    }
     onNavigate(key);
   }
 

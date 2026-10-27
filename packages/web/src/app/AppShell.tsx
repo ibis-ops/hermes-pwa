@@ -8,6 +8,7 @@ import { UpdateNotification } from '../components/UpdateNotification';
 import { SkeletonRows } from '../components/Skeleton';
 import { LazyScreenErrorBoundary } from './LazyScreenErrorBoundary';
 import { usePresence } from '../hooks/usePresence';
+import { useChatSync } from '../hooks/useChatSync';
 import { useVisualViewport } from '../hooks/useVisualViewport';
 import { useSettledConnectionState } from '../hooks/useSettledConnectionState';
 import { getInitialScreen, persistScreen } from '../lib/screenStorage';
@@ -317,6 +318,8 @@ export function AppShell({ connectionState, rpc, rest, onRetry }: AppShellProps)
     (s) => s.items.filter((item) => item.kind === 'approval' && item.status === 'needs_you').length,
   );
   const loadBoards = useProjectsStore((s) => s.loadBoards);
+  // The chat follows the gateway from here, whichever screen is open.
+  useChatSync(rpc, rest, activeName, currentName);
 
   const currentSession = sessions.find((s) => {
     if (storedSessionId && (s.id === storedSessionId || s.lineageRootId === storedSessionId)) return true;
@@ -329,7 +332,6 @@ export function AppShell({ connectionState, rpc, rest, onRetry }: AppShellProps)
   const drawerCloseRef = useRef<HTMLButtonElement>(null);
   const drawerPreviousFocusRef = useRef<HTMLElement | null>(null);
   const pendingRefreshInFlightRef = useRef(false);
-  const chatRecoveryInFlightRef = useRef(false);
   const pushSyncInFlightRef = useRef(false);
 
   useEffect(() => {
@@ -444,42 +446,6 @@ export function AppShell({ connectionState, rpc, rest, onRetry }: AppShellProps)
       document.removeEventListener('visibilitychange', onVisibilityChange);
     };
   }, [connectionState, activeName, rest, loadActivity]);
-
-  useEffect(() => {
-    if (connectionState !== 'connected') return undefined;
-    if (screen === 'chat') return undefined;
-    let cancelled = false;
-
-    const recoverActiveChatHistory = () => {
-      if (cancelled || chatRecoveryInFlightRef.current) return;
-      const { sessionId: liveId, storedSessionId: durableId, messages } = useChatStore.getState();
-      if (!liveId && !durableId && messages.length === 0) return;
-      chatRecoveryInFlightRef.current = true;
-      const profile = activeName ?? useChatStore.getState().cacheProfile ?? 'default';
-      void (async () => {
-        try {
-          await useSessionsStore.getState().load(rest);
-          if (cancelled) return;
-          await useChatStore.getState().refreshHistory(rest, profile);
-        } finally {
-          chatRecoveryInFlightRef.current = false;
-        }
-      })();
-    };
-
-    const onVisibilityChange = () => {
-      if (document.visibilityState === 'visible') recoverActiveChatHistory();
-    };
-
-    recoverActiveChatHistory();
-    window.addEventListener('focus', recoverActiveChatHistory);
-    document.addEventListener('visibilitychange', onVisibilityChange);
-    return () => {
-      cancelled = true;
-      window.removeEventListener('focus', recoverActiveChatHistory);
-      document.removeEventListener('visibilitychange', onVisibilityChange);
-    };
-  }, [connectionState, screen, activeName, currentName, rest]);
 
   useEffect(() => {
     if (connectionState !== 'connected') return undefined;

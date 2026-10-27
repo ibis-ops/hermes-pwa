@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useChatStore, useModelStore, useProfilesStore, type Profile, type ReasoningEffort, type RestClient } from '@hermes-pwa/core';
+import { useModelStore, useProfilesStore, type Profile, type ReasoningEffort, type RestClient } from '@hermes-pwa/core';
 import { Icon } from '../components/Icon';
 import { BottomSheet } from '../components/BottomSheet';
 import { SkeletonRows } from '../components/Skeleton';
 
 interface ProfilesProps {
   rest: RestClient;
-  /** Called once a bot has been made active and a new chat with it is open. */
+  /** Called once a bot has been made active; the shell brings up its chat. */
   onActivated?: (() => void) | undefined;
 }
 
@@ -262,8 +262,9 @@ export function Profiles({ rest, onActivated }: ProfilesProps) {
                       onClick={async () => {
                         setActingName(p.name);
                         try {
+                          // The shell restores this bot's own chat (or an
+                          // empty one) once the active name changes.
                           await activate(rest, p.name);
-                          useChatStore.getState().startNewSession(p.name);
                           onActivated?.();
                         } finally {
                           setActingName(undefined);

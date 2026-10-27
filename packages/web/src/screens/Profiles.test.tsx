@@ -59,7 +59,7 @@ describe('Profiles', () => {
     expect(rest.profileActivate).not.toHaveBeenCalled();
   });
 
-  it('starts a fresh chat draft when activating a different profile', async () => {
+  it("leaves the running chat and the other bot's cache alone when activating it (the shell restores it)", async () => {
     const rest = makeRest();
     useChatStore.setState({
       sessionId: 'live-default',
@@ -85,15 +85,16 @@ describe('Profiles', () => {
     fireEvent.click(screen.getByRole('button', { name: /Activate research/i }));
 
     await waitFor(() => expect(useProfilesStore.getState().activeName).toBe('research'));
+    // Nothing is thrown away here: the default bot's turn keeps streaming in
+    // the store until the shell swaps in the research chat from its cache.
     expect(useChatStore.getState()).toMatchObject({
-      sessionId: undefined,
-      storedSessionId: undefined,
-      messages: [],
-      streaming: false,
-      error: undefined,
-      cacheProfile: 'research',
+      sessionId: 'live-default',
+      storedSessionId: 'stored-default',
+      streaming: true,
+      cacheProfile: 'default',
     });
-    expect(window.localStorage.getItem('hermes-pwa.activeSession.v4:research')).toBeNull();
+    expect(useChatStore.getState().messages.map((m) => m.text)).toEqual(['default profile draft']);
+    expect(window.localStorage.getItem('hermes-pwa.activeSession.v4:research')).not.toBeNull();
   });
 
   it('creates a profile', async () => {

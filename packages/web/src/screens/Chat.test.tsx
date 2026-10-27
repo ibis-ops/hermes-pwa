@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
 import { Chat } from './Chat';
+import { useChatSync } from '../hooks/useChatSync';
 import {
   MAX_ATTACHMENT_BYTES,
   attachmentTooLargeMessage,
@@ -30,6 +31,14 @@ function makeRestMock(overrides = {}): core.RestClient {
   } as unknown as core.RestClient;
 }
 
+/** The chat as the shell mounts it: the store kept in step with the gateway by the shell-level hook. */
+function ChatWithSync({ rpc, rest }: { rpc: core.RpcClient; rest: core.RestClient }) {
+  const activeName = core.useProfilesStore((s) => s.activeName);
+  const currentName = core.useProfilesStore((s) => s.currentName);
+  useChatSync(rpc, rest, activeName, currentName);
+  return <Chat rpc={rpc} rest={rest} />;
+}
+
 function makeSizedFile(name: string, size: number): File {
   const file = new File(['x'], name, { type: 'text/plain' });
   Object.defineProperty(file, 'size', { configurable: true, value: size });
@@ -43,19 +52,20 @@ describe('Chat', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     window.localStorage.clear();
-    core.useChatStore.setState({ sessionId: undefined, storedSessionId: undefined, messages: [], streaming: false, error: undefined });
+    core.useChatStore.setState({ sessionId: undefined, storedSessionId: undefined, messages: [], streaming: false, error: undefined, liveStatus: '', queuedPrompts: [], lastFailedText: undefined });
     core.useSessionsStore.setState({ sessions: [], loading: false, error: undefined, pinnedIds: [] });
     core.useConnectionStore.setState({ state: 'connected', error: undefined });
     core.useProfilesStore.setState({ activeName: 'default', currentName: 'default', profiles: [{ name: 'default', displayName: 'default', isActive: true }], loading: false, error: undefined });
     core.useActivityStore.setState({ items: [], loading: false, error: undefined });
     core.useConfigStore.setState({ config: undefined, loading: false, saving: false, error: undefined });
 
+    core.__setLiveEventAge(undefined);
     rpcMock = makeRpcMock();
     restMock = makeRestMock();
   });
 
   it('shows empty state when no messages', () => {
-    render(<Chat rpc={rpcMock} rest={restMock} />);
+    render(<ChatWithSync rpc={rpcMock} rest={restMock} />);
     const log = screen.getByRole('log', { name: /conversation/i });
     expect(log).toHaveAttribute('aria-live', 'polite');
     expect(log).toHaveAttribute('aria-relevant', 'additions text');
@@ -63,7 +73,7 @@ describe('Chat', () => {
   });
 
   it('does not seed an empty chat from a session-tagged event', () => {
-    render(<Chat rpc={rpcMock} rest={restMock} />);
+    render(<ChatWithSync rpc={rpcMock} rest={restMock} />);
 
     rpcMock.events.dispatchEvent({ type: 'message.delta', sessionId: 'foreign-session', payload: { text: 'foreign answer' } });
 
@@ -73,7 +83,7 @@ describe('Chat', () => {
   });
 
   it('ignores unscoped live events when no active turn owns them', () => {
-    render(<Chat rpc={rpcMock} rest={restMock} />);
+    render(<ChatWithSync rpc={rpcMock} rest={restMock} />);
 
     rpcMock.events.dispatchEvent({ type: 'message.delta', payload: { text: 'orphan answer' } });
 
@@ -90,7 +100,7 @@ describe('Chat', () => {
       messages: [{ id: 'b-1', role: 'user', text: 'new profile prompt', createdAt: undefined }],
       error: undefined,
     });
-    render(<Chat rpc={rpcMock} rest={restMock} />);
+    render(<ChatWithSync rpc={rpcMock} rest={restMock} />);
 
     rpcMock.events.dispatchEvent({ type: 'error', payload: { message: 'old profile late error' } });
 
@@ -108,7 +118,9 @@ describe('Chat', () => {
       messages: [{ id: 'a-1', role: 'assistant', text: '', createdAt: undefined }],
       error: undefined,
     });
-    render(<Chat rpc={rpcMock} rest={restMock} />);
+    // A turn that is producing events: the shell's REST refresh leaves it alone.
+    core.__setLiveEventAge(1_000);
+    render(<ChatWithSync rpc={rpcMock} rest={restMock} />);
     await waitFor(() => expect(screen.getByRole('log', { name: /conversation/i })).toBeInTheDocument());
 
     rpcMock.events.dispatchEvent({ type: 'message.delta', payload: { text: 'slash response head' } });
@@ -127,7 +139,7 @@ describe('Chat', () => {
       messages: [{ id: 'a-1', role: 'assistant', text: '', createdAt: undefined }],
       error: undefined,
     });
-    render(<Chat rpc={rpcMock} rest={restMock} />);
+    render(<ChatWithSync rpc={rpcMock} rest={restMock} />);
 
     rpcMock.events.dispatchEvent({ type: 'message.delta', payload: { text: 'old profile bleed' } });
 
@@ -135,10 +147,29 @@ describe('Chat', () => {
     expect(core.useChatStore.getState().messages.at(-1)?.text).toBe('');
   });
 
-  it('shows connecting state when init/offline', () => {
-    core.useConnectionStore.setState({ state: 'init', error: undefined });
-    render(<Chat rpc={rpcMock} rest={restMock} />);
-    expect(screen.getByText(/Connecting to Hermes/i)).toBeInTheDocument();
+  it('keeps the cached transcript on screen while offline instead of a connecting notice', () => {
+    core.useChatStore.setState({
+      messages: [{ id: 'm-1', role: 'assistant', text: 'Cached reply', createdAt: 1 }],
+    });
+    core.useConnectionStore.setState({ state: 'offline', error: 'Gateway unreachable' });
+    render(<ChatWithSync rpc={rpcMock} rest={restMock} />);
+    expect(screen.getByText('Cached reply')).toBeInTheDocument();
+    expect(screen.queryByText(/Connecting to Hermes/i)).not.toBeInTheDocument();
+  });
+
+  it('hands a prompt the gateway did not take back to the composer', async () => {
+    vi.mocked(rpcMock.request).mockImplementation(async (method: string) => {
+      if (method === 'prompt.submit') throw new Error('gateway exploded');
+      if (method === 'session.create') return { session_id: 's-new' };
+      return {};
+    });
+    render(<ChatWithSync rpc={rpcMock} rest={restMock} />);
+    const box = screen.getByPlaceholderText(/^Message$/);
+    fireEvent.change(box, { target: { value: 'keep me' } });
+    fireEvent.click(screen.getByRole('button', { name: /Send/i }));
+
+    await waitFor(() => expect(box).toHaveValue('keep me'));
+    expect(core.useChatStore.getState().lastFailedText).toBeUndefined();
   });
 
   it('keeps cached content visible while reconnecting', () => {
@@ -146,7 +177,7 @@ describe('Chat', () => {
       messages: [{ id: 'm-1', role: 'assistant', text: 'Cached reply', createdAt: 1 }],
     });
     core.useConnectionStore.setState({ state: 'reconnecting', error: undefined });
-    render(<Chat rpc={rpcMock} rest={restMock} />);
+    render(<ChatWithSync rpc={rpcMock} rest={restMock} />);
     expect(screen.getByText('Cached reply')).toBeInTheDocument();
   });
 
@@ -157,7 +188,7 @@ describe('Chat', () => {
       streaming: true,
       messages: [{ id: 'a-1', role: 'assistant', text: '', createdAt: undefined }],
     });
-    render(<Chat rpc={rpcMock} rest={restMock} />);
+    render(<ChatWithSync rpc={rpcMock} rest={restMock} />);
 
     rpcMock.events.dispatchEvent({
       type: 'tool.start',
@@ -195,7 +226,7 @@ describe('Chat', () => {
       streaming: true,
       messages: [{ id: 'a-1', role: 'assistant', text: '', createdAt: undefined }],
     });
-    render(<Chat rpc={rpcMock} rest={restMock} />);
+    render(<ChatWithSync rpc={rpcMock} rest={restMock} />);
 
     // Hermes emits tool.generating without an id while the model writes the call.
     rpcMock.events.dispatchEvent({ type: 'tool.generating', sessionId: 's-1', payload: { name: 'vision_analyze' } });
@@ -226,7 +257,7 @@ describe('Chat', () => {
       streaming: true,
       messages: [{ id: 'a-1', role: 'assistant', text: '', createdAt: undefined }],
     });
-    const { container } = render(<Chat rpc={rpcMock} rest={restMock} />);
+    const { container } = render(<ChatWithSync rpc={rpcMock} rest={restMock} />);
 
     rpcMock.events.dispatchEvent({ type: 'thinking.delta', sessionId: 's-1', payload: { text: 'musing' } });
     await waitFor(() => expect(screen.getByText('musing')).toBeInTheDocument());
@@ -249,7 +280,7 @@ describe('Chat', () => {
       streaming: true,
       messages: [{ id: 'a-1', role: 'assistant', text: '', createdAt: undefined }],
     });
-    const { container } = render(<Chat rpc={rpcMock} rest={restMock} />);
+    const { container } = render(<ChatWithSync rpc={rpcMock} rest={restMock} />);
 
     rpcMock.events.dispatchEvent({
       type: 'thinking.delta',
@@ -281,7 +312,7 @@ describe('Chat', () => {
         { id: 'a-new', role: 'assistant', text: '', createdAt: undefined },
       ],
     });
-    const { container } = render(<Chat rpc={rpcMock} rest={restMock} />);
+    const { container } = render(<ChatWithSync rpc={rpcMock} rest={restMock} />);
 
     expect(screen.getAllByLabelText('Hermes is typing')).toHaveLength(1);
 
@@ -297,7 +328,7 @@ describe('Chat', () => {
   it('does not create or update an assistant bubble for compression lifecycle status updates', async () => {
     core.useConnectionStore.setState({ state: 'reconnecting', error: undefined });
     core.useChatStore.setState({ sessionId: 's-1', streaming: false, messages: [] });
-    render(<Chat rpc={rpcMock} rest={restMock} />);
+    render(<ChatWithSync rpc={rpcMock} rest={restMock} />);
 
     rpcMock.events.dispatchEvent({
       type: 'status.update',
@@ -334,7 +365,7 @@ describe('Chat', () => {
       streaming: true,
       messages: [{ id: 'a-1', role: 'assistant', text: '', createdAt: undefined }],
     });
-    const { container } = render(<Chat rpc={rpcMock} rest={restMock} />);
+    const { container } = render(<ChatWithSync rpc={rpcMock} rest={restMock} />);
 
     rpcMock.events.dispatchEvent({
       type: 'thinking.delta',
@@ -354,7 +385,7 @@ describe('Chat', () => {
       streaming: true,
       messages: [{ id: 'a-1', role: 'assistant', text: '', createdAt: undefined }],
     });
-    const { container } = render(<Chat rpc={rpcMock} rest={restMock} />);
+    const { container } = render(<ChatWithSync rpc={rpcMock} rest={restMock} />);
 
     rpcMock.events.dispatchEvent({ type: 'thinking.delta', sessionId: 's-1', payload: { text: 'ಠ_ಠ formulating...' } });
 
@@ -369,7 +400,7 @@ describe('Chat', () => {
       streaming: true,
       messages: [{ id: 'a-1', role: 'assistant', text: '', createdAt: undefined }],
     });
-    const { container } = render(<Chat rpc={rpcMock} rest={restMock} />);
+    const { container } = render(<ChatWithSync rpc={rpcMock} rest={restMock} />);
 
     rpcMock.events.dispatchEvent({
       type: 'thinking.delta',
@@ -415,7 +446,7 @@ describe('Chat', () => {
       streaming: true,
       messages: [{ id: 'a-1', role: 'assistant', text: '', createdAt: undefined }],
     });
-    const { container } = render(<Chat rpc={rpcMock} rest={restMock} />);
+    const { container } = render(<ChatWithSync rpc={rpcMock} rest={restMock} />);
 
     for (const backendFace of backendFaces) {
       rpcMock.events.dispatchEvent({
@@ -436,7 +467,7 @@ describe('Chat', () => {
       streaming: true,
       messages: [{ id: 'a-1', role: 'assistant', text: '', createdAt: undefined }],
     });
-    const { container } = render(<Chat rpc={rpcMock} rest={restMock} />);
+    const { container } = render(<ChatWithSync rpc={rpcMock} rest={restMock} />);
     const list = container.querySelector('.hm-chat__messages') as HTMLDivElement;
     Object.defineProperty(list, 'clientHeight', { configurable: true, value: 200 });
     Object.defineProperty(list, 'scrollHeight', { configurable: true, value: 800 });
@@ -462,7 +493,7 @@ describe('Chat', () => {
     const cancelSpy = vi.spyOn(window, 'cancelAnimationFrame').mockImplementation(() => undefined);
 
     try {
-      const { container } = render(<Chat rpc={rpcMock} rest={restMock} />);
+      const { container } = render(<ChatWithSync rpc={rpcMock} rest={restMock} />);
       const list = container.querySelector('.hm-chat__messages') as HTMLDivElement;
       Object.defineProperty(list, 'clientHeight', { configurable: true, value: 200 });
       Object.defineProperty(list, 'scrollHeight', { configurable: true, value: 800 });
@@ -490,7 +521,7 @@ describe('Chat', () => {
       messages: [{ id: 'u-1', role: 'user', text: 'Status?', createdAt: undefined }],
     });
 
-    render(<Chat rpc={rpcMock} rest={restMock} />);
+    render(<ChatWithSync rpc={rpcMock} rest={restMock} />);
 
     rpcMock.events.dispatchEvent({ type: 'message.delta', sessionId: 's-1', payload: { text: 'Online' } });
 
@@ -506,7 +537,7 @@ describe('Chat', () => {
       messages: [{ id: 'u-1', role: 'user', text: 'Where are you', createdAt: undefined }],
     });
 
-    render(<Chat rpc={rpcMock} rest={restMock} />);
+    render(<ChatWithSync rpc={rpcMock} rest={restMock} />);
 
     rpcMock.events.dispatchEvent({ type: 'message.complete', sessionId: 's-1', payload: { text: 'I am here.' } });
 
@@ -523,7 +554,7 @@ describe('Chat', () => {
       messages: [{ id: 'u-1', role: 'user', text: 'Where are you', createdAt: undefined }],
     });
 
-    render(<Chat rpc={rpcMock} rest={restMock} />);
+    render(<ChatWithSync rpc={rpcMock} rest={restMock} />);
 
     rpcMock.events.dispatchEvent({ type: 'message.complete', sessionId: 'stored-1', payload: { text: 'I am here.' } });
 
@@ -539,7 +570,7 @@ describe('Chat', () => {
       messages: [{ id: 'u-1', role: 'user', text: 'Answer?', createdAt: undefined }],
     });
 
-    render(<Chat rpc={rpcMock} rest={restMock} />);
+    render(<ChatWithSync rpc={rpcMock} rest={restMock} />);
 
     rpcMock.events.dispatchEvent({ type: 'message.complete', sessionId: 's-1', payload: { message: { content: 'Final answer.' } } });
 
@@ -554,7 +585,7 @@ describe('Chat', () => {
       streaming: true,
       messages: [{ id: 'a-1', role: 'assistant', text: '', createdAt: undefined }],
     });
-    const { container } = render(<Chat rpc={rpcMock} rest={restMock} />);
+    const { container } = render(<ChatWithSync rpc={rpcMock} rest={restMock} />);
 
     rpcMock.events.dispatchEvent({ type: 'thinking.delta', sessionId: 's-1', payload: { text: 'brainstorming...' } });
 
@@ -580,7 +611,7 @@ describe('Chat', () => {
       streaming: true,
       messages: [{ id: 'a-1', role: 'assistant', text: '', createdAt: undefined }],
     });
-    const { container } = render(<Chat rpc={rpcMock} rest={restMock} />);
+    const { container } = render(<ChatWithSync rpc={rpcMock} rest={restMock} />);
 
     rpcMock.events.dispatchEvent({ type: 'reasoning.available', sessionId: 's-1', payload: { text: duplicate } });
     await waitFor(() => expect(container.querySelector('.hm-thinking__body')).toHaveTextContent(duplicate));
@@ -608,7 +639,7 @@ describe('Chat', () => {
       streaming: true,
       messages: [{ id: 'a-1', role: 'assistant', text: '', createdAt: undefined }],
     });
-    const { container } = render(<Chat rpc={rpcMock} rest={restMock} />);
+    const { container } = render(<ChatWithSync rpc={rpcMock} rest={restMock} />);
 
     rpcMock.events.dispatchEvent({ type: 'reasoning.available', sessionId: 's-1', payload: { text: duplicate } });
     await waitFor(() => expect(container.querySelector('.hm-thinking__body')).toHaveTextContent('The logical next step'));
@@ -625,7 +656,7 @@ describe('Chat', () => {
       streaming: true,
       messages: [{ id: 'a-1', role: 'assistant', text: '', createdAt: undefined }],
     });
-    render(<Chat rpc={rpcMock} rest={restMock} />);
+    render(<ChatWithSync rpc={rpcMock} rest={restMock} />);
 
     rpcMock.events.dispatchEvent({
       type: 'tool.complete',
@@ -646,7 +677,7 @@ describe('Chat', () => {
       if (method === 'session.most_recent') return {};
       return { status: 'ok' };
     });
-    render(<Chat rpc={rpcMock} rest={restMock} />);
+    render(<ChatWithSync rpc={rpcMock} rest={restMock} />);
     fireEvent.change(screen.getByPlaceholderText(/^Message$/), { target: { value: 'hello' } });
     fireEvent.click(screen.getByRole('button', { name: /Send/i }));
     await waitFor(() => {
@@ -662,7 +693,7 @@ describe('Chat', () => {
       if (method === 'session.most_recent') return {};
       return { status: 'ok' };
     });
-    const { container } = render(<Chat rpc={rpcMock} rest={restMock} />);
+    const { container } = render(<ChatWithSync rpc={rpcMock} rest={restMock} />);
 
     fireEvent.click(screen.getByRole('button', { name: /Add attachment/i }));
     expect(screen.getByRole('menuitem', { name: /File/i })).toBeInTheDocument();
@@ -702,7 +733,7 @@ describe('Chat', () => {
       if (method === 'session.most_recent') return {};
       return { status: 'ok' };
     });
-    const { container } = render(<Chat rpc={rpcMock} rest={restMock} />);
+    const { container } = render(<ChatWithSync rpc={rpcMock} rest={restMock} />);
 
     fireEvent.click(screen.getByRole('button', { name: /Add attachment/i }));
     const input = container.querySelector('input[type="file"]')!;
@@ -721,7 +752,7 @@ describe('Chat', () => {
   it('rejects unsupported attachment MIME types before reading or touching the gateway', async () => {
     const readSpy = vi.spyOn(FileReader.prototype, 'readAsDataURL');
     try {
-      const { container } = render(<Chat rpc={rpcMock} rest={restMock} />);
+      const { container } = render(<ChatWithSync rpc={rpcMock} rest={restMock} />);
 
       fireEvent.click(screen.getByRole('button', { name: /Add attachment/i }));
       const input = container.querySelector('input[type="file"]')!;
@@ -742,7 +773,7 @@ describe('Chat', () => {
   it('rejects oversized file attachments before reading or touching the gateway', async () => {
     const readSpy = vi.spyOn(FileReader.prototype, 'readAsDataURL');
     try {
-      const { container } = render(<Chat rpc={rpcMock} rest={restMock} />);
+      const { container } = render(<ChatWithSync rpc={rpcMock} rest={restMock} />);
 
       fireEvent.click(screen.getByRole('button', { name: /Add attachment/i }));
       const input = container.querySelector('input[type="file"]')!;
@@ -766,7 +797,7 @@ describe('Chat', () => {
       messages: [{ id: 'old', role: 'assistant', text: 'old reply', createdAt: undefined }],
     });
     vi.mocked(rpcMock.request).mockResolvedValue({ status: 'streaming' });
-    const { container } = render(<Chat rpc={rpcMock} rest={restMock} />);
+    const { container } = render(<ChatWithSync rpc={rpcMock} rest={restMock} />);
     const list = container.querySelector('.hm-chat__messages') as HTMLDivElement;
     Object.defineProperty(list, 'clientHeight', { configurable: true, value: 200 });
     Object.defineProperty(list, 'scrollHeight', { configurable: true, value: 800 });
@@ -808,7 +839,7 @@ describe('Chat', () => {
       return {};
     });
 
-    render(<Chat rpc={rpcMock} rest={restMock} />);
+    render(<ChatWithSync rpc={rpcMock} rest={restMock} />);
 
     expect(screen.getByText('cached reply')).toBeInTheDocument();
     await waitFor(() => {
@@ -848,7 +879,7 @@ describe('Chat', () => {
       config: vi.fn(async () => ({ display: { busy_input_mode: 'queue' } })),
       sessionMessages: vi.fn(async () => ({ messages: [{ id: 'm-old', role: 'assistant', text: 'old' }] })),
     });
-    render(<Chat rpc={rpcMock} rest={rest} />);
+    render(<ChatWithSync rpc={rpcMock} rest={rest} />);
 
     await waitFor(() => expect(core.useChatStore.getState().streaming).toBe(false));
     fireEvent.change(screen.getByPlaceholderText(/^Message$/), { target: { value: 'queued after busy' } });
@@ -870,7 +901,7 @@ describe('Chat', () => {
     core.useChatStore.setState({ streaming: true, sessionId: 's-1' });
     core.useConfigStore.setState({ config: { display: { busy_input_mode: 'steer' } } });
     vi.mocked(rpcMock.request).mockResolvedValue({ status: 'queued' });
-    render(<Chat rpc={rpcMock} rest={restMock} />);
+    render(<ChatWithSync rpc={rpcMock} rest={restMock} />);
 
     fireEvent.change(screen.getByPlaceholderText(/Steer the reply/i), { target: { value: 'adjust this' } });
     fireEvent.click(screen.getByRole('button', { name: /Steer agent/i }));
@@ -887,7 +918,7 @@ describe('Chat', () => {
       if (method === 'session.steer') return { status: 'rejected' };
       return { status: 'streaming' };
     });
-    render(<Chat rpc={rpcMock} rest={restMock} />);
+    render(<ChatWithSync rpc={rpcMock} rest={restMock} />);
 
     fireEvent.change(screen.getByPlaceholderText(/Steer the reply/i), { target: { value: 'fallback me' } });
     fireEvent.click(screen.getByRole('button', { name: /Steer agent/i }));
@@ -906,7 +937,7 @@ describe('Chat', () => {
     core.useChatStore.setState({ streaming: true, sessionId: 's-1' });
     core.useConfigStore.setState({ config: { display: { busy_input_mode: 'queue' } } });
     vi.mocked(rpcMock.request).mockResolvedValue({ status: 'streaming' });
-    render(<Chat rpc={rpcMock} rest={restMock} />);
+    render(<ChatWithSync rpc={rpcMock} rest={restMock} />);
 
     fireEvent.change(screen.getByPlaceholderText(/Send after this reply/i), { target: { value: 'next prompt' } });
     fireEvent.click(screen.getByRole('button', { name: /Queue message/i }));
@@ -929,7 +960,7 @@ describe('Chat', () => {
     core.useChatStore.setState({ streaming: true, sessionId: 's-1' });
     core.useConfigStore.setState({ config: { display: { busy_input_mode: 'queue' } } });
     vi.mocked(rpcMock.request).mockResolvedValue({ status: 'streaming' });
-    render(<Chat rpc={rpcMock} rest={restMock} />);
+    render(<ChatWithSync rpc={rpcMock} rest={restMock} />);
 
     fireEvent.change(screen.getByPlaceholderText(/Send after this reply/i), { target: { value: 'never mind' } });
     fireEvent.click(screen.getByRole('button', { name: /Queue message/i }));
@@ -953,7 +984,7 @@ describe('Chat', () => {
     });
     core.useConfigStore.setState({ config: { display: { busy_input_mode: 'steer' } } });
     vi.mocked(rpcMock.request).mockImplementation(async (method: string) => (method === 'session.steer' ? { status: 'queued' } : { status: 'streaming' }));
-    render(<Chat rpc={rpcMock} rest={restMock} />);
+    render(<ChatWithSync rpc={rpcMock} rest={restMock} />);
 
     fireEvent.change(screen.getByPlaceholderText(/Steer the reply/i), { target: { value: 'also check the logs' } });
     fireEvent.click(screen.getByRole('button', { name: /Steer agent/i }));
@@ -977,7 +1008,7 @@ describe('Chat', () => {
     core.useChatStore.setState({ streaming: true, sessionId: 's-1' });
     core.useConfigStore.setState({ config: { display: { busy_input_mode: 'interrupt' } } });
     vi.mocked(rpcMock.request).mockResolvedValue({ status: 'streaming' });
-    render(<Chat rpc={rpcMock} rest={restMock} />);
+    render(<ChatWithSync rpc={rpcMock} rest={restMock} />);
 
     fireEvent.change(screen.getByPlaceholderText(/Interrupt and send/i), { target: { value: 'new prompt' } });
     fireEvent.click(screen.getByRole('button', { name: /Interrupt and send/i }));
@@ -997,7 +1028,7 @@ describe('Chat', () => {
 
   it('stops generation via stop button', async () => {
     core.useChatStore.setState({ streaming: true, sessionId: 's-1' });
-    render(<Chat rpc={rpcMock} rest={restMock} />);
+    render(<ChatWithSync rpc={rpcMock} rest={restMock} />);
     fireEvent.click(screen.getByRole('button', { name: /Stop/i }));
     await waitFor(() => {
       expect(rpcMock.request).toHaveBeenCalledWith('session.interrupt', { session_id: 's-1' });
@@ -1010,7 +1041,7 @@ describe('Chat', () => {
       sessionId: 's-1',
       messages: [{ id: 'a-1', role: 'assistant', text: '', createdAt: undefined }],
     });
-    render(<Chat rpc={rpcMock} rest={restMock} />);
+    render(<ChatWithSync rpc={rpcMock} rest={restMock} />);
 
     rpcMock.events.dispatchEvent({ type: 'error', sessionId: 's-1', payload: { message: 'boom' } });
 
@@ -1045,7 +1076,7 @@ describe('Chat', () => {
       ],
     });
 
-    render(<Chat rpc={rpcMock} rest={restMock} />);
+    render(<ChatWithSync rpc={rpcMock} rest={restMock} />);
 
     expect(screen.getByText('Tool actions')).toBeInTheDocument();
     expect(screen.getByText(/1 step · done/i)).toBeInTheDocument();
@@ -1086,7 +1117,7 @@ describe('Chat', () => {
       error: undefined,
     });
 
-    render(<Chat rpc={rpcMock} rest={restMock} />);
+    render(<ChatWithSync rpc={rpcMock} rest={restMock} />);
 
     expect(screen.getByText('hermes gateway restart')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Run' }));
@@ -1130,7 +1161,7 @@ describe('Chat', () => {
       error: undefined,
     });
 
-    const { unmount } = render(<Chat rpc={rpcMock} rest={restMock} />);
+    const { unmount } = render(<ChatWithSync rpc={rpcMock} rest={restMock} />);
     fireEvent.click(screen.getByRole('button', { name: 'Reject' }));
 
     await waitFor(() => {
@@ -1157,7 +1188,7 @@ describe('Chat', () => {
       loading: false,
       error: undefined,
     });
-    render(<Chat rpc={rpcMock} rest={restMock} />);
+    render(<ChatWithSync rpc={rpcMock} rest={restMock} />);
     const alwaysButton = await screen.findByRole('button', { name: 'Always allow' });
     await waitFor(() => expect(alwaysButton).not.toBeDisabled());
     fireEvent.click(alwaysButton);
@@ -1203,7 +1234,7 @@ describe('Chat', () => {
       error: undefined,
     });
 
-    render(<Chat rpc={rpcMock} rest={restMock} />);
+    render(<ChatWithSync rpc={rpcMock} rest={restMock} />);
 
     expect(screen.queryByText('background command')).not.toBeInTheDocument();
   });

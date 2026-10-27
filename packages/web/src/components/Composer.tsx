@@ -151,6 +151,10 @@ interface ComposerProps {
   rest?: RestClient | undefined;
   /** Scope for the saved draft (the bot's name); without it nothing is saved. */
   draftKey?: string | undefined;
+  /** Text of a send the gateway did not take: it goes back into the box so nothing typed is lost. */
+  returnedText?: string | undefined;
+  /** Called once returnedText is back in the box, so it is handed over only once. */
+  onReturnedTextTaken?: (() => void) | undefined;
 }
 
 const DRAFT_SAVE_DELAY_MS = 250;
@@ -188,6 +192,8 @@ export function Composer({
   onLayoutChange,
   rest,
   draftKey,
+  returnedText,
+  onReturnedTextTaken,
 }: ComposerProps) {
   const [text, setText] = useState(() => readDraft(draftKey)?.text ?? '');
   const [attachments, setAttachments] = useState<AttachmentDraft[]>(
@@ -253,6 +259,13 @@ export function Composer({
   useEffect(() => {
     resize();
   }, [text, resize]);
+
+  // A failed send comes back into the box, ahead of anything typed since.
+  useEffect(() => {
+    if (!returnedText) return;
+    setText((prev) => (prev.trim() ? `${returnedText}\n${prev}` : returnedText));
+    onReturnedTextTaken?.();
+  }, [returnedText, onReturnedTextTaken]);
 
   // Restore the draft when the bot changes; save it (debounced) as it changes.
   const draftKeyRef = useRef(draftKey);
