@@ -48,7 +48,7 @@ textarea {
   border: 0;
   border-radius: 10px;
   background: transparent;
-  color: var(--hm-color-primary);
+  color: var(--hm-color-accent-text);
   box-shadow: none;
 }
 
@@ -136,7 +136,7 @@ textarea {
 .hm-home__all-link {
   font-size: var(--hm-fs-small);
   font-weight: var(--hm-fw-regular);
-  color: var(--hm-color-primary);
+  color: var(--hm-color-accent-text);
 }
 
 .hm-home__approval-banner {
@@ -340,7 +340,7 @@ textarea {
 }
 
 .hm-message__text a {
-  color: var(--hm-color-primary);
+  color: var(--hm-color-accent-text);
   text-decoration: none;
 }
 
@@ -447,7 +447,7 @@ textarea {
 
 .hm-drawer__item--active {
   background: var(--hm-color-primary-tint);
-  color: var(--hm-color-primary);
+  color: var(--hm-color-accent-text);
   font-weight: var(--hm-fw-semibold);
 }
 
@@ -910,7 +910,7 @@ textarea {
 }
 
 .hm-session-row .hm-row-action--danger {
-  color: var(--hm-color-danger);
+  color: var(--hm-color-danger-text);
 }
 
 .hm-session-row .hm-row-action span {
@@ -1093,7 +1093,7 @@ textarea {
   border-radius: var(--hm-radius-card);
   border: 0;
   background: var(--hm-color-primary-tint);
-  color: var(--hm-color-primary);
+  color: var(--hm-color-accent-text);
   font-size: var(--hm-fs-heading);
   font-weight: var(--hm-fw-semibold);
 }
@@ -1174,7 +1174,7 @@ textarea {
   border: 0;
   border-radius: var(--hm-radius-full);
   background: var(--hm-color-primary-tint);
-  color: var(--hm-color-primary);
+  color: var(--hm-color-accent-text);
   font-size: var(--hm-fs-small);
   font-weight: var(--hm-fw-semibold);
 }
@@ -1195,7 +1195,7 @@ textarea {
 }
 
 .hm-profile-actions .hm-row-action--danger {
-  color: var(--hm-color-danger);
+  color: var(--hm-color-danger-text);
 }
 
 /* ── System ──────────────────────────────────────────────────────────── */
@@ -1239,14 +1239,14 @@ textarea {
   min-height: 40px;
   border-radius: 10px;
   background: var(--hm-color-primary-tint);
-  color: var(--hm-color-primary);
+  color: var(--hm-color-accent-text);
   font-size: var(--hm-fs-small);
   font-weight: var(--hm-fw-semibold);
 }
 
 .hm-command__gw-btn--danger {
   background: var(--hm-color-danger-bg);
-  color: var(--hm-color-danger);
+  color: var(--hm-color-danger-text);
 }
 
 .hm-command__resource-chip {
@@ -1465,7 +1465,7 @@ textarea {
   height: 36px;
   border-radius: 9px;
   background: var(--hm-color-primary-tint);
-  color: var(--hm-color-primary);
+  color: var(--hm-color-accent-text);
   flex-shrink: 0;
 }
 
@@ -1531,7 +1531,7 @@ textarea {
   height: 28px;
   border-radius: 8px;
   background: var(--hm-color-primary-tint);
-  color: var(--hm-color-primary);
+  color: var(--hm-color-accent-text);
 }
 
 .hm-composer__chip-remove {
@@ -1634,7 +1634,7 @@ textarea {
   border: 0;
   border-radius: 8px;
   background: transparent;
-  color: var(--hm-color-primary);
+  color: var(--hm-color-accent-text);
   font-size: var(--hm-fs-label);
   font-weight: var(--hm-fw-semibold);
 }
@@ -2028,7 +2028,7 @@ textarea {
   flex: 0 0 auto;
   min-height: 48px;
   background: transparent;
-  color: var(--hm-color-primary);
+  color: var(--hm-color-accent-text);
 }
 
 /* iOS switch for checkbox rows */
@@ -3041,7 +3041,7 @@ html.hm-keyboard-open .hm-login {
   height: 34px;
   border-radius: 9px;
   background: var(--hm-color-primary-tint);
-  color: var(--hm-color-primary);
+  color: var(--hm-color-accent-text);
 }
 
 .hm-note--edited .hm-note__icon {
@@ -3811,7 +3811,7 @@ html.hm-keyboard-open .hm-login {
   padding: 0 2px;
   border: 0;
   background: transparent;
-  color: var(--hm-color-primary);
+  color: var(--hm-color-accent-text);
   font: inherit;
   font-weight: var(--hm-fw-medium);
 }
@@ -3902,7 +3902,7 @@ html.hm-keyboard-open .hm-login {
 }
 
 .hm-tool-group__row--running .hm-tool-group__row-icon {
-  color: var(--hm-color-primary);
+  color: var(--hm-color-accent-text);
 }
 
 .hm-tool-group__row-detail {
@@ -3929,7 +3929,7 @@ html.hm-keyboard-open .hm-login {
   padding: 0 2px;
   border: 0;
   background: transparent;
-  color: var(--hm-color-primary);
+  color: var(--hm-color-accent-text);
   font-size: var(--hm-fs-label);
   font-weight: var(--hm-fw-medium);
 }
@@ -3957,7 +3957,7 @@ html.hm-keyboard-open .hm-login {
   border: 1px solid var(--hm-color-border);
   border-radius: var(--hm-radius-full);
   background: var(--hm-color-surface);
-  color: var(--hm-color-primary);
+  color: var(--hm-color-accent-text);
   font-size: var(--hm-fs-label);
   font-weight: var(--hm-fw-semibold);
   box-shadow: 0 4px 14px rgba(0, 0, 0, 0.12);
@@ -3968,7 +3968,7 @@ html.hm-keyboard-open .hm-login {
 .hm-approval-card__deny {
   background: var(--hm-color-surface);
   border-color: var(--hm-color-border);
-  color: var(--hm-color-danger);
+  color: var(--hm-color-danger-text);
 }
 
 .hm-empty-state__icon {
@@ -4132,7 +4132,7 @@ html.hm-keyboard-open .hm-login {
 }
 
 .hm-tabbar__item--active {
-  color: var(--hm-color-primary);
+  color: var(--hm-color-accent-text);
 }
 
 .hm-tabbar__item:active {
@@ -4220,7 +4220,7 @@ html.hm-keyboard-open .hm-chat .hm-composer {
   padding: 0 8px;
   border: 0;
   background: transparent;
-  color: var(--hm-color-primary);
+  color: var(--hm-color-accent-text);
   font-size: var(--hm-fs-body);
   font-weight: var(--hm-fw-semibold);
 }
@@ -4297,7 +4297,7 @@ html.hm-keyboard-open .hm-chat .hm-composer {
 }
 
 .hm-approval-inline__always--persistent {
-  color: var(--hm-color-danger);
+  color: var(--hm-color-danger-text);
 }
 
 .hm-approval-card__risk,
@@ -4346,7 +4346,7 @@ html.hm-keyboard-open .hm-chat .hm-composer {
   padding: 0 2px;
   border: 0;
   background: transparent;
-  color: var(--hm-color-primary);
+  color: var(--hm-color-accent-text);
   font-size: var(--hm-fs-label);
   font-weight: var(--hm-fw-medium);
 }
@@ -4514,7 +4514,7 @@ html.hm-keyboard-open .hm-chat .hm-composer {
   padding: 0 16px;
   border: 0;
   background: transparent;
-  color: var(--hm-color-primary);
+  color: var(--hm-color-accent-text);
   font-size: 17px;
   font-weight: var(--hm-fw-regular, 400);
 }
@@ -4539,7 +4539,7 @@ html.hm-keyboard-open .hm-chat .hm-composer {
 }
 
 .hm-action-sheet__item--destructive {
-  color: var(--hm-color-danger);
+  color: var(--hm-color-danger-text);
 }
 
 .hm-action-sheet__icon {
@@ -4629,11 +4629,11 @@ html.hm-keyboard-open .hm-chat .hm-composer {
 }
 
 .hm-settings-row--destructive .hm-settings-row__label {
-  color: var(--hm-color-danger);
+  color: var(--hm-color-danger-text);
 }
 
 .hm-settings-row__label--accent {
-  color: var(--hm-color-primary);
+  color: var(--hm-color-accent-text);
 }
 
 .hm-settings-row--switch {
@@ -4717,7 +4717,7 @@ html.hm-keyboard-open .hm-chat .hm-composer {
   padding: 0;
   border: 0;
   background: transparent;
-  color: var(--hm-color-primary);
+  color: var(--hm-color-accent-text);
   font-size: var(--hm-fs-small);
 }
 
@@ -4730,4 +4730,98 @@ html.hm-keyboard-open .hm-chat .hm-composer {
   text-decoration: underline;
   text-decoration-color: color-mix(in srgb, var(--hm-color-purple) 40%, transparent);
   text-underline-offset: 2px;
+}
+
+/* ------------------------------------------------------------------ */
+/* Pass 11: accessibility. Readable counts and labels, and a 44pt hit  */
+/* area on every small control without changing how it looks.          */
+/* ------------------------------------------------------------------ */
+
+/* Counts read in the chip's own color, set apart by weight, not by fading. */
+.hm-filter-chip__count,
+.hm-drawer__source-count {
+  color: inherit;
+  opacity: 1;
+  font-weight: var(--hm-fw-regular);
+}
+
+.hm-drawer__badge--muted,
+.hm-drawer__section-count {
+  color: var(--hm-color-text-muted);
+}
+
+.hm-tabbar__item:not(.hm-tabbar__item--active) {
+  color: color-mix(in srgb, var(--hm-color-text) 62%, transparent);
+}
+
+.hm-header__status,
+.hm-agent-card__model,
+.hm-row-action,
+.hm-agent-card__activate,
+.hm-tool-group__row-button,
+.hm-message__meta-action,
+.hm-cron-card__action,
+.hm-home__all-link,
+.hm-projects__board-select,
+.hm-projects__refresh,
+.hm-projects__column-add,
+.hm-filter-chip,
+.hm-obsidian__vault,
+.hm-sessions__scope-btn,
+.hm-segmented__item,
+.hm-command__op-btn,
+.hm-drawer__close,
+.hm-drawer__source-chip,
+.hm-drawer__footer-row,
+.hm-approval-command__more,
+.hm-note-view__back,
+.hm-approval-inline__always {
+  position: relative;
+}
+
+.hm-header__status::after,
+.hm-agent-card__model::after,
+.hm-row-action::after,
+.hm-agent-card__activate::after,
+.hm-tool-group__row-button::after,
+.hm-message__meta-action::after,
+.hm-cron-card__action::after,
+.hm-home__all-link::after,
+.hm-projects__board-select::after,
+.hm-projects__refresh::after,
+.hm-projects__column-add::after,
+.hm-filter-chip::after,
+.hm-obsidian__vault::after,
+.hm-sessions__scope-btn::after,
+.hm-segmented__item::after,
+.hm-command__op-btn::after,
+.hm-drawer__close::after,
+.hm-drawer__source-chip::after,
+.hm-drawer__footer-row::after,
+.hm-approval-command__more::after,
+.hm-note-view__back::after,
+.hm-approval-inline__always::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: max(100%, 44px);
+  height: max(100%, 44px);
+  transform: translate(-50%, -50%);
+}
+
+.hm-sessions__scope-btn {
+  color: var(--hm-color-text);
+}
+
+.hm-command__gw-btn {
+  min-height: 44px;
+}
+
+/* Count badges: white on a red deep enough to read (the system red is not). */
+.hm-tabbar__badge,
+.hm-home__tile-badge,
+.hm-drawer__badge:not(.hm-drawer__badge--muted) {
+  background: var(--hm-color-badge);
+  color: #ffffff;
 }

@@ -2,6 +2,10 @@
 /* Direction: iOS Human Interface Guidelines. System type, semantic colors,
    Dynamic Type default sizes, flat grouped surfaces, one accent. */
 
+html {
+  font-size: 17px;
+}
+
 :root {
   /* ── Fonts ──────────────────────────────────────────────────────── */
   --hm-font-display: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'SF Pro Text', system-ui, 'Helvetica Neue', Helvetica, Arial, sans-serif;
@@ -19,15 +23,22 @@
   /* ── Text (iOS label hierarchy) ─────────────────────────────────── */
   --hm-color-text:       #000000;
   --hm-color-text-2:     #1c1c1e;
-  --hm-color-text-muted: rgba(60, 60, 67, 0.6);
+  --hm-color-text-muted: rgba(60, 60, 67, 0.74);
   --hm-color-text-faint: rgba(60, 60, 67, 0.3);
-  --hm-color-text-secondary: rgba(60, 60, 67, 0.6);
+  --hm-color-text-secondary: rgba(60, 60, 67, 0.74);
   --hm-color-text-subtle: rgba(60, 60, 67, 0.18);
 
+  /* Muted text and the accent are a step darker than the iOS defaults so
+     small text clears WCAG AA (4.5:1) on white and on the grouped gray. */
   /* ── Primary (system blue) ──────────────────────────────────────── */
-  --hm-color-primary:      #007aff;
-  --hm-color-primary-tint: rgba(0, 122, 255, 0.12);
+  --hm-color-primary:      #0071e3;
+  --hm-color-primary-tint: rgba(0, 113, 227, 0.12);
   --hm-color-primary-text: #ffffff;
+  /* Blue and red as text on light surfaces and tints: deeper than the fills. */
+  --hm-color-accent-text:  #0060c0;
+  --hm-color-danger-text:  #d70015;
+  /* Count badges in both themes. */
+  --hm-color-badge:        #d70015;
 
   /* Backward-compat aliases used by existing .hm-* classes */
   --hm-color-accent:      var(--hm-color-primary);
@@ -38,7 +49,7 @@
   --hm-color-success:    #34c759;
   --hm-color-warning:    #ff9500;
   --hm-color-danger:     #ff3b30;
-  --hm-color-running:    #007aff;
+  --hm-color-running:    #0071e3;
   --hm-color-purple:     #af52de;
   --hm-color-teal:       #5ac8fa;
   --hm-color-success-strong: #1f7a3a;
@@ -48,7 +59,7 @@
   --hm-color-success-bg: rgba(52, 199, 89, 0.14);
   --hm-color-warning-bg: rgba(255, 149, 0, 0.14);
   --hm-color-danger-bg:  rgba(255, 59, 48, 0.12);
-  --hm-color-info-bg:    rgba(0, 122, 255, 0.12);
+  --hm-color-info-bg:    rgba(0, 113, 227, 0.12);
 
   /* ── Spacing (4 px base) ────────────────────────────────────────── */
   --hm-space-1: 4px;
@@ -79,13 +90,16 @@
   --hm-tap-min: 44px;
 
   /* ── Typography (iOS Dynamic Type, Large default) ───────────────── */
-  --hm-fs-display: 34px;   /* Large Title */
-  --hm-fs-title:   22px;   /* Title 2 */
-  --hm-fs-heading: 17px;   /* Headline */
-  --hm-fs-body:    17px;   /* Body */
-  --hm-fs-small:   15px;   /* Subheadline */
-  --hm-fs-label:   13px;   /* Footnote */
-  --hm-fs-mono:    14px;
+  /* In rem against a 17px root, the iOS Body size at the default setting.
+     On iPhone the root follows the Text Size setting (lib/textSize.ts), so
+     these grow and shrink with it; elsewhere they are the px they read as. */
+  --hm-fs-display: calc(34rem / 17);   /* Large Title */
+  --hm-fs-title:   calc(22rem / 17);   /* Title 2 */
+  --hm-fs-heading: 1rem;               /* Headline */
+  --hm-fs-body:    1rem;               /* Body */
+  --hm-fs-small:   calc(15rem / 17);   /* Subheadline */
+  --hm-fs-label:   calc(13rem / 17);   /* Footnote */
+  --hm-fs-mono:    calc(14rem / 17);
 
   --hm-fw-regular:  400;
   --hm-fw-medium:   500;
@@ -155,9 +169,11 @@
   --hm-color-text-secondary: rgba(235, 235, 245, 0.6);
   --hm-color-text-subtle: rgba(235, 235, 245, 0.18);
 
-  --hm-color-primary:      #0a84ff;
-  --hm-color-primary-tint: rgba(10, 132, 255, 0.2);
+  --hm-color-primary:      #0071e3;
+  --hm-color-primary-tint: rgba(10, 132, 255, 0.24);
   --hm-color-primary-text: #ffffff;
+  --hm-color-accent-text:  #409cff;
+  --hm-color-danger-text:  #ff6961;
 
   --hm-color-success:    #30d158;
   --hm-color-warning:    #ff9f0a;
@@ -191,9 +207,11 @@
     --hm-color-text-secondary: rgba(235, 235, 245, 0.6);
     --hm-color-text-subtle: rgba(235, 235, 245, 0.18);
 
-    --hm-color-primary:      #0a84ff;
-    --hm-color-primary-tint: rgba(10, 132, 255, 0.2);
+    --hm-color-primary:      #0071e3;
+    --hm-color-primary-tint: rgba(10, 132, 255, 0.24);
     --hm-color-primary-text: #ffffff;
+    --hm-color-accent-text:  #409cff;
+    --hm-color-danger-text:  #ff6961;
 
     --hm-color-success:    #30d158;
     --hm-color-warning:    #ff9f0a;

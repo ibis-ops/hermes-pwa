@@ -288,7 +288,7 @@
 .hm-drawer__source-chip--active {
   background: var(--hm-color-primary-tint);
   border-color: var(--hm-color-primary);
-  color: var(--hm-color-primary);
+  color: var(--hm-color-accent-text);
   font-weight: var(--hm-fw-semibold);
 }
 
@@ -656,14 +656,14 @@
 }
 
 .hm-approval-inline__icon {
-  color: var(--hm-color-primary);
+  color: var(--hm-color-accent-text);
   display: flex;
   align-items: center;
   justify-content: center;
 }
 
 .hm-approval-inline__title {
-  color: var(--hm-color-primary);
+  color: var(--hm-color-accent-text);
 }
 
 .hm-approval-inline__risk {
@@ -720,7 +720,7 @@
 .hm-approval-inline__deny {
   border: 1px solid color-mix(in srgb, var(--hm-color-danger) 30%, var(--hm-color-border));
   background: var(--hm-color-surface);
-  color: var(--hm-color-danger);
+  color: var(--hm-color-danger-text);
 }
 
 .hm-approval-inline__always {
@@ -814,7 +814,7 @@
   font-family: var(--hm-font-mono);
   font-size: 12.5px;
   font-weight: var(--hm-fw-semibold);
-  color: var(--hm-color-primary);
+  color: var(--hm-color-accent-text);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

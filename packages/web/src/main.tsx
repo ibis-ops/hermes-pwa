@@ -7,9 +7,12 @@ import { installVitePreloadErrorReload } from './pwa/preloadError';
 import { registerServiceWorker } from './pwa/registerSW';
 import { installPushForegroundHandling } from './pwa/push';
 import { applyAppearance, readAppearance } from './lib/appearance';
+import { installTextSize } from './lib/textSize';
 
-// Before the first paint, so a forced light or dark theme never flashes the other.
+// Before the first paint, so a forced light or dark theme never flashes the
+// other, and text starts at the size the phone is set to.
 applyAppearance(readAppearance());
+installTextSize();
 
 installVitePreloadErrorReload();
 void registerServiceWorker();

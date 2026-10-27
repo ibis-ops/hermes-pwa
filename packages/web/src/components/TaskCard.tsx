@@ -15,7 +15,7 @@ function priorityBadge(priority: number | undefined) {
     color = 'var(--hm-color-danger-strong)';
     background = 'var(--hm-color-danger-bg)';
   } else if (p >= 5) {
-    color = 'var(--hm-color-primary)';
+    color = 'var(--hm-color-accent-text)';
     background = 'var(--hm-color-primary-tint)';
   }
   return (
