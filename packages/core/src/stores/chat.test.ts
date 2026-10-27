@@ -32,6 +32,7 @@ describe('useChatStore', () => {
       liveStatus: '',
       queuedPrompts: [],
       lastFailedText: undefined,
+      stoppedSessionId: undefined,
       cacheProfile: undefined,
     });
     useSessionsStore.setState({ sessions: [], loading: false, error: undefined, pinnedIds: [] });
@@ -91,7 +92,7 @@ describe('useChatStore', () => {
     await store.submit(rpcMock, 'world');
 
     expect(useChatStore.getState().sessionId).toBe('s-2');
-    expect(rpcMock.request).toHaveBeenCalledWith('prompt.submit', { session_id: 's-2', text: 'world' }, { timeoutMs: 90_000 });
+    expect(rpcMock.request).toHaveBeenCalledWith('prompt.submit', { session_id: 's-2', text: 'world', queued: true }, { timeoutMs: 90_000 });
   });
 
   it('submit ignores duplicate non-slash sends while one submit is in flight', async () => {
@@ -132,8 +133,8 @@ describe('useChatStore', () => {
 
     expect(firstResult).toBe('submitted');
     expect(second).toBe('submitted');
-    expect(rpcMock.request).toHaveBeenNthCalledWith(1, 'prompt.submit', { session_id: 'profile-a-live', text: 'from a' }, { timeoutMs: 90_000 });
-    expect(rpcMock.request).toHaveBeenNthCalledWith(2, 'prompt.submit', { session_id: 'profile-b-live', text: 'from b' }, { timeoutMs: 90_000 });
+    expect(rpcMock.request).toHaveBeenNthCalledWith(1, 'prompt.submit', { session_id: 'profile-a-live', text: 'from a', queued: true }, { timeoutMs: 90_000 });
+    expect(rpcMock.request).toHaveBeenNthCalledWith(2, 'prompt.submit', { session_id: 'profile-b-live', text: 'from b', queued: true }, { timeoutMs: 90_000 });
   });
 
   it('submit hides raw server bodies from user-facing chat errors', async () => {
@@ -239,7 +240,7 @@ describe('useChatStore', () => {
       name: 'queue',
       arg: 'hello',
     }, { timeoutMs: 300_000 });
-    expect(rpcMock.request).not.toHaveBeenCalledWith('prompt.submit', { session_id: 's-2', text: '/queue hello' });
+    expect(rpcMock.request).not.toHaveBeenCalledWith('prompt.submit', { session_id: 's-2', text: '/queue hello', queued: true });
     expect(useChatStore.getState().messages.at(-1)?.text).toContain('queued');
   });
 
@@ -325,7 +326,7 @@ describe('useChatStore', () => {
       name: 'queue',
       arg: 'resolved prompt',
     }, { timeoutMs: 300_000 });
-    expect(rpcMock.request).toHaveBeenNthCalledWith(3, 'prompt.submit', { session_id: 's-2', text: 'resolved prompt' }, { timeoutMs: 90_000 });
+    expect(rpcMock.request).toHaveBeenNthCalledWith(3, 'prompt.submit', { session_id: 's-2', text: 'resolved prompt', queued: true }, { timeoutMs: 90_000 });
   });
 
   it('submit resumes durable session and retries when cached live session is gone', async () => {
@@ -350,6 +351,7 @@ describe('useChatStore', () => {
     expect(rpcMock.request).toHaveBeenNthCalledWith(1, 'prompt.submit', {
       session_id: 'dead-live',
       text: 'retry me',
+      queued: true,
     }, { timeoutMs: 90_000 });
     expect(rpcMock.request).toHaveBeenNthCalledWith(2, 'session.resume', {
       session_id: 'stored-1',
@@ -358,6 +360,7 @@ describe('useChatStore', () => {
     expect(rpcMock.request).toHaveBeenNthCalledWith(3, 'prompt.submit', {
       session_id: 'live-2',
       text: 'retry me',
+      queued: true,
     }, { timeoutMs: 90_000 });
     expect(useChatStore.getState().sessionId).toBe('live-2');
     expect(useChatStore.getState().storedSessionId).toBe('stored-1');
@@ -377,11 +380,13 @@ describe('useChatStore', () => {
     expect(rpcMock.request).toHaveBeenNthCalledWith(1, 'prompt.submit', {
       session_id: 'dead-live',
       text: 'new please',
+      queued: true,
     }, { timeoutMs: 90_000 });
     expect(rpcMock.request).toHaveBeenNthCalledWith(2, 'session.create', { profile: 'dev' });
     expect(rpcMock.request).toHaveBeenNthCalledWith(3, 'prompt.submit', {
       session_id: 'live-new',
       text: 'new please',
+      queued: true,
     }, { timeoutMs: 90_000 });
     expect(useChatStore.getState().sessionId).toBe('live-new');
     expect(useChatStore.getState().storedSessionId).toBe('stored-new');
@@ -400,6 +405,7 @@ describe('useChatStore', () => {
     expect(rpcMock.request).toHaveBeenNthCalledWith(3, 'prompt.submit', {
       session_id: 'live-new',
       text: 'raw retry',
+      queued: true,
     }, { timeoutMs: 90_000 });
     expect(useChatStore.getState().error).toBeUndefined();
   });
@@ -1324,7 +1330,7 @@ describe('useChatStore', () => {
     await useChatStore.getState().submit(rpcMock, 'continue here', 'dev');
 
     expect(rpcMock.request).toHaveBeenNthCalledWith(1, 'session.resume', { session_id: 'stored-99', profile: 'dev' }, { timeoutMs: 300_000 });
-    expect(rpcMock.request).toHaveBeenNthCalledWith(2, 'prompt.submit', { session_id: 'live-99', text: 'continue here' }, { timeoutMs: 90_000 });
+    expect(rpcMock.request).toHaveBeenNthCalledWith(2, 'prompt.submit', { session_id: 'live-99', text: 'continue here', queued: true }, { timeoutMs: 90_000 });
     expect(useChatStore.getState().sessionId).toBe('live-99');
     expect(useChatStore.getState().storedSessionId).toBe('stored-99');
     expect(useChatStore.getState().messages.map((m) => m.text)).toEqual(['from rest', 'continue here', '']);
@@ -1542,6 +1548,50 @@ describe('useChatStore', () => {
         session_id: 'stored-live',
         messages: [{ id: 'u-rest', role: 'user', text: 'run the check', created_at: 1 }],
       });
+
+      await useChatStore.getState().refreshHistory(restMock, 'default');
+
+      expect(useChatStore.getState().streaming).toBe(false);
+    });
+
+    it('asks Hermes before calling a quiet turn finished: one still running stays on screen', async () => {
+      liveTurn();
+      __setLiveEventAge(LIVE_STREAM_STALE_MS + 1);
+      // The stored transcript already holds the reply's interim line, so the
+      // snapshot alone looks like a finished turn.
+      vi.mocked(restMock.sessionMessages).mockResolvedValue({
+        session_id: 'stored-live',
+        messages: [
+          { id: 'u-rest', role: 'user', text: 'run the check', created_at: 1 },
+          { id: 'a-rest', role: 'assistant', text: 'Checking the logs now.', created_at: 2 },
+        ],
+      });
+      vi.mocked(rpcMock.request).mockResolvedValue({ session_id: 'live-1', running: true });
+      useChatStore.getState().bindRpc(rpcMock);
+
+      await useChatStore.getState().refreshHistory(restMock, 'default');
+
+      expect(rpcMock.request).toHaveBeenCalledWith(
+        'session.activate',
+        { session_id: 'live-1', omit_messages: true },
+        { timeoutMs: 8_000 },
+      );
+      expect(useChatStore.getState().streaming).toBe(true);
+      expect(useChatStore.getState().messages.map((m) => m.text)).toContain('Checking the logs now.');
+    });
+
+    it('goes idle once Hermes says the quiet turn has ended', async () => {
+      liveTurn();
+      __setLiveEventAge(LIVE_STREAM_STALE_MS + 1);
+      vi.mocked(restMock.sessionMessages).mockResolvedValue({
+        session_id: 'stored-live',
+        messages: [
+          { id: 'u-rest', role: 'user', text: 'run the check', created_at: 1 },
+          { id: 'a-rest', role: 'assistant', text: 'All checks passed.', created_at: 2 },
+        ],
+      });
+      vi.mocked(rpcMock.request).mockResolvedValue({ session_id: 'live-1', running: false });
+      useChatStore.getState().bindRpc(rpcMock);
 
       await useChatStore.getState().refreshHistory(restMock, 'default');
 
@@ -2171,14 +2221,14 @@ describe('useChatStore', () => {
 
       await vi.advanceTimersByTimeAsync(0);
       expect(rpcMock.request).toHaveBeenCalledTimes(1);
-      expect(rpcMock.request).toHaveBeenCalledWith('prompt.submit', { session_id: 's-1', text: 'next one' }, { timeoutMs: 90_000 });
+      expect(rpcMock.request).toHaveBeenCalledWith('prompt.submit', { session_id: 's-1', text: 'next one', queued: true }, { timeoutMs: 90_000 });
       expect(useChatStore.getState().queuedPrompts).toEqual(['and another']);
       expect(useChatStore.getState().streaming).toBe(true);
 
       // The second waits for the next turn to finish.
       useChatStore.getState().markIdle();
       await vi.advanceTimersByTimeAsync(0);
-      expect(rpcMock.request).toHaveBeenCalledWith('prompt.submit', { session_id: 's-1', text: 'and another' }, { timeoutMs: 90_000 });
+      expect(rpcMock.request).toHaveBeenCalledWith('prompt.submit', { session_id: 's-1', text: 'and another', queued: true }, { timeoutMs: 90_000 });
       expect(useChatStore.getState().queuedPrompts).toEqual([]);
     });
 
@@ -2258,7 +2308,7 @@ describe('useChatStore', () => {
 
       useChatStore.getState().markIdle();
       await vi.advanceTimersByTimeAsync(0);
-      expect(rpcMock.request).toHaveBeenCalledWith('prompt.submit', { session_id: 's-1', text: 'new prompt' }, { timeoutMs: 90_000 });
+      expect(rpcMock.request).toHaveBeenCalledWith('prompt.submit', { session_id: 's-1', text: 'new prompt', queued: true }, { timeoutMs: 90_000 });
       expect(useChatStore.getState().queuedPrompts).toEqual(['later']);
     });
 
@@ -2271,7 +2321,7 @@ describe('useChatStore', () => {
       await useChatStore.getState().interrupt(rpcMock);
       await vi.advanceTimersByTimeAsync(0);
 
-      expect(rpcMock.request).toHaveBeenCalledWith('prompt.submit', { session_id: 's-1', text: 'queued' }, { timeoutMs: 90_000 });
+      expect(rpcMock.request).toHaveBeenCalledWith('prompt.submit', { session_id: 's-1', text: 'queued', queued: true }, { timeoutMs: 90_000 });
     });
 
     it('a REST refresh that finds the turn over lets a queued prompt go out', async () => {
@@ -2309,7 +2359,7 @@ describe('useChatStore', () => {
       expect(useChatStore.getState().streaming).toBe(false);
       await vi.advanceTimersByTimeAsync(0);
 
-      expect(rpcMock.request).toHaveBeenCalledWith('prompt.submit', { session_id: 'live-q', text: 'after' }, { timeoutMs: 90_000 });
+      expect(rpcMock.request).toHaveBeenCalledWith('prompt.submit', { session_id: 'live-q', text: 'after', queued: true }, { timeoutMs: 90_000 });
     });
 
     it('unbinding the socket cancels a pending drain', async () => {
@@ -2323,6 +2373,65 @@ describe('useChatStore', () => {
 
       expect(rpcMock.request).not.toHaveBeenCalled();
       expect(useChatStore.getState().queuedPrompts).toEqual(['queued']);
+    });
+  });
+
+  describe('turn outcomes', () => {
+    it('a turn Hermes ended early is marked stopped until the next turn starts', () => {
+      useChatStore.setState({
+        sessionId: 'live-1',
+        messages: [
+          { id: 'u-1', role: 'user', text: 'go', createdAt: 1 },
+          { id: 'a-1', role: 'assistant', text: 'partial', createdAt: 2 },
+        ],
+        streaming: true,
+      });
+
+      useChatStore.getState().finishAssistant('partial', 'interrupted');
+      expect(useChatStore.getState().streaming).toBe(false);
+      expect(useChatStore.getState().stoppedSessionId).toBe('live-1');
+
+      useChatStore.getState().beginAssistant();
+      expect(useChatStore.getState().stoppedSessionId).toBeUndefined();
+    });
+
+    it('a finished turn is not marked stopped', () => {
+      useChatStore.setState({
+        sessionId: 'live-1',
+        messages: [{ id: 'a-1', role: 'assistant', text: 'done', createdAt: 2 }],
+        streaming: true,
+        stoppedSessionId: 'live-1',
+      });
+
+      useChatStore.getState().finishAssistant('done', 'complete');
+
+      expect(useChatStore.getState().stoppedSessionId).toBeUndefined();
+    });
+
+    it('every send goes out as "run after", so a turn still running is never cut into', async () => {
+      useChatStore.setState({ sessionId: 's-1', storedSessionId: 'stored-1', messages: [] });
+      vi.mocked(rpcMock.request).mockResolvedValueOnce({ status: 'queued' });
+
+      const result = await useChatStore.getState().submit(rpcMock, 'what is happening', 'default');
+
+      expect(result).toBe('submitted');
+      expect(rpcMock.request).toHaveBeenCalledWith(
+        'prompt.submit',
+        { session_id: 's-1', text: 'what is happening', queued: true },
+        { timeoutMs: 90_000 },
+      );
+      // Hermes is still on the earlier turn: the chat shows it working.
+      expect(useChatStore.getState().streaming).toBe(true);
+      expect(useChatStore.getState().messages.find((m) => m.role === 'user')?.displayKind).toBeUndefined();
+    });
+
+    it('a prompt an older Hermes steered into the running turn reads as a steer', async () => {
+      useChatStore.setState({ sessionId: 's-1', storedSessionId: 'stored-1', messages: [] });
+      vi.mocked(rpcMock.request).mockResolvedValueOnce({ status: 'steered' });
+
+      await useChatStore.getState().submit(rpcMock, 'also check the logs', 'default');
+
+      expect(useChatStore.getState().messages.find((m) => m.role === 'user')?.displayKind).toBe('steer');
     });
   });
 

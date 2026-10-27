@@ -18,6 +18,7 @@ import {
   unsupportedAttachmentTypeMessage,
 } from '../components/attachmentLimits';
 import { Icon } from '../components/Icon';
+import { ConfirmSheet } from '../components/ActionSheet';
 import { pendingApprovalsForMessage, selectPendingApprovals } from '../lib/pendingApprovals';
 import { formatDividerTime, needsTimeDivider, toMillis } from '../lib/chatTime';
 import { DEFAULT_SKILL_EVENT, applyDefaultSkill, readDefaultSkill } from '../lib/defaultSkill';
@@ -53,18 +54,20 @@ export function Chat({ rpc, rest }: ChatProps) {
   // screen renders them and sends what the composer hands it. Narrow
   // subscriptions: a streaming delta re-renders this screen for the
   // transcript, nothing else needs to.
-  const { messages, streaming, error, sessionId, storedSessionId, liveStatus, queuedPrompts, lastFailedText } = useChatStore(
-    useShallow((s) => ({
-      messages: s.messages,
-      streaming: s.streaming,
-      error: s.error,
-      sessionId: s.sessionId,
-      storedSessionId: s.storedSessionId,
-      liveStatus: s.liveStatus,
-      queuedPrompts: s.queuedPrompts,
-      lastFailedText: s.lastFailedText,
-    })),
-  );
+  const { messages, streaming, error, sessionId, storedSessionId, liveStatus, queuedPrompts, lastFailedText, stoppedSessionId } =
+    useChatStore(
+      useShallow((s) => ({
+        messages: s.messages,
+        streaming: s.streaming,
+        error: s.error,
+        sessionId: s.sessionId,
+        storedSessionId: s.storedSessionId,
+        liveStatus: s.liveStatus,
+        queuedPrompts: s.queuedPrompts,
+        lastFailedText: s.lastFailedText,
+        stoppedSessionId: s.stoppedSessionId,
+      })),
+    );
   const submit = useChatStore((s) => s.submit);
   const steer = useChatStore((s) => s.steer);
   const interrupt = useChatStore((s) => s.interrupt);
@@ -119,13 +122,27 @@ export function Chat({ rpc, rest }: ChatProps) {
     return -1;
   })();
   const steeredMessage = lastUserIndex >= 0 ? messages[lastUserIndex] : undefined;
+  // Ending a running task cannot be undone, so the inline link asks first.
+  const [confirmInterrupt, setConfirmInterrupt] = useState(false);
+  const askInterruptSteer = useCallback(() => setConfirmInterrupt(true), []);
   const interruptSteer = useCallback(() => {
-    if (!steeredMessage) return;
+    // The turn may have ended while the question was open: the steer is then
+    // already answered, and sending it again would run it twice.
+    if (!steeredMessage || !useChatStore.getState().streaming) return;
     markLocalInputShouldScroll();
     enqueuePrompt(steeredMessage.text, { front: true });
     void interrupt(rpc, { keepStreaming: true });
   }, [steeredMessage, enqueuePrompt, interrupt, markLocalInputShouldScroll, rpc]);
   const interruptSteerIndex = streaming && steeredMessage?.displayKind === 'steer' ? lastUserIndex : -1;
+  useEffect(() => {
+    if (interruptSteerIndex < 0) setConfirmInterrupt(false);
+  }, [interruptSteerIndex]);
+  // The reply of a turn Hermes ended early says "Stopped" until the next turn.
+  const lastAssistantIndex = (() => {
+    for (let i = messages.length - 1; i >= 0; i -= 1) if (messages[i]?.role === 'assistant') return i;
+    return -1;
+  })();
+  const stoppedIndex = !streaming && stoppedSessionId && stoppedSessionId === sessionId ? lastAssistantIndex : -1;
   const lastToolSignal = lastMessage?.toolCalls
     ?.map((tool) => `${tool.id}:${tool.name}:${typeof tool.output === 'string' ? tool.output.length : 0}`)
     .join('|') ?? '';
@@ -424,7 +441,8 @@ export function Chat({ rpc, rest }: ChatProps) {
                   pendingApprovals={pendingApprovalsForMessage(pendingApprovals, index, messages.length)}
                   activeSessionIds={activeSessionIds}
                   elapsedFrom={promptAt}
-                  onInterruptSteer={index === interruptSteerIndex ? interruptSteer : undefined}
+                  onInterruptSteer={index === interruptSteerIndex ? askInterruptSteer : undefined}
+                  stopped={index === stoppedIndex}
                 />
               </div>
             );
@@ -476,6 +494,16 @@ export function Chat({ rpc, rest }: ChatProps) {
         returnedText={lastFailedText}
         onReturnedTextTaken={returnedTextTaken}
       />
+      {confirmInterrupt ? (
+        <ConfirmSheet
+          title="Stop the current task?"
+          message="Hermes ends what it is doing now, then answers this message as a new request."
+          confirmLabel="Stop and send now"
+          destructive
+          onConfirm={interruptSteer}
+          onClose={() => setConfirmInterrupt(false)}
+        />
+      ) : null}
     </div>
   );
 }

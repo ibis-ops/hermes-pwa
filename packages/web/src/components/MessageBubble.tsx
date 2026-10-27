@@ -73,7 +73,7 @@ function recoveredApprovalTool(
  * avatars and no names. The time of a message stays out of the way until the
  * bubble is tapped; the newest message always shows it.
  */
-function MessageBubbleView({ message, rpc, rest, isLast, streaming, liveStatus, pendingApprovals, activeSessionIds, elapsedFrom, onInterruptSteer }: MessageBubbleProps) {
+function MessageBubbleView({ message, rpc, rest, isLast, streaming, liveStatus, pendingApprovals, activeSessionIds, elapsedFrom, onInterruptSteer, stopped }: MessageBubbleProps) {
   // Tapping a bubble reveals its time stamp, as a swipe does in Messages.
   const [revealed, setRevealed] = useState(false);
   const toggleRevealed = () => setRevealed((value) => !value);
@@ -166,7 +166,13 @@ function MessageBubbleView({ message, rpc, rest, isLast, streaming, liveStatus, 
       {/* Older bubbles keep their time and Copy in the page, out of sight until
           tapped or reached with the keyboard (screen readers always hear it). */}
       <div className="hm-message__meta-reveal" data-collapsed={showMeta || active ? 'false' : 'true'}>
-        <MessageMeta message={message} active={active} elapsedFrom={elapsedFrom} copyText={hasText ? message.text : undefined} />
+        <MessageMeta
+          message={message}
+          active={active}
+          elapsedFrom={elapsedFrom}
+          copyText={hasText ? message.text : undefined}
+          stopped={stopped}
+        />
       </div>
     </div>
   );

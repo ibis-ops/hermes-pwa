@@ -13,6 +13,8 @@ interface MessageMetaProps {
   action?: { label: string; onClick: () => void } | undefined;
   /** When set, a Copy control puts this text on the clipboard. */
   copyText?: string | undefined;
+  /** The reply's turn was ended early (Stop, or an interrupt), not finished. */
+  stopped?: boolean | undefined;
 }
 
 function elapsedSeconds(startMs: number | undefined, endMs: number | undefined): number | undefined {
@@ -27,7 +29,7 @@ function elapsedSeconds(startMs: number | undefined, endMs: number | undefined):
  * Copy control. The chat shows it for the newest message and for any bubble
  * the person taps.
  */
-export function MessageMeta({ message, active = false, elapsedFrom, action, copyText }: MessageMetaProps) {
+export function MessageMeta({ message, active = false, elapsedFrom, action, copyText, stopped = false }: MessageMetaProps) {
   const [now, setNow] = useState(() => Date.now());
   const [copied, setCopied] = useState(false);
   useEffect(() => {
@@ -45,8 +47,9 @@ export function MessageMeta({ message, active = false, elapsedFrom, action, copy
   const stampMs = isAssistant ? (toMillis(message.completedAt) ?? createdMs) : createdMs;
   const time = stampMs !== undefined && !active ? formatClockTime(stampMs) : undefined;
   const canCopy = Boolean(copyText && copyText.trim()) && !active;
+  const showStopped = stopped && isAssistant && !active;
 
-  if (time === undefined && elapsed === undefined && !action && !canCopy) return null;
+  if (time === undefined && elapsed === undefined && !action && !canCopy && !showStopped) return null;
 
   async function copy() {
     if (!copyText) return;
@@ -63,11 +66,17 @@ export function MessageMeta({ message, active = false, elapsedFrom, action, copy
   const label = active ? 'Reply in progress' : 'Sent';
   const steered = message.role === 'user' && message.displayKind === 'steer';
   const parts: string[] = [];
+  if (showStopped) parts.push('Stopped');
   if (time) parts.push(time);
   if (elapsed !== undefined) parts.push(`${formatElapsed(elapsed)}${active ? '…' : ''}`);
   return (
     <div className={`hm-message__meta hm-message__meta--${message.role}`} data-testid="message-meta" aria-label={label}>
       {steered ? <span className="hm-message__meta-note">Added to the running task · </span> : null}
+      {showStopped ? (
+        <span className="hm-message__meta-note hm-message__meta-note--stopped" data-testid="reply-stopped">
+          Stopped{time || elapsed !== undefined ? ' · ' : ''}
+        </span>
+      ) : null}
       {time ? <time dateTime={new Date(stampMs ?? 0).toISOString()}>{time}</time> : null}
       {elapsed !== undefined ? (
         <span className="hm-message__elapsed" data-live={active ? 'true' : 'false'}>

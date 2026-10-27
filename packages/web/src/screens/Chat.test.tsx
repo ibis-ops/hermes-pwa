@@ -52,7 +52,7 @@ describe('Chat', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     window.localStorage.clear();
-    core.useChatStore.setState({ sessionId: undefined, storedSessionId: undefined, messages: [], streaming: false, error: undefined, liveStatus: '', queuedPrompts: [], lastFailedText: undefined });
+    core.useChatStore.setState({ sessionId: undefined, storedSessionId: undefined, messages: [], streaming: false, error: undefined, liveStatus: '', queuedPrompts: [], lastFailedText: undefined, stoppedSessionId: undefined });
     core.useSessionsStore.setState({ sessions: [], loading: false, error: undefined, pinnedIds: [] });
     core.useConnectionStore.setState({ state: 'connected', error: undefined });
     core.useProfilesStore.setState({ activeName: 'default', currentName: 'default', profiles: [{ name: 'default', displayName: 'default', isActive: true }], loading: false, error: undefined });
@@ -682,7 +682,7 @@ describe('Chat', () => {
     fireEvent.click(screen.getByRole('button', { name: /Send/i }));
     await waitFor(() => {
       expect(rpcMock.request).toHaveBeenCalledWith('session.create', { profile: 'default' });
-      expect(rpcMock.request).toHaveBeenCalledWith('prompt.submit', { session_id: 's-1', text: 'hello' }, { timeoutMs: 90_000 });
+      expect(rpcMock.request).toHaveBeenCalledWith('prompt.submit', { session_id: 's-1', text: 'hello', queued: true }, { timeoutMs: 90_000 });
     });
   });
 
@@ -722,6 +722,7 @@ describe('Chat', () => {
       expect(rpcMock.request).toHaveBeenCalledWith('prompt.submit', {
         session_id: 's-1',
         text: '@file:.hermes/desktop-attachments/note.txt',
+        queued: true,
       }, { timeoutMs: 90_000 });
     });
   });
@@ -854,9 +855,9 @@ describe('Chat', () => {
     fireEvent.click(screen.getByRole('button', { name: /Send/i }));
 
     await waitFor(() => {
-      expect(rpcMock.request).toHaveBeenCalledWith('prompt.submit', { session_id: 'live-2', text: 'after reload' }, { timeoutMs: 90_000 });
+      expect(rpcMock.request).toHaveBeenCalledWith('prompt.submit', { session_id: 'live-2', text: 'after reload', queued: true }, { timeoutMs: 90_000 });
     });
-    expect(rpcMock.request).not.toHaveBeenCalledWith('prompt.submit', { session_id: 'dead-live', text: 'after reload' });
+    expect(rpcMock.request).not.toHaveBeenCalledWith('prompt.submit', { session_id: 'dead-live', text: 'after reload', queued: true });
   });
 
   it('queues normal submit when backend reports session busy', async () => {
@@ -892,7 +893,7 @@ describe('Chat', () => {
     rpcMock.events.dispatchEvent({ type: 'session.info', sessionId: 's-1', payload: { running: false } });
 
     await waitFor(() => {
-      expect(rpcMock.request).toHaveBeenCalledWith('prompt.submit', { session_id: 's-1', text: 'queued after busy' }, { timeoutMs: 90_000 });
+      expect(rpcMock.request).toHaveBeenCalledWith('prompt.submit', { session_id: 's-1', text: 'queued after busy', queued: true }, { timeoutMs: 90_000 });
       expect(submitAttempts).toBe(2);
     });
   });
@@ -929,7 +930,7 @@ describe('Chat', () => {
     rpcMock.events.dispatchEvent({ type: 'message.complete', sessionId: 's-1', payload: { text: 'done' } });
 
     await waitFor(() => {
-      expect(rpcMock.request).toHaveBeenCalledWith('prompt.submit', { session_id: 's-1', text: 'fallback me' }, { timeoutMs: 90_000 });
+      expect(rpcMock.request).toHaveBeenCalledWith('prompt.submit', { session_id: 's-1', text: 'fallback me', queued: true }, { timeoutMs: 90_000 });
     });
   });
 
@@ -942,7 +943,7 @@ describe('Chat', () => {
     fireEvent.change(screen.getByPlaceholderText(/Send after this reply/i), { target: { value: 'next prompt' } });
     fireEvent.click(screen.getByRole('button', { name: /Queue message/i }));
 
-    expect(rpcMock.request).not.toHaveBeenCalledWith('prompt.submit', { session_id: 's-1', text: 'next prompt' });
+    expect(rpcMock.request).not.toHaveBeenCalledWith('prompt.submit', { session_id: 's-1', text: 'next prompt', queued: true });
     // The waiting message is visible in the chat, marked as queued.
     const queued = screen.getByTestId('queued-prompt');
     expect(queued).toHaveTextContent('next prompt');
@@ -951,7 +952,7 @@ describe('Chat', () => {
     rpcMock.events.dispatchEvent({ type: 'message.complete', sessionId: 's-1', payload: { text: 'done' } });
 
     await waitFor(() => {
-      expect(rpcMock.request).toHaveBeenCalledWith('prompt.submit', { session_id: 's-1', text: 'next prompt' }, { timeoutMs: 90_000 });
+      expect(rpcMock.request).toHaveBeenCalledWith('prompt.submit', { session_id: 's-1', text: 'next prompt', queued: true }, { timeoutMs: 90_000 });
     });
     await waitFor(() => expect(screen.queryByTestId('queued-prompt')).toBeNull());
   });
@@ -994,13 +995,17 @@ describe('Chat', () => {
     expect(core.useChatStore.getState().messages.at(-1)?.role).toBe('assistant');
     expect(core.useChatStore.getState().streaming).toBe(true);
 
-    // The steered message carries a way out: stop the turn and send it as a fresh prompt.
+    // The steered message carries a way out: stop the turn and send it as a
+    // fresh prompt. Ending a running task cannot be undone, so it asks first.
     fireEvent.click(screen.getByRole('button', { name: 'Interrupt and send now' }));
+    expect(screen.getByText('Stop the current task?')).toBeInTheDocument();
+    expect(rpcMock.request).not.toHaveBeenCalledWith('session.interrupt', expect.anything());
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Stop and send now' }));
     await waitFor(() => expect(rpcMock.request).toHaveBeenCalledWith('session.interrupt', { session_id: 's-1' }));
     expect(screen.getByTestId('queued-prompt')).toHaveTextContent('also check the logs');
     rpcMock.events.dispatchEvent({ type: 'session.info', sessionId: 's-1', payload: { running: false } });
     await waitFor(() => {
-      expect(rpcMock.request).toHaveBeenCalledWith('prompt.submit', { session_id: 's-1', text: 'also check the logs' }, { timeoutMs: 90_000 });
+      expect(rpcMock.request).toHaveBeenCalledWith('prompt.submit', { session_id: 's-1', text: 'also check the logs', queued: true }, { timeoutMs: 90_000 });
     });
   });
 
@@ -1017,22 +1022,52 @@ describe('Chat', () => {
       expect(rpcMock.request).toHaveBeenCalledWith('session.interrupt', { session_id: 's-1' });
       expect(core.useChatStore.getState().streaming).toBe(true);
     });
-    expect(rpcMock.request).not.toHaveBeenCalledWith('prompt.submit', { session_id: 's-1', text: 'new prompt' });
+    expect(rpcMock.request).not.toHaveBeenCalledWith('prompt.submit', { session_id: 's-1', text: 'new prompt', queued: true });
 
     rpcMock.events.dispatchEvent({ type: 'session.info', sessionId: 's-1', payload: { running: false } });
 
     await waitFor(() => {
-      expect(rpcMock.request).toHaveBeenCalledWith('prompt.submit', { session_id: 's-1', text: 'new prompt' }, { timeoutMs: 90_000 });
+      expect(rpcMock.request).toHaveBeenCalledWith('prompt.submit', { session_id: 's-1', text: 'new prompt', queued: true }, { timeoutMs: 90_000 });
     });
   });
 
-  it('stops generation via stop button', async () => {
+  it('stops generation via stop button, on the second tap', async () => {
     core.useChatStore.setState({ streaming: true, sessionId: 's-1' });
     render(<ChatWithSync rpc={rpcMock} rest={restMock} />);
-    fireEvent.click(screen.getByRole('button', { name: /Stop/i }));
+    fireEvent.click(screen.getByRole('button', { name: 'Stop the reply' }));
+    expect(rpcMock.request).not.toHaveBeenCalledWith('session.interrupt', expect.anything());
+    fireEvent.click(screen.getByRole('button', { name: 'Tap again to stop the reply' }));
     await waitFor(() => {
       expect(rpcMock.request).toHaveBeenCalledWith('session.interrupt', { session_id: 's-1' });
     });
+  });
+
+  it('says "Stopped" under a reply whose turn Hermes ended early', () => {
+    core.useChatStore.setState({
+      streaming: false,
+      sessionId: 's-1',
+      stoppedSessionId: 's-1',
+      messages: [
+        { id: 'u-1', role: 'user', text: 'long task', createdAt: 1 },
+        { id: 'a-1', role: 'assistant', text: 'Got halfway.', createdAt: 2, completedAt: 3 },
+      ],
+    });
+    render(<ChatWithSync rpc={rpcMock} rest={restMock} />);
+    expect(screen.getByTestId('reply-stopped')).toHaveTextContent('Stopped');
+  });
+
+  it('does not say "Stopped" under a reply that finished', () => {
+    core.useChatStore.setState({
+      streaming: false,
+      sessionId: 's-1',
+      stoppedSessionId: undefined,
+      messages: [
+        { id: 'u-1', role: 'user', text: 'short task', createdAt: 1 },
+        { id: 'a-1', role: 'assistant', text: 'Done.', createdAt: 2, completedAt: 3 },
+      ],
+    });
+    render(<ChatWithSync rpc={rpcMock} rest={restMock} />);
+    expect(screen.queryByTestId('reply-stopped')).toBeNull();
   });
 
   it('clears stuck streaming when backend emits error or idle session.info', async () => {

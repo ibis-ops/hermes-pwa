@@ -4878,3 +4878,49 @@ html.hm-keyboard-open .hm-chat .hm-composer {
   white-space: nowrap;
   border: 0;
 }
+
+/* ------------------------------------------------------------------ */
+/* Pass 12: Stop that cannot be hit by accident, stopped replies       */
+/* ------------------------------------------------------------------ */
+
+/* Right after a send, Stop sits where the arrow was and ignores taps. */
+.hm-composer__stop[data-guarded='true'] {
+  opacity: 0.4;
+}
+
+/* The first tap turns Stop into a red pill that says so; the second stops. */
+.hm-composer__stop--armed {
+  width: auto;
+  padding: 0 12px 0 10px;
+  gap: 6px;
+  background: var(--hm-color-danger-bg);
+  color: var(--hm-color-danger-text);
+  font-size: var(--hm-fs-label);
+  font-weight: var(--hm-fw-semibold);
+  animation: hm-stop-arm 160ms ease-out;
+}
+
+.hm-composer__stop--armed .hm-composer__stop-square {
+  background: currentColor;
+}
+
+@keyframes hm-stop-arm {
+  from {
+    transform: scale(0.92);
+  }
+  to {
+    transform: scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hm-composer__stop--armed {
+    animation: none;
+  }
+}
+
+/* A reply Hermes ended early says so under the bubble. */
+.hm-message__meta-note--stopped {
+  color: var(--hm-color-danger-text);
+  font-weight: var(--hm-fw-medium);
+}

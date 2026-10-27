@@ -148,7 +148,7 @@ describe('service worker runtime cache behavior', () => {
       }
     }
 
-    const shellCache = harness.cacheStores.get('hermes-mobile-v80:shell');
+    const shellCache = harness.cacheStores.get('hermes-mobile-v81:shell');
     const runtimeCache = harness.cacheStores.get('hermes-mobile-runtime-assets');
     if (!shellCache || !runtimeCache) throw new Error('missing expected caches');
 
@@ -190,7 +190,7 @@ describe('service worker runtime cache behavior', () => {
       { status: 200, headers: { 'content-type': 'text/html' } },
     ));
     await harness.dispatch('install', {});
-    const shellCache = harness.cacheStores.get('hermes-mobile-v80:shell');
+    const shellCache = harness.cacheStores.get('hermes-mobile-v81:shell');
     const keys = shellCache ? (await shellCache.keys()).map((request) => request.url) : [];
     expect(keys).toContain('https://example.test/api/plugins/hermes-pwa/app/assets/index-abc.js');
     expect(keys).toContain('https://example.test/api/plugins/hermes-pwa/app/assets/index-abc.css');

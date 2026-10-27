@@ -20,6 +20,8 @@ export interface MessageBubbleProps {
   elapsedFrom?: number | undefined;
   /** For a message steered into a turn that is still running: stop the turn and send this as a fresh prompt. */
   onInterruptSteer?: (() => void) | undefined;
+  /** The reply's turn was ended early (Stop, or an interrupt) rather than finished. */
+  stopped?: boolean | undefined;
 }
 
 export function areMessageBubblePropsEqual(prev: MessageBubbleProps, next: MessageBubbleProps): boolean {
@@ -33,7 +35,8 @@ export function areMessageBubblePropsEqual(prev: MessageBubbleProps, next: Messa
     prev.pendingApprovals === next.pendingApprovals &&
     prev.activeSessionIds === next.activeSessionIds &&
     prev.elapsedFrom === next.elapsedFrom &&
-    prev.onInterruptSteer === next.onInterruptSteer
+    prev.onInterruptSteer === next.onInterruptSteer &&
+    prev.stopped === next.stopped
   );
 }
 

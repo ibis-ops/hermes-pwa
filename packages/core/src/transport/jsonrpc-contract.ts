@@ -31,6 +31,12 @@ export interface PromptSubmitParams {
   session_id: string;
   text: string;
   truncate_before_user_ordinal?: number;
+  /**
+   * "Run after": if a turn is still running, Hermes queues the prompt behind
+   * it instead of applying the busy-input mode, so it can never steer or
+   * interrupt the live turn. The response's status says "queued" then.
+   */
+  queued?: boolean;
 }
 
 export interface SessionSteerParams extends SessionIdParams {

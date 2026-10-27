@@ -6,6 +6,7 @@ import { SkillPicker } from './SkillPicker';
 import { useVoiceRecorder } from '../hooks/useVoiceRecorder';
 import { useVoiceConversation } from '../hooks/useVoiceConversation';
 import { readDraft, writeDraft } from '../lib/draftStorage';
+import { STOP_CONFIRM_MS, STOP_GUARD_MS } from '../lib/stopGuard';
 import {
   MAX_ATTACHMENT_BYTES,
   MAX_ATTACHMENTS_PER_SELECTION,
@@ -210,6 +211,14 @@ export function Composer({
   const [slashSuppressedText, setSlashSuppressedText] = useState<string | undefined>();
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const textareaHeightRef = useRef<string>('');
+  // Stop takes the send arrow's place the moment a message goes out, so a
+  // double tap or a tap that lands late used to end the run. It ignores taps
+  // for a moment after a send, and it takes two: the first turns it into a
+  // red "Stop" pill, the second stops the reply.
+  const [stopGuarded, setStopGuarded] = useState(false);
+  const [stopArmed, setStopArmed] = useState(false);
+  const stopGuardTimerRef = useRef<number | undefined>(undefined);
+  const stopArmTimerRef = useRef<number | undefined>(undefined);
 
   const hasText = text.trim().length > 0;
   const hasPayload = hasText || attachments.some((a) => !a.uploading && !a.error && a.path);
@@ -393,6 +402,40 @@ export function Composer({
     });
   }, [onPrimeVoiceAudio, onStopVoiceAudio]);
 
+  useEffect(() => {
+    if (busy) return;
+    window.clearTimeout(stopArmTimerRef.current);
+    setStopArmed(false);
+  }, [busy]);
+
+  useEffect(
+    () => () => {
+      window.clearTimeout(stopGuardTimerRef.current);
+      window.clearTimeout(stopArmTimerRef.current);
+    },
+    [],
+  );
+
+  function guardStop() {
+    window.clearTimeout(stopGuardTimerRef.current);
+    window.clearTimeout(stopArmTimerRef.current);
+    setStopArmed(false);
+    setStopGuarded(true);
+    stopGuardTimerRef.current = window.setTimeout(() => setStopGuarded(false), STOP_GUARD_MS);
+  }
+
+  function handleStopClick() {
+    if (stopGuarded) return;
+    window.clearTimeout(stopArmTimerRef.current);
+    if (!stopArmed) {
+      setStopArmed(true);
+      stopArmTimerRef.current = window.setTimeout(() => setStopArmed(false), STOP_CONFIRM_MS);
+      return;
+    }
+    setStopArmed(false);
+    onStop();
+  }
+
   function handleSubmit(e?: React.FormEvent) {
     e?.preventDefault();
     if (voiceRecorder.status !== 'idle' || voiceConversation.status === 'transcribing') return;
@@ -408,6 +451,7 @@ export function Composer({
     } else {
       onSend(finalText);
     }
+    guardStop();
     setText('');
     setSlashSuppressedText(undefined);
     setAttachments((prev) => {
@@ -673,11 +717,15 @@ export function Composer({
         {busy && !hasPayload && !isRecording ? (
           <button
             type="button"
-            className="hm-composer__stop"
-            onClick={onStop}
-            aria-label="Stop generating"
+            className={`hm-composer__stop${stopArmed ? ' hm-composer__stop--armed' : ''}`}
+            onClick={handleStopClick}
+            aria-disabled={stopGuarded ? 'true' : undefined}
+            data-guarded={stopGuarded ? 'true' : undefined}
+            aria-label={stopArmed ? 'Tap again to stop the reply' : 'Stop the reply'}
+            data-testid="composer-stop"
           >
             <span className="hm-composer__stop-square" aria-hidden="true" />
+            {stopArmed ? <span className="hm-composer__stop-label">Stop</span> : null}
           </button>
         ) : hasPayload && !isRecording ? (
           <button

@@ -1,7 +1,8 @@
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { act, render, screen, fireEvent, waitFor } from '@testing-library/react';
 import type { RpcClient } from '@hermes-pwa/core';
 import { Composer } from './Composer';
+import { STOP_CONFIRM_MS, STOP_GUARD_MS } from '../lib/stopGuard';
 import {
   MAX_ATTACHMENTS_PER_SELECTION,
   MAX_ATTACHMENT_BYTES,
@@ -62,11 +63,61 @@ describe('Composer', () => {
     expect(screen.getByRole('button', { name: /Stop/i })).toBeInTheDocument();
   });
 
-  it('calls onStop when stop clicked', () => {
+  it('stops only on a second tap: the first turns Stop into a confirm pill', () => {
     const onStop = vi.fn();
     render(<Composer onSend={vi.fn()} onStop={onStop} busy={true} />);
-    fireEvent.click(screen.getByRole('button', { name: /Stop/i }));
-    expect(onStop).toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'Stop the reply' }));
+    expect(onStop).not.toHaveBeenCalled();
+    const armed = screen.getByRole('button', { name: 'Tap again to stop the reply' });
+    expect(armed).toHaveTextContent('Stop');
+    fireEvent.click(armed);
+    expect(onStop).toHaveBeenCalledTimes(1);
+  });
+
+  it('a confirm pill nobody taps goes back to a plain Stop', () => {
+    vi.useFakeTimers();
+    try {
+      const onStop = vi.fn();
+      render(<Composer onSend={vi.fn()} onStop={onStop} busy={true} />);
+      fireEvent.click(screen.getByRole('button', { name: 'Stop the reply' }));
+      act(() => {
+        vi.advanceTimersByTime(STOP_CONFIRM_MS + 10);
+      });
+      fireEvent.click(screen.getByRole('button', { name: 'Stop the reply' }));
+      expect(onStop).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('ignores taps on Stop right after a send, where the arrow just was', () => {
+    vi.useFakeTimers();
+    try {
+      const onStop = vi.fn();
+      const onSend = vi.fn();
+      const { rerender } = render(<Composer onSend={onSend} onStop={onStop} busy={false} />);
+      fireEvent.change(screen.getByPlaceholderText(/Message Hermes/i), { target: { value: 'go' } });
+      fireEvent.submit(screen.getByPlaceholderText(/Message Hermes/i).closest('form')!);
+      expect(onSend).toHaveBeenCalledWith('go');
+      rerender(<Composer onSend={onSend} onStop={onStop} busy={true} />);
+
+      const stop = screen.getByTestId('composer-stop');
+      expect(stop).toHaveAttribute('aria-disabled', 'true');
+      fireEvent.click(stop);
+      fireEvent.click(stop);
+      expect(onStop).not.toHaveBeenCalled();
+      expect(screen.getByRole('button', { name: 'Stop the reply' })).toBeInTheDocument();
+
+      act(() => {
+        vi.advanceTimersByTime(STOP_GUARD_MS + 10);
+      });
+      expect(screen.getByTestId('composer-stop')).not.toHaveAttribute('aria-disabled');
+      fireEvent.click(screen.getByTestId('composer-stop'));
+      fireEvent.click(screen.getByTestId('composer-stop'));
+      expect(onStop).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('submits on enter via form', () => {

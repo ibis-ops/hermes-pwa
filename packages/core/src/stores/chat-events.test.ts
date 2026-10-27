@@ -63,6 +63,7 @@ describe('attachChatEvents', () => {
       liveStatus: '',
       queuedPrompts: [],
       lastFailedText: undefined,
+      stoppedSessionId: undefined,
       cacheProfile: undefined,
     });
     useSessionsStore.setState({ sessions: [], loading: false, error: undefined, pinnedIds: [] });
@@ -286,8 +287,19 @@ describe('attachChatEvents', () => {
 
     expect(useChatStore.getState().streaming).toBe(false);
     await vi.advanceTimersByTimeAsync(0);
-    expect(rpc.request).toHaveBeenCalledWith('prompt.submit', { session_id: 's-1', text: 'queued after busy' }, { timeoutMs: 90_000 });
+    expect(rpc.request).toHaveBeenCalledWith('prompt.submit', { session_id: 's-1', text: 'queued after busy', queued: true }, { timeoutMs: 90_000 });
     expect(useChatStore.getState().queuedPrompts).toEqual([]);
+  });
+
+  it('a turn that ends as "interrupted" is marked stopped, a finished one is not', () => {
+    streamingChat();
+    rpc.events.dispatchEvent({ type: 'message.complete', sessionId: 's-1', payload: { text: 'half done', status: 'interrupted' } });
+    expect(useChatStore.getState().streaming).toBe(false);
+    expect(useChatStore.getState().stoppedSessionId).toBe('s-1');
+
+    streamingChat();
+    rpc.events.dispatchEvent({ type: 'message.complete', sessionId: 's-1', payload: { text: 'all done', status: 'complete' } });
+    expect(useChatStore.getState().stoppedSessionId).toBeUndefined();
   });
 
   it('session.info running:true is not an idle signal', () => {
@@ -304,7 +316,7 @@ describe('attachChatEvents', () => {
     rpc.events.dispatchEvent({ type: 'message.complete', sessionId: 's-1', payload: { text: 'done' } });
     await vi.advanceTimersByTimeAsync(0);
 
-    expect(rpc.request).toHaveBeenCalledWith('prompt.submit', { session_id: 's-1', text: 'next prompt' }, { timeoutMs: 90_000 });
+    expect(rpc.request).toHaveBeenCalledWith('prompt.submit', { session_id: 's-1', text: 'next prompt', queued: true }, { timeoutMs: 90_000 });
     expect(useChatStore.getState().messages.map((m) => `${m.role}:${m.text}`)).toEqual(['assistant:done', 'user:next prompt', 'assistant:']);
   });
 

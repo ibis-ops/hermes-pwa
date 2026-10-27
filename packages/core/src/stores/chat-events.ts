@@ -195,9 +195,13 @@ export function attachChatEvents(rpc: RpcClient, rest: RestClient, options: Chat
   const onDone = (event: RpcEvent): void => {
     if (!owns(event)) return;
     chat().beginAssistant();
-    const finalText = extractMessageText(eventPayload(event));
+    const payload = eventPayload(event);
+    const finalText = extractMessageText(payload);
+    // "interrupted" marks a turn Hermes ended early, so the reply can say it
+    // was stopped instead of passing for a finished answer.
+    const status = typeof payload?.status === 'string' ? payload.status : undefined;
     // finishAssistant ends the turn: the status clears and a queued prompt drains.
-    chat().finishAssistant(finalText);
+    chat().finishAssistant(finalText, status);
     chat().setLiveStatus('');
     void refreshActiveHistory();
   };

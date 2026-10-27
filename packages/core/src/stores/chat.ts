@@ -169,6 +169,12 @@ export interface ChatStore {
    * so the composer can hand it back. Cleared by the next submit.
    */
   lastFailedText: string | undefined;
+  /**
+   * The live session whose last turn Hermes ended early (message.complete
+   * with status "interrupted"), so the chat can say the reply was stopped
+   * rather than finished. Cleared when the next turn starts. Not persisted.
+   */
+  stoppedSessionId: string | undefined;
 
   /** Internal cache scope; not shown in UI. */
   cacheProfile: string | undefined;
@@ -228,7 +234,8 @@ export interface ChatStore {
   addSteeredMessage(text: string): void;
   interrupt(rpc: RpcClient, options?: InterruptOptions): Promise<void>;
   appendDelta(text: string): void;
-  finishAssistant(finalText?: string | undefined): void;
+  /** The turn is over; `status` is message.complete's ("complete", "interrupted", "error"). */
+  finishAssistant(finalText?: string | undefined, status?: string | undefined): void;
   failAssistant(error: string): void;
   markIdle(): void;
   appendToolCall(tool: ToolCall): void;
@@ -1366,6 +1373,29 @@ function isAmbiguousSendError(err: unknown): boolean {
   return message === 'JSON-RPC request timed out' || message === 'Disconnected';
 }
 
+/**
+ * Whether Hermes is still running a turn on this live session. A slow model
+ * call or a long tool sends nothing for a minute or more, and the stored
+ * transcript already holds the reply's interim lines, so silence plus a REST
+ * snapshot cannot tell a finished turn from one still working. Asked before
+ * the chat shows the bot as idle: a wrong "idle" invites a send that cuts
+ * into the turn. False when there is no socket or the gateway does not say.
+ */
+async function turnStillRunning(sessionId: string | undefined): Promise<boolean> {
+  const rpc = boundRpc;
+  if (!rpc || !sessionId) return false;
+  try {
+    const live = await rpc.request<Record<string, unknown>>(
+      'session.activate',
+      { session_id: sessionId, omit_messages: true },
+      { timeoutMs: 8_000 },
+    );
+    return Boolean(live && typeof live === 'object' && live.session_id === sessionId && live.running === true);
+  } catch {
+    return false;
+  }
+}
+
 function afterIdle(): void {
   if (queueDrainPaused) return;
   if (queuedPromptDrainTimer !== undefined) return;
@@ -1492,6 +1522,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
   liveStatus: '',
   queuedPrompts: initialCache.queuedPrompts,
   lastFailedText: undefined,
+  stoppedSessionId: undefined,
   cacheProfile: initialCache.profile,
 
   bindRpc(rpc, getProfile) {
@@ -1537,6 +1568,8 @@ export const useChatStore = create<ChatStore>((set, get) => ({
     const next = { queuedPrompts: rest };
     set(next);
     persistActiveSession({ ...get(), ...next });
+    // Like every send, it goes out as "run after": if the chat only looked
+    // idle (a long silent step), Hermes holds it behind the running turn.
     const result = await get().submit(rpc, text, profile);
     if (result === 'busy') {
       // Still running: the prompt waits for the next idle, ahead of the rest.
@@ -1696,10 +1729,18 @@ export const useChatStore = create<ChatStore>((set, get) => ({
       // A quiet but live turn (a long tool call) stays streaming while REST has
       // no finished answer for it; once the silence is long enough to suspect a
       // lost connection, the snapshot alone decides.
-      const keepStreaming =
+      let keepStreaming =
         before.streaming &&
         quietFor < LIVE_STREAM_STALE_MS &&
         refreshed.preservedLocalTail.some((m) => m.role === 'assistant');
+      if (before.streaming && !keepStreaming && before.sessionId) {
+        // The snapshot looks finished, but so does a turn in the middle of a
+        // slow step. Hermes knows which: a turn it is still running stays on
+        // screen as running, with the snapshot's rows applied.
+        const running = await turnStillRunning(before.sessionId);
+        if (!isSameChatState(get(), anchor)) return;
+        keepStreaming = running;
+      }
       const next = {
         storedSessionId: refreshed.storedSessionId,
         messages: stabilizeMessages(before.messages, refreshed.messages),
@@ -2156,12 +2197,33 @@ export const useChatStore = create<ChatStore>((set, get) => ({
           streaming: true,
           error: undefined,
           messages: nextMessages,
+          stoppedSessionId: undefined,
         };
         set(optimistic);
         persistActiveSession({ ...get(), ...optimistic });
 
+        // Every send is a new turn, marked "run after". The chat can look idle
+        // while Hermes is still on a long step; unmarked, the prompt would then
+        // meet the bot's busy setting, which by default interrupts the running
+        // turn and cancels its tool calls. Marked, it waits behind that turn.
+        // Steering and stopping stay explicit (session.steer, the Stop button).
+        const submitParams = (sessionIdToUse: string) => ({ session_id: sessionIdToUse, text, queued: true });
+        // A gateway that predates the mark may still steer the prompt into the
+        // running turn ("steered", or "redirected" under interrupt): it then
+        // reads as a steer in the chat, like one sent on purpose.
+        const noteOutcome = (raw: unknown): void => {
+          const status = raw && typeof raw === 'object' ? (raw as Record<string, unknown>).status : undefined;
+          if ((status !== 'steered' && status !== 'redirected') || !userRowId || options?.displayText) return;
+          const rowId = userRowId;
+          const marked = {
+            messages: get().messages.map((message) => (message.id === rowId ? { ...message, displayKind: 'steer' } : message)),
+          };
+          set(marked);
+          persistActiveSession({ ...get(), ...marked });
+        };
+
         try {
-          await rpc.request('prompt.submit', { session_id: id, text }, { timeoutMs: PROMPT_SUBMIT_TIMEOUT_MS });
+          noteOutcome(await rpc.request('prompt.submit', submitParams(id), { timeoutMs: PROMPT_SUBMIT_TIMEOUT_MS }));
         } catch (submitErr) {
           if (isSessionBusyError(submitErr)) {
             busyRollback();
@@ -2182,7 +2244,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
           set(recovered);
           persistActiveSession({ ...get(), ...recovered });
           try {
-            await rpc.request('prompt.submit', { session_id: id, text }, { timeoutMs: PROMPT_SUBMIT_TIMEOUT_MS });
+            noteOutcome(await rpc.request('prompt.submit', submitParams(id), { timeoutMs: PROMPT_SUBMIT_TIMEOUT_MS }));
           } catch (retryErr) {
             if (isSessionBusyError(retryErr)) {
               busyRollback();
@@ -2305,7 +2367,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
     });
   },
 
-  finishAssistant(finalText) {
+  finishAssistant(finalText, status) {
     touchLiveEvent();
     set((state) => {
       const msgs = [...state.messages];
@@ -2323,7 +2385,12 @@ export const useChatStore = create<ChatStore>((set, get) => ({
         }
         msgs[msgs.length - 1] = nextLast;
       }
-      const next = { streaming: false, liveStatus: '', messages: msgs };
+      const next = {
+        streaming: false,
+        liveStatus: '',
+        messages: msgs,
+        stoppedSessionId: status === 'interrupted' ? state.sessionId : undefined,
+      };
       persistActiveSession({ ...state, ...next });
       return next;
     });
@@ -2425,13 +2492,14 @@ export const useChatStore = create<ChatStore>((set, get) => ({
     set((state) => {
       const last = state.messages[state.messages.length - 1];
       if (last?.role === 'assistant') {
-        const next = { streaming: true, error: undefined };
+        const next = { streaming: true, error: undefined, stoppedSessionId: undefined };
         persistActiveSession({ ...state, ...next });
         return next;
       }
       const next = {
         streaming: true,
         error: undefined,
+        stoppedSessionId: undefined,
         messages: [
           ...state.messages,
           { id: nextAssistantMessageId(), role: 'assistant' as const, text: '', createdAt: Date.now() / 1000 },
