@@ -153,6 +153,10 @@ export function toActionItem(raw: Record<string, unknown>): ActionItem {
     if (typeof raw.summary === 'string') out.summary = raw.summary;
     if (typeof raw.command === 'string' && raw.command.trim()) out.command = raw.command;
     if (typeof raw.command_complete === 'boolean') out.commandComplete = raw.command_complete;
+    // The gateway's approval-queue id, when the recovery record carries it:
+    // the answer is keyed on it rather than on the session alone.
+    const requestId = raw.request_id ?? raw.requestId;
+    if (typeof requestId === 'string' && requestId.trim()) out.requestId = requestId;
     if (typeof raw.session === 'string') out.session = raw.session;
     if (typeof raw.visibility === 'string' && (raw.visibility === 'private' || raw.visibility === 'public')) {
       out.visibility = raw.visibility;

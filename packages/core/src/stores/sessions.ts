@@ -3,6 +3,9 @@ import { mergeSessionsByLineage, sessionPinId, type Session } from '../domain/se
 import type { RpcClient } from '../transport/jsonrpc';
 import type { RestClient } from '../transport/rest';
 import { LONG_RPC_TIMEOUT_MS } from '../transport/timeouts';
+// The chat store imports this one too; both only touch the other inside
+// actions, never while the modules load, so the cycle is harmless.
+import { useChatStore } from './chat';
 
 const PINNED_SESSIONS_STORAGE_KEY = 'hermes-pwa.pinnedSessions.v1';
 
@@ -55,6 +58,13 @@ function sessionIdFromResult(raw: unknown): string {
 }
 
 const initialPinnedIds = readPinnedIds();
+
+/** Whether the chat is open on this session (by its stored id, lineage root or live runtime id). */
+function chatIsOnSession(session: Session): boolean {
+  const { sessionId, storedSessionId } = useChatStore.getState();
+  const ids = [session.id, session.lineageRootId].filter((value): value is string => Boolean(value));
+  return ids.some((id) => id === storedSessionId || id === sessionId);
+}
 
 export const useSessionsStore = create<SessionsStore>((set, get) => ({
   sessions: [],
@@ -131,6 +141,9 @@ export const useSessionsStore = create<SessionsStore>((set, get) => ({
       const pinnedIds = get().pinnedIds.filter((id) => id !== sessionPinId(session) && id !== session.id);
       set({ sessions, pinnedIds });
       writePinnedIds(pinnedIds);
+      // The open chat cannot continue a session that no longer exists; its
+      // cached transcript would otherwise come back on the next restore.
+      if (chatIsOnSession(session)) useChatStore.getState().clear();
     } catch (err) {
       set({ error: err instanceof Error ? err.message : 'Failed to delete session.' });
       throw err;

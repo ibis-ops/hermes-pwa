@@ -96,12 +96,41 @@ describe('useConfigStore', () => {
     );
   });
 
-  it('sets error on save failure but keeps local change', async () => {
+  it('sets error on save failure and rolls the optimistic change back', async () => {
+    // A toggle that the gateway refused must not keep showing as on: the
+    // next load would flip it back anyway, and meanwhile the screen lies.
     const rest = makeRest({ setConfig: vi.fn().mockRejectedValue(new Error('save failed')) });
     await useConfigStore.getState().load(rest);
+    const before = useConfigStore.getState().config;
     await expect(useConfigStore.getState().update(rest, 'memory.memory_enabled', true)).rejects.toThrow('save failed');
     expect(useConfigStore.getState().error).toBe('save failed');
-    expect(useConfigStore.getState().config?.memory?.memory_enabled).toBe(true);
+    expect(useConfigStore.getState().config?.memory?.memory_enabled).toBeUndefined();
+    expect(useConfigStore.getState().config).toEqual(before);
+    expect(useConfigStore.getState().saving).toBe(false);
+  });
+
+  it('update rolls back to an empty config when nothing had loaded', async () => {
+    const rest = makeRest({ setConfig: vi.fn().mockRejectedValue(new Error('offline')) });
+    await expect(useConfigStore.getState().update(rest, 'display.compact', true)).rejects.toThrow('offline');
+    expect(useConfigStore.getState().config).toBeUndefined();
+  });
+
+  it('save treats null as a value to store, not a branch to merge into', async () => {
+    const rest = makeRest();
+    await useConfigStore.getState().load(rest);
+    // Clearing a nested setting sends null; merging used to recurse into it and throw.
+    await expect(useConfigStore.getState().save(rest, { approvals: null } as never)).resolves.toBeUndefined();
+    expect(useConfigStore.getState().config?.approvals).toBeNull();
+    expect(rest.setConfig).toHaveBeenCalledWith(expect.objectContaining({ approvals: null }));
+  });
+
+  it('save merges into a branch that is currently null instead of throwing', async () => {
+    const rest = makeRest({
+      config: vi.fn().mockResolvedValue({ model: { default: 'gpt-5.5' }, approvals: null } as never),
+    });
+    await useConfigStore.getState().load(rest);
+    await useConfigStore.getState().save(rest, { approvals: { timeout: 30 } });
+    expect(useConfigStore.getState().config?.approvals).toEqual({ timeout: 30 });
   });
 
   it('clears state', () => {

@@ -134,10 +134,10 @@ export interface RpcClient {
   replayEpoch(): string | undefined;
   /** Handle one kind of server→client request (`approval`, `clarify`, ...). Returns the unsubscribe. */
   onServerRequest(method: string, handler: ServerRequestHandler): () => void;
-  /** Answer a server→client request. */
-  respond(requestId: string, result: Record<string, unknown>): void;
-  /** Refuse a server→client request (`METHOD_NOT_FOUND` for one this client cannot answer). */
-  respondError(requestId: string, code: number, message: string): void;
+  /** Answer a server→client request. False when the frame could not be written (socket not open). */
+  respond(requestId: string, result: Record<string, unknown>): boolean;
+  /** Refuse a server→client request (`METHOD_NOT_FOUND` for one this client cannot answer). False when not written. */
+  respondError(requestId: string, code: number, message: string): boolean;
   /** Re-deliver the `open_requests` a reconnect snapshot carried, as if they had just arrived. */
   replayServerRequests(raw: unknown): void;
 }
@@ -173,20 +173,23 @@ export function makeRpcClient(send: RpcSend, options: RpcClientOptions = {}): Rp
   let epoch: string | undefined;
   const serverRequestHandlers = new Map<string, Set<ServerRequestHandler>>();
 
-  function writeFrame(frame: Record<string, unknown>): void {
+  /** Write one frame; false when the socket refused it, so the caller can keep what it was answering. */
+  function writeFrame(frame: Record<string, unknown>): boolean {
     try {
       send(JSON.stringify(frame) + '\n');
+      return true;
     } catch (error) {
       console.warn('[Hermes PWA] could not answer a server request', error);
+      return false;
     }
   }
 
-  function respond(requestId: string, result: Record<string, unknown>): void {
-    writeFrame({ jsonrpc: '2.0', id: requestId, result });
+  function respond(requestId: string, result: Record<string, unknown>): boolean {
+    return writeFrame({ jsonrpc: '2.0', id: requestId, result });
   }
 
-  function respondError(requestId: string, code: number, message: string): void {
-    writeFrame({ jsonrpc: '2.0', id: requestId, error: { code, message } });
+  function respondError(requestId: string, code: number, message: string): boolean {
+    return writeFrame({ jsonrpc: '2.0', id: requestId, error: { code, message } });
   }
 
   function deliverServerRequest(id: string, method: string, params: Record<string, unknown>, replayed: boolean): void {

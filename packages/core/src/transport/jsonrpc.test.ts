@@ -277,6 +277,22 @@ describe('server→client requests', () => {
     expect(JSON.parse(send.mock.calls[0][0].trim())).toEqual({ jsonrpc: '2.0', id: 'srq-abc123', result: { choice: 'deny' } });
   });
 
+  it('reports whether an answer frame was written, so a dead socket does not swallow it silently', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const send = vi.fn(() => {
+      throw new Error('WebSocket is not open');
+    });
+    const rpc = makeRpcClient(send);
+
+    expect(rpc.respond('srq-1', { choice: 'once' })).toBe(false);
+    expect(rpc.respondError('srq-1', -32601, 'nope')).toBe(false);
+    expect(warn).toHaveBeenCalledTimes(2);
+
+    const okRpc = makeRpcClient(vi.fn());
+    expect(okRpc.respond('srq-2', { choice: 'deny' })).toBe(true);
+    expect(okRpc.respondError('srq-2', -32601, 'nope')).toBe(true);
+  });
+
   it('refuses a request nobody handles with METHOD_NOT_FOUND so the agent does not wait', () => {
     const send = vi.fn();
     const rpc = makeRpcClient(send);

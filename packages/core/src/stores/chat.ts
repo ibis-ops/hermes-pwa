@@ -6,6 +6,8 @@ import {
   type ToolCall,
 } from '../domain/session';
 import { useSessionsStore } from './sessions';
+import { useActivityStore } from './activity';
+import { readSelectedProfile } from './selected-profile';
 import { JsonRpcError, type RpcClient } from '../transport/jsonrpc';
 import { HermesHttpError } from '../transport/http';
 import type { RestClient } from '../transport/rest';
@@ -15,6 +17,12 @@ import { describeSkillInvocation, skillInvocationText } from '../domain/skill-in
 const LEGACY_ACTIVE_SESSION_STORAGE_KEYS = ['hermes-pwa.activeSession.v1', 'hermes-pwa.activeSession.v2'] as const;
 const ACTIVE_SESSION_STORAGE_KEY = 'hermes-pwa.activeSession.v3';
 const PROFILED_ACTIVE_SESSION_STORAGE_KEY_PREFIX = 'hermes-pwa.activeSession.v4';
+/**
+ * The cached transcript is a cold-start convenience, not the record (Hermes
+ * state.db is). Past this many characters of JSON the oldest rows are left out
+ * of the snapshot so a long session never fails to persist at all.
+ */
+export const MAX_PERSISTED_TRANSCRIPT_CHARS = 1_500_000;
 const ANSI_ESCAPE_PATTERN = new RegExp(`${String.fromCharCode(27)}\\[[0-?]*[ -/]*[@-~]`, 'g');
 const PWA_UNSUPPORTED_SLASH_COMMANDS = new Set(['/whoami']);
 const MAX_ALIAS_DISPATCH_DEPTH = 8;
@@ -73,6 +81,8 @@ interface ActiveSessionCache {
   messages: Message[];
   streaming: boolean;
   profile: string | undefined;
+  /** Prompts still waiting to be sent when the page went away. */
+  queuedPrompts: string[];
 }
 
 const ACTIVE_SESSION_PERSIST_THROTTLE_MS = 1000;
@@ -81,6 +91,11 @@ export type SubmitResult = 'submitted' | 'busy' | 'failed';
 
 export interface InterruptOptions {
   keepStreaming?: boolean;
+}
+
+export interface EnqueueOptions {
+  /** Put the prompt ahead of everything already waiting (interrupt and send). */
+  front?: boolean;
 }
 
 export interface SubmitOptions {
@@ -138,9 +153,47 @@ export interface ChatStore {
   messages: Message[];
   streaming: boolean;
   error: string | undefined;
+  /**
+   * The status line of the turn in progress (a thinking or tool status frame),
+   * shown on the active bubble. Cleared whenever the turn ends. Not persisted.
+   */
+  liveStatus: string;
+  /**
+   * Prompts waiting for the running turn to finish, in send order. They are
+   * persisted with the active session so a reload or a profile switch does
+   * not lose them, and sent one at a time whenever the chat goes idle.
+   */
+  queuedPrompts: string[];
+  /**
+   * The text of the last prompt that could not be sent (not a busy answer),
+   * so the composer can hand it back. Cleared by the next submit.
+   */
+  lastFailedText: string | undefined;
 
   /** Internal cache scope; not shown in UI. */
   cacheProfile: string | undefined;
+
+  /**
+   * Give the store the socket it drains the queue on; the shell binds it once
+   * (attachChatEvents does) and passes a getter for the bot in use so queued
+   * prompts go to the right one. Pass undefined to unbind.
+   */
+  bindRpc(rpc: RpcClient | undefined, getProfile?: () => string | undefined): void;
+  /**
+   * The REST client the shell talks to, bound and unbound with the socket by
+   * attachChatEvents (boundRestClient() reads it); nothing in the store sends
+   * on it by itself yet.
+   */
+  bindRest(rest: RestClient | undefined): void;
+  setLiveStatus(text: string): void;
+  enqueuePrompt(text: string, options?: EnqueueOptions): void;
+  cancelQueuedPrompt(index: number): void;
+  /** Send the next queued prompt; a busy answer puts it back at the front. */
+  drainQueuedPrompt(rpc: RpcClient, profile?: string): Promise<void>;
+  /** A profile was renamed on the gateway: the cached session follows it. */
+  renameCacheProfile(from: string, to: string): void;
+  /** A profile was deleted: drop its cached session (and the chat, when it was the one open). */
+  forgetCacheProfile(name: string): void;
 
   setSessionId(id: string | undefined, storedSessionId?: string | undefined): void;
   loadHistory(rest: RestClient, sessionId: string): Promise<void>;
@@ -190,11 +243,32 @@ interface InternalMessage extends Message {
 
 type ActiveSessionPersistState = Pick<ChatStore, 'sessionId' | 'storedSessionId' | 'messages' | 'streaming'> & {
   cacheProfile?: string | undefined;
+  queuedPrompts?: string[];
 };
 
 let pendingActiveSessionPersist: ActiveSessionPersistState | undefined;
 let activeSessionPersistTimer: ReturnType<typeof setTimeout> | undefined;
 let visibilityFlushListenerInstalled = false;
+
+/**
+ * The transport the shell bound (attachChatEvents): what a store-internal
+ * queue drain sends on. Unbound until the shell attaches, so a bare store (a
+ * test, a native shell that drains by hand) never sends on its own.
+ */
+let boundRpc: RpcClient | undefined;
+let boundRest: RestClient | undefined;
+let boundProfileGetter: (() => string | undefined) | undefined;
+let queuedPromptDrainTimer: ReturnType<typeof setTimeout> | undefined;
+
+/** The socket the shell bound, if any (attachChatEvents unbinds only its own). */
+export function boundRpcClient(): RpcClient | undefined {
+  return boundRpc;
+}
+
+/** The REST client the shell bound, if any. */
+export function boundRestClient(): RestClient | undefined {
+  return boundRest;
+}
 
 function toolMessageText(raw: Record<string, unknown>): string {
   const content = raw.content ?? raw.text ?? raw.context;
@@ -590,6 +664,21 @@ function userCount(turns: Message[][]): number {
   return turns.filter((turn) => turn[0]?.role === 'user').length;
 }
 
+/**
+ * How many turns at the end of a transcript have no finished answer yet: the
+ * prompt just sent and its reply still streaming (or a tool call still
+ * running). Counting stops at the first turn with a completed assistant.
+ */
+function pendingTailCount(userTurns: Message[][]): number {
+  let count = 0;
+  for (let i = userTurns.length - 1; i >= 0; i -= 1) {
+    const turn = userTurns[i];
+    if (!turn || hasCompletedAssistant(turn)) break;
+    count += 1;
+  }
+  return count;
+}
+
 function pendingToolCalls(turn: Message[]): ToolCall[] {
   return turn.flatMap((m) => (m.role === 'assistant' ? (m.toolCalls ?? []).filter((t) => t.output === undefined) : []));
 }
@@ -625,8 +714,15 @@ function attachPendingToolCalls(turn: Message[], pending: ToolCall[]): Message[]
  *   onto the matching REST assistant so inline approval UI survives a refresh.
  * - Local turns newer than anything REST knows (the prompt just sent and its
  *   streaming reply) are preserved as the tail.
+ * - REST returns the newest rows only (a long session is capped), so when the
+ *   local transcript holds more finished turns than REST, the alignment is
+ *   anchored at the end: the oldest local turns are the ones REST dropped,
+ *   not newer ones. Matching them from the front used to append every turn
+ *   past the cap a second time.
+ *
+ * Exported as a test seam; the stores call it through refresh/load/restore.
  */
-function mergeHistoryWithLocal(history: Message[], local: Message[]): { messages: Message[]; preservedLocalTail: Message[] } {
+export function mergeHistoryWithLocal(history: Message[], local: Message[]): { messages: Message[]; preservedLocalTail: Message[] } {
   if (local.length === 0) {
     return { messages: history, preservedLocalTail: [] };
   }
@@ -637,8 +733,20 @@ function mergeHistoryWithLocal(history: Message[], local: Message[]): { messages
   const historyTurns = splitTurns(history);
   const localTurns = splitTurns(local);
   const covered = userCount(historyTurns);
-  const localUserTurns = localTurns.filter((turn) => turn[0]?.role === 'user');
-  const localLead = localTurns[0]?.[0]?.role === 'user' ? [] : localTurns[0] ?? [];
+  let localUserTurns = localTurns.filter((turn) => turn[0]?.role === 'user');
+  let localLead = localTurns[0]?.[0]?.role === 'user' ? [] : localTurns[0] ?? [];
+
+  // The only local turns REST can legitimately lack are pending ones it has
+  // not persisted yet (beyond the pending turns it already holds). Any more
+  // than that and REST is capped: drop the oldest local turns so the newest
+  // line up with it.
+  const historyUserTurns = historyTurns.filter((turn) => turn[0]?.role === 'user');
+  const newerThanHistory = Math.max(0, pendingTailCount(localUserTurns) - pendingTailCount(historyUserTurns));
+  const alignedLocalTurns = covered + newerThanHistory;
+  if (localUserTurns.length > alignedLocalTurns) {
+    localUserTurns = localUserTurns.slice(localUserTurns.length - alignedLocalTurns);
+    localLead = [];
+  }
 
   const merged: Message[] = [];
   const preservedLocalTail: Message[] = [];
@@ -917,7 +1025,16 @@ function isSameChatState(state: ChatStore, anchor: ChatStateAnchor): boolean {
 }
 
 function emptyActiveSessionCache(profile?: string): ActiveSessionCache {
-  return { sessionId: undefined, storedSessionId: undefined, messages: [], streaming: false, profile };
+  return { sessionId: undefined, storedSessionId: undefined, messages: [], streaming: false, profile, queuedPrompts: [] };
+}
+
+function hasCachedData(cache: Pick<ActiveSessionCache, 'sessionId' | 'storedSessionId' | 'messages' | 'queuedPrompts'>): boolean {
+  return Boolean(cache.sessionId || cache.storedSessionId || cache.messages.length > 0 || cache.queuedPrompts.length > 0);
+}
+
+function queuedPromptsFromCache(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.filter((entry): entry is string => typeof entry === 'string' && entry.trim() !== '');
 }
 
 function normalizeCacheProfile(profile: string | undefined): string | undefined {
@@ -958,25 +1075,28 @@ function parseActiveSessionCache(raw: string, requestedProfile?: string): Active
     // resume, so starting from `false` is both safe and self-healing.
     streaming: false,
     profile,
+    queuedPrompts: queuedPromptsFromCache(parsed.queuedPrompts),
   };
+}
+
+function readProfiledActiveSessionCache(profile: string): ActiveSessionCache | undefined {
+  const raw = window.localStorage.getItem(activeSessionStorageKey(profile));
+  if (!raw) return undefined;
+  const parsed = parseActiveSessionCache(raw, profile);
+  return hasCachedData(parsed) ? parsed : undefined;
 }
 
 function readFirstProfiledActiveSessionCache(): ActiveSessionCache | undefined {
   if (typeof window === 'undefined') return undefined;
-  const preferredDefault = window.localStorage.getItem(activeSessionStorageKey('default'));
-  if (preferredDefault) {
-    const parsed = parseActiveSessionCache(preferredDefault, 'default');
-    if (parsed.sessionId || parsed.storedSessionId || parsed.messages.length > 0) return parsed;
-  }
+  const preferredDefault = readProfiledActiveSessionCache('default');
+  if (preferredDefault) return preferredDefault;
   for (let i = 0; i < window.localStorage.length; i += 1) {
     const key = window.localStorage.key(i);
     if (!key?.startsWith(`${PROFILED_ACTIVE_SESSION_STORAGE_KEY_PREFIX}:`)) continue;
     const profile = decodeURIComponent(key.slice(`${PROFILED_ACTIVE_SESSION_STORAGE_KEY_PREFIX}:`.length));
     if (profile === 'default') continue;
-    const raw = window.localStorage.getItem(key);
-    if (!raw) continue;
-    const parsed = parseActiveSessionCache(raw, profile);
-    if (parsed.sessionId || parsed.storedSessionId || parsed.messages.length > 0) return parsed;
+    const parsed = readProfiledActiveSessionCache(profile);
+    if (parsed) return parsed;
   }
   return undefined;
 }
@@ -996,11 +1116,60 @@ function readActiveSessionCache(profile?: string): ActiveSessionCache {
       if (!profiledRaw) return emptyActiveSessionCache(normalizedProfile);
       return parseActiveSessionCache(profiledRaw, normalizedProfile);
     }
+    // No profile named (a cold start before the profiles load): the bot chosen
+    // on this phone decides whose session comes up, never another bot's.
+    const selectedProfile = normalizeCacheProfile(readSelectedProfile());
+    if (selectedProfile) {
+      return readProfiledActiveSessionCache(selectedProfile) ?? emptyActiveSessionCache(selectedProfile);
+    }
     const raw = window.localStorage.getItem(ACTIVE_SESSION_STORAGE_KEY);
     if (raw) return parseActiveSessionCache(raw);
     return readFirstProfiledActiveSessionCache() ?? emptyActiveSessionCache();
   } catch {
     return emptyActiveSessionCache(normalizedProfile);
+  }
+}
+
+/**
+ * The snapshot as JSON, with the oldest rows left out when the whole
+ * transcript would not fit the size budget. Only the newest rows are needed
+ * for a fast cold start; the rest is refetched from Hermes.
+ */
+function serializeActiveSessionCache(payload: ActiveSessionCache): string {
+  const whole = JSON.stringify(payload);
+  if (whole.length <= MAX_PERSISTED_TRANSCRIPT_CHARS) return whole;
+  const envelope = JSON.stringify({ ...payload, messages: [] }).length;
+  let budget = MAX_PERSISTED_TRANSCRIPT_CHARS - envelope;
+  let keepFrom = payload.messages.length;
+  for (let i = payload.messages.length - 1; i >= 0; i -= 1) {
+    const size = JSON.stringify(payload.messages[i]).length + 1;
+    if (size > budget) break;
+    budget -= size;
+    keepFrom = i;
+  }
+  return JSON.stringify({ ...payload, messages: payload.messages.slice(keepFrom) });
+}
+
+/**
+ * Write the snapshot under `key`. When storage refuses it (quota), a stale
+ * older snapshot must not stay behind: keep the session binding without the
+ * transcript, and when even that fails drop the key.
+ */
+function writeActiveSessionCache(key: string, payload: ActiveSessionCache): void {
+  try {
+    window.localStorage.setItem(key, serializeActiveSessionCache(payload));
+    return;
+  } catch {
+    // Fall through to the smaller snapshot.
+  }
+  try {
+    window.localStorage.setItem(key, JSON.stringify({ ...payload, messages: [] }));
+  } catch {
+    try {
+      window.localStorage.removeItem(key);
+    } catch {
+      // Storage is unusable altogether; nothing stale can be left behind either.
+    }
   }
 }
 
@@ -1011,7 +1180,8 @@ function persistActiveSessionNow(state: ActiveSessionPersistState): void {
       window.localStorage.removeItem(key);
     }
     const profile = normalizeCacheProfile(state.cacheProfile);
-    const hasData = Boolean(state.sessionId || state.storedSessionId || state.messages.length > 0);
+    const queuedPrompts = state.queuedPrompts ?? [];
+    const hasData = hasCachedData({ ...state, queuedPrompts });
     if (profile) {
       const key = activeSessionStorageKey(profile);
       window.localStorage.removeItem(ACTIVE_SESSION_STORAGE_KEY);
@@ -1019,28 +1189,28 @@ function persistActiveSessionNow(state: ActiveSessionPersistState): void {
         window.localStorage.removeItem(key);
         return;
       }
-      const payload: ActiveSessionCache = {
+      writeActiveSessionCache(key, {
         sessionId: state.sessionId,
         storedSessionId: state.storedSessionId,
         messages: state.messages,
         streaming: state.streaming,
         profile,
-      };
-      window.localStorage.setItem(key, JSON.stringify(payload));
+        queuedPrompts,
+      });
       return;
     }
     if (!hasData) {
       window.localStorage.removeItem(ACTIVE_SESSION_STORAGE_KEY);
       return;
     }
-    const payload: ActiveSessionCache = {
+    writeActiveSessionCache(ACTIVE_SESSION_STORAGE_KEY, {
       sessionId: state.sessionId,
       storedSessionId: state.storedSessionId,
       messages: state.messages,
       streaming: state.streaming,
       profile: undefined,
-    };
-    window.localStorage.setItem(ACTIVE_SESSION_STORAGE_KEY, JSON.stringify(payload));
+      queuedPrompts,
+    });
   } catch {
     // Best-effort cache only. Hermes state.db remains the source of truth.
   }
@@ -1120,11 +1290,70 @@ async function replaceMissingLiveSession(
         sessionId: resumed.sessionId,
         storedSessionId: resumed.storedSessionId,
       };
-    } catch {
+    } catch (err) {
       // Durable row may have been deleted or profile lookup may fail; fall back to a fresh live session.
+      if (isSessionNotFoundError(err)) {
+        // The stored row is gone: a fresh session must not carry its id on
+        // as if it were a continuation (history refreshes would chase it).
+        return createLiveSession(rpc, profile);
+      }
     }
   }
   return createLiveSession(rpc, profile, durableSessionId);
+}
+
+/**
+ * The turn ended (or the chat went idle another way): send the next queued
+ * prompt on the next tick, once the state that ended it has settled. Nothing
+ * happens unless the shell bound a socket and something is waiting, so a
+ * bare store never sends on its own.
+ */
+function afterIdle(): void {
+  if (queuedPromptDrainTimer !== undefined) return;
+  const rpc = boundRpc;
+  if (!rpc || useChatStore.getState().queuedPrompts.length === 0) return;
+  queuedPromptDrainTimer = setTimeout(() => {
+    queuedPromptDrainTimer = undefined;
+    const state = useChatStore.getState();
+    if (state.streaming || state.queuedPrompts.length === 0) return;
+    void state.drainQueuedPrompt(rpc, boundProfileGetter?.());
+  }, 0);
+}
+
+/**
+ * Drop the optimistic rows of a prompt that was not accepted, by id, from the
+ * transcript as it is now (events for another turn may have landed meanwhile).
+ * Output that reached the placeholder belongs to the turn that was running,
+ * whose reply row sits right above the user row: it is folded back into that
+ * row, so nothing streamed is lost and the reply stays one bubble.
+ */
+function rollbackOptimisticTurn(
+  messages: Message[],
+  userRowId: string,
+  assistantRowId: string,
+): { messages: Message[]; receivedContent: boolean } {
+  const placeholder = messages.find((message) => message.id === assistantRowId);
+  const untouched = !placeholder || (isEmptyAssistantPlaceholder(placeholder) && (placeholder.toolCalls ?? []).length === 0);
+  const next = messages.filter((message) => message.id !== userRowId && message.id !== assistantRowId);
+  if (!placeholder || untouched) return { messages: next, receivedContent: false };
+
+  const userIndex = messages.findIndex((message) => message.id === userRowId);
+  const previous = userIndex > 0 ? messages[userIndex - 1] : undefined;
+  if (!previous || previous.role !== 'assistant') {
+    // Nothing to fold into: the live row stays where the stream put it.
+    const kept = messages.filter((message) => message.id !== userRowId);
+    return { messages: kept, receivedContent: true };
+  }
+  const folded: Message = { ...previous, text: previous.text + placeholder.text };
+  const thinking = [previous.thinking, placeholder.thinking].filter((t): t is string => Boolean(t)).join('');
+  if (thinking) folded.thinking = thinking;
+  const toolCalls = [...(previous.toolCalls ?? []), ...(placeholder.toolCalls ?? [])];
+  if (toolCalls.length > 0) folded.toolCalls = toolCalls;
+  if (placeholder.completedAt !== undefined) folded.completedAt = placeholder.completedAt;
+  return {
+    messages: next.map((message) => (message.id === previous.id ? folded : message)),
+    receivedContent: true,
+  };
 }
 
 function resolveOpenableStoredSessionId(sessionId: string): string {
@@ -1201,10 +1430,112 @@ export const useChatStore = create<ChatStore>((set, get) => ({
   messages: initialCache.messages,
   streaming: initialCache.streaming,
   error: undefined,
+  liveStatus: '',
+  queuedPrompts: initialCache.queuedPrompts,
+  lastFailedText: undefined,
   cacheProfile: initialCache.profile,
 
+  bindRpc(rpc, getProfile) {
+    boundRpc = rpc;
+    boundProfileGetter = rpc ? getProfile : undefined;
+    if (!rpc && queuedPromptDrainTimer !== undefined) {
+      clearTimeout(queuedPromptDrainTimer);
+      queuedPromptDrainTimer = undefined;
+    }
+  },
+
+  bindRest(rest) {
+    boundRest = rest;
+  },
+
+  setLiveStatus(text) {
+    if (get().liveStatus === text) return;
+    set({ liveStatus: text });
+  },
+
+  enqueuePrompt(text, options) {
+    const trimmed = text.trim();
+    if (!trimmed) return;
+    const current = get().queuedPrompts;
+    const next = { queuedPrompts: options?.front ? [trimmed, ...current] : [...current, trimmed] };
+    set(next);
+    persistActiveSession({ ...get(), ...next });
+    if (!get().streaming) afterIdle();
+  },
+
+  cancelQueuedPrompt(index) {
+    const current = get().queuedPrompts;
+    if (index < 0 || index >= current.length) return;
+    const next = { queuedPrompts: current.filter((_, i) => i !== index) };
+    set(next);
+    persistActiveSession({ ...get(), ...next });
+  },
+
+  async drainQueuedPrompt(rpc, profile) {
+    const [text, ...rest] = get().queuedPrompts;
+    if (text === undefined) return;
+    const next = { queuedPrompts: rest };
+    set(next);
+    persistActiveSession({ ...get(), ...next });
+    const result = await get().submit(rpc, text, profile);
+    if (result === 'busy') {
+      // Still running: the prompt waits for the next idle, ahead of the rest.
+      const current = get().queuedPrompts;
+      const requeued = { queuedPrompts: [text, ...current] };
+      set(requeued);
+      persistActiveSession({ ...get(), ...requeued });
+    }
+  },
+
+  renameCacheProfile(from, to) {
+    const source = normalizeCacheProfile(from);
+    const target = normalizeCacheProfile(to);
+    if (!source || !target || source === target) return;
+    if (typeof window !== 'undefined') {
+      try {
+        const raw = window.localStorage.getItem(activeSessionStorageKey(source));
+        window.localStorage.removeItem(activeSessionStorageKey(source));
+        if (raw) {
+          const cached = parseActiveSessionCache(raw, source);
+          if (hasCachedData(cached)) {
+            writeActiveSessionCache(activeSessionStorageKey(target), { ...cached, profile: target });
+          }
+        }
+      } catch {
+        // Best-effort cache move; the chat state below is what the session runs on.
+      }
+    }
+    if (get().cacheProfile === source) {
+      set({ cacheProfile: target });
+      persistActiveSession(get());
+    }
+  },
+
+  forgetCacheProfile(name) {
+    const profile = normalizeCacheProfile(name);
+    if (!profile) return;
+    if (typeof window !== 'undefined') {
+      try {
+        window.localStorage.removeItem(activeSessionStorageKey(profile));
+      } catch {
+        // Nothing cached to drop.
+      }
+    }
+    if (get().cacheProfile !== profile) return;
+    set({
+      sessionId: undefined,
+      storedSessionId: undefined,
+      messages: [],
+      streaming: false,
+      error: undefined,
+      liveStatus: '',
+      queuedPrompts: [],
+      cacheProfile: undefined,
+    });
+  },
+
   setSessionId(id, storedSessionId) {
-    const next = { sessionId: id, storedSessionId, messages: [] as Message[], error: undefined };
+    const next = { sessionId: id, storedSessionId, messages: [] as Message[], error: undefined, liveStatus: '' };
     set(next);
     persistActiveSession({ ...get(), ...next });
   },
@@ -1226,6 +1557,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
       const next = { messages: merged.messages, streaming: keepStreaming, sessionId };
       set(next);
       persistActiveSession({ ...get(), ...next });
+      if (!keepStreaming) afterIdle();
     } catch (err) {
       if (isSameChatState(get(), anchor)) {
         set({ streaming: false, error: userFacingChatError(err, 'Failed to load history.') });
@@ -1268,9 +1600,11 @@ export const useChatStore = create<ChatStore>((set, get) => ({
         messages: stabilizeMessages(before.messages, refreshed.messages),
         streaming: keepStreaming,
         error: undefined,
+        liveStatus: keepStreaming ? get().liveStatus : '',
       };
       set(next);
       persistActiveSession({ ...get(), ...next });
+      if (!keepStreaming) afterIdle();
     } catch {
       // Best-effort background reconciliation. The cached transcript remains a
       // valid offline fallback if the REST snapshot is temporarily unavailable.
@@ -1345,16 +1679,33 @@ export const useChatStore = create<ChatStore>((set, get) => ({
   async restore(rest, rpc, profile) {
     const cacheProfile = normalizeCacheProfile(profile);
     const cached = readActiveSessionCache(cacheProfile);
-    if (cached.messages.length > 0 || cached.sessionId || cached.storedSessionId) {
+    if (hasCachedData(cached)) {
       set({
         sessionId: cached.sessionId,
         storedSessionId: cached.storedSessionId,
         messages: cached.messages,
         streaming: cached.streaming,
         error: undefined,
+        liveStatus: '',
+        queuedPrompts: cached.queuedPrompts,
         cacheProfile: cached.profile ?? cacheProfile,
       });
-    } else {
+    } else if (cacheProfile && get().cacheProfile !== cacheProfile) {
+      // Switching to a bot with nothing cached: what is in memory belongs to
+      // the previous bot and must not come up under this one.
+      const reset = {
+        sessionId: undefined,
+        storedSessionId: undefined,
+        messages: [] as Message[],
+        streaming: false,
+        error: undefined,
+        liveStatus: '',
+        queuedPrompts: [] as string[],
+        cacheProfile,
+      };
+      set(reset);
+      persistActiveSession(reset);
+    } else if (cacheProfile) {
       set({ cacheProfile });
     }
 
@@ -1433,7 +1784,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
   async resumeSessionIntoChat(rest, rpc, storedSessionId, profile) {
     const cacheProfile = resolveCacheProfile(profile, get().cacheProfile);
     const beforeOpen = get();
-    set({ streaming: false, error: undefined, cacheProfile });
+    set({ streaming: false, error: undefined, liveStatus: '', cacheProfile });
     const anchor = get();
     try {
       const opened = await openDurableSession(rest, rpc, storedSessionId, cacheProfile);
@@ -1641,6 +1992,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
   async submit(rpc, text, profile, options) {
     const cacheProfile = resolveCacheProfile(profile, get().cacheProfile);
     if (cacheProfile !== get().cacheProfile) set({ cacheProfile });
+    if (get().lastFailedText !== undefined) set({ lastFailedText: undefined });
     if (isSlashCommandInput(text) && !options?.displayText) {
       return get().executeSlashCommand(rpc, text, cacheProfile);
     }
@@ -1650,9 +2002,27 @@ export const useChatStore = create<ChatStore>((set, get) => ({
     submitInFlightKeys.add(submitKey);
     try {
 
-      const { sessionId, storedSessionId, messages, streaming } = get();
+      const { sessionId, storedSessionId, streaming } = get();
       let id = sessionId;
       let durableId = storedSessionId;
+      // The optimistic rows, once added; a rollback removes exactly these by
+      // id from whatever the transcript holds by then.
+      let userRowId: string | undefined;
+      let assistantRowId: string | undefined;
+
+      const busyRollback = (): void => {
+        const rolled = userRowId && assistantRowId ? rollbackOptimisticTurn(get().messages, userRowId, assistantRowId) : { messages: get().messages };
+        // The gateway is still on the previous turn; its events keep landing here.
+        const rollback = {
+          sessionId: id,
+          storedSessionId: durableId,
+          streaming: true,
+          error: undefined,
+          messages: rolled.messages,
+        };
+        set(rollback);
+        persistActiveSession({ ...get(), ...rollback });
+      };
 
       try {
         if (!id) {
@@ -1664,11 +2034,10 @@ export const useChatStore = create<ChatStore>((set, get) => ({
         const now = Date.now();
         const userRow: Message = { id: `u-${now}`, role: 'user', text: options?.displayText ?? text, createdAt: now / 1000 };
         if (options?.displayText) userRow.displayKind = 'skill_invocation';
-        const nextMessages = [
-          ...messages,
-          userRow,
-          { id: nextAssistantMessageId(), role: 'assistant' as const, text: '', createdAt: now / 1000 },
-        ];
+        const assistantRow: Message = { id: nextAssistantMessageId(), role: 'assistant', text: '', createdAt: now / 1000 };
+        userRowId = userRow.id;
+        assistantRowId = assistantRow.id;
+        const nextMessages = [...get().messages, userRow, assistantRow];
 
         const optimistic = {
           sessionId: id,
@@ -1684,15 +2053,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
           await rpc.request('prompt.submit', { session_id: id, text }, { timeoutMs: PROMPT_SUBMIT_TIMEOUT_MS });
         } catch (submitErr) {
           if (isSessionBusyError(submitErr)) {
-            const rollback = {
-              sessionId: id,
-              storedSessionId: durableId,
-              streaming: true,
-              error: undefined,
-              messages,
-            };
-            set(rollback);
-            persistActiveSession({ ...get(), ...rollback });
+            busyRollback();
             return 'busy';
           }
           if (!isSessionNotFoundError(submitErr)) {
@@ -1706,7 +2067,6 @@ export const useChatStore = create<ChatStore>((set, get) => ({
             storedSessionId: durableId,
             streaming: true,
             error: undefined,
-            messages: nextMessages,
           };
           set(recovered);
           persistActiveSession({ ...get(), ...recovered });
@@ -1714,15 +2074,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
             await rpc.request('prompt.submit', { session_id: id, text }, { timeoutMs: PROMPT_SUBMIT_TIMEOUT_MS });
           } catch (retryErr) {
             if (isSessionBusyError(retryErr)) {
-              const rollback = {
-                sessionId: id,
-                storedSessionId: durableId,
-                streaming: true,
-                error: undefined,
-                messages,
-              };
-              set(rollback);
-              persistActiveSession({ ...get(), ...rollback });
+              busyRollback();
               return 'busy';
             }
             throw retryErr;
@@ -1730,8 +2082,20 @@ export const useChatStore = create<ChatStore>((set, get) => ({
         }
         return 'submitted';
       } catch (err) {
-        set({ streaming, error: userFacingChatError(err, 'Submit failed.') });
-        persistActiveSession(get());
+        // Not sent: take the optimistic rows back (events of another turn that
+        // reached the placeholder meanwhile stay), and keep the text so the
+        // composer can offer it back.
+        const rolled = userRowId && assistantRowId
+          ? rollbackOptimisticTurn(get().messages, userRowId, assistantRowId)
+          : { messages: get().messages, receivedContent: false };
+        const failed = {
+          messages: rolled.messages,
+          streaming: rolled.receivedContent ? get().streaming : streaming,
+          error: userFacingChatError(err, 'Submit failed.'),
+          lastFailedText: options?.displayText ?? text,
+        };
+        set(failed);
+        persistActiveSession({ ...get(), ...failed });
         return 'failed';
       }
     } finally {
@@ -1782,8 +2146,10 @@ export const useChatStore = create<ChatStore>((set, get) => ({
     interruptInFlightKeys.add(interruptKey);
     try {
       await rpc.request('session.interrupt', { session_id: sessionId });
-      set({ streaming: options?.keepStreaming === true, error: undefined });
+      const keepStreaming = options?.keepStreaming === true;
+      set({ streaming: keepStreaming, error: undefined, liveStatus: keepStreaming ? get().liveStatus : '' });
       persistActiveSession(get());
+      if (!keepStreaming) afterIdle();
     } catch (err) {
       set({ error: userFacingChatError(err, 'Interrupt failed.') });
     } finally {
@@ -1839,10 +2205,12 @@ export const useChatStore = create<ChatStore>((set, get) => ({
         }
         msgs[msgs.length - 1] = nextLast;
       }
-      const next = { streaming: false, messages: msgs };
+      const next = { streaming: false, liveStatus: '', messages: msgs };
       persistActiveSession({ ...state, ...next });
       return next;
     });
+    clearRunItemsForActiveSession();
+    afterIdle();
   },
 
   failAssistant(error) {
@@ -1857,18 +2225,22 @@ export const useChatStore = create<ChatStore>((set, get) => ({
           completedAt: Date.now() / 1000,
         };
       }
-      const next = { streaming: false, error: message, messages: msgs };
+      const next = { streaming: false, liveStatus: '', error: message, messages: msgs };
       persistActiveSession({ ...state, ...next });
       return next;
     });
+    clearRunItemsForActiveSession();
+    afterIdle();
   },
 
   markIdle() {
     set((state) => {
-      const next = { streaming: false };
+      const next = { streaming: false, liveStatus: '' };
       persistActiveSession({ ...state, ...next });
       return next;
     });
+    clearRunItemsForActiveSession();
+    afterIdle();
   },
 
   appendToolCall(tool) {
@@ -1925,6 +2297,13 @@ export const useChatStore = create<ChatStore>((set, get) => ({
 
   beginAssistant() {
     touchLiveEvent();
+    const current = get();
+    const currentLast = current.messages[current.messages.length - 1];
+    if (currentLast?.role === 'assistant' && current.streaming && current.error === undefined) {
+      // Already mid-reply: every delta calls this, and a store update plus a
+      // cache write per token is what made long replies stutter.
+      return;
+    }
     set((state) => {
       const last = state.messages[state.messages.length - 1];
       if (last?.role === 'assistant') {
@@ -1957,9 +2336,23 @@ export const useChatStore = create<ChatStore>((set, get) => ({
       messages: [] as Message[],
       streaming: false,
       error: undefined,
+      liveStatus: '',
+      queuedPrompts: [] as string[],
+      lastFailedText: undefined,
       cacheProfile,
     };
     set(next);
     persistActiveSession(next);
   },
 }));
+
+/**
+ * The turn is over: the "running" cards the gateway's process status frames
+ * raised for this session are finished too.
+ */
+function clearRunItemsForActiveSession(): void {
+  const { sessionId, storedSessionId } = useChatStore.getState();
+  const activity = useActivityStore.getState();
+  if (sessionId) activity.clearRunItems(sessionId);
+  if (storedSessionId && storedSessionId !== sessionId) activity.clearRunItems(storedSessionId);
+}

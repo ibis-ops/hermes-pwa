@@ -1,6 +1,10 @@
 import { create } from 'zustand';
 import type { Profile, ProfileActive, ProfileCreateBody, ReasoningEffort } from '../domain/profile';
 import type { RestClient } from '../transport/rest';
+import { useChatStore } from './chat';
+import { SELECTED_PROFILE_STORAGE_KEY, readSelectedProfile, writeSelectedProfile } from './selected-profile';
+
+export { SELECTED_PROFILE_STORAGE_KEY };
 
 export interface ProfilesStore {
   profiles: Profile[];
@@ -18,31 +22,6 @@ export interface ProfilesStore {
   delete(rest: RestClient, name: string): Promise<void>;
   setModel(rest: RestClient, name: string, provider: string, model: string, reasoningEffort?: ReasoningEffort, showReasoning?: boolean): Promise<void>;
   clear(): void;
-}
-
-/**
- * The bot chosen on this phone. It is a per-device choice: binding chats to a
- * profile needs nothing server-side, and POSTing the gateway's sticky active
- * profile would also switch the `hermes` CLI's default on the Mac.
- */
-export const SELECTED_PROFILE_STORAGE_KEY = 'hermes-pwa.selectedProfile.v1';
-
-function readSelectedProfile(): string | undefined {
-  try {
-    const raw = globalThis.localStorage?.getItem(SELECTED_PROFILE_STORAGE_KEY);
-    return raw ? raw : undefined;
-  } catch {
-    return undefined;
-  }
-}
-
-function writeSelectedProfile(name: string | undefined): void {
-  try {
-    if (name === undefined) globalThis.localStorage?.removeItem(SELECTED_PROFILE_STORAGE_KEY);
-    else globalThis.localStorage?.setItem(SELECTED_PROFILE_STORAGE_KEY, name);
-  } catch {
-    // Storage blocked: the choice lasts for this app session only.
-  }
 }
 
 export const useProfilesStore = create<ProfilesStore>((set, get) => ({
@@ -94,6 +73,12 @@ export const useProfilesStore = create<ProfilesStore>((set, get) => ({
     set({ error: undefined });
     try {
       await rest.profileRename(name, newName);
+      // The phone's choice and the chat's cached session follow the new name;
+      // load() below resolves the remembered bot by activeName, so it moves first.
+      if (get().activeName === name || readSelectedProfile() === name) writeSelectedProfile(newName);
+      if (get().activeName === name) set({ activeName: newName });
+      if (get().currentName === name) set({ currentName: newName });
+      useChatStore.getState().renameCacheProfile(name, newName);
       await get().load(rest);
     } catch (err) {
       set({ error: err instanceof Error ? err.message : 'Failed to rename profile' });
@@ -109,6 +94,8 @@ export const useProfilesStore = create<ProfilesStore>((set, get) => ({
       const activeName = get().activeName === name ? undefined : get().activeName;
       const currentName = get().currentName === name ? undefined : get().currentName;
       if (get().activeName === name) writeSelectedProfile(undefined);
+      // Its sessions are gone with it; a chat open on one of them must not linger.
+      useChatStore.getState().forgetCacheProfile(name);
       set({ profiles, activeName, currentName });
     } catch (err) {
       set({ error: err instanceof Error ? err.message : 'Failed to delete profile' });

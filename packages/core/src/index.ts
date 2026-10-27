@@ -12,7 +12,31 @@ export { makeRpcClient, makeRpcEvents, METHOD_NOT_FOUND, type RpcClient, type Rp
 export { makeWsConnection, type WsConnection } from './transport/ws';
 export { useConnectionStore, type ConnectionState, type ConnectionStore } from './stores/connection';
 export { useSessionsStore, type SessionsStore } from './stores/sessions';
-export { useChatStore, stabilizeMessages, projectHistoryMessages, LIVE_STREAM_QUIET_MS, LIVE_STREAM_STALE_MS, type ChatStore, type SubmitOptions } from './stores/chat';
+export {
+  useChatStore,
+  stabilizeMessages,
+  projectHistoryMessages,
+  LIVE_STREAM_QUIET_MS,
+  LIVE_STREAM_STALE_MS,
+  MAX_PERSISTED_TRANSCRIPT_CHARS,
+  __setLiveEventAge,
+  type ChatStore,
+  type SubmitOptions,
+  type SubmitResult,
+  type EnqueueOptions,
+  type InterruptOptions,
+} from './stores/chat';
+export {
+  attachChatEvents,
+  cleanLiveStatus,
+  extractMessageText,
+  extractToolInput,
+  isNonChatStatus,
+  parseMaybeObject,
+  eventBelongsToActiveChat,
+  type ChatEventOptions,
+} from './stores/chat-events';
+export { SELECTED_PROFILE_STORAGE_KEY } from './stores/selected-profile';
 export { describeSkillInvocation, skillInvocationText, isSkillScaffold, type SkillInvocation } from './domain/skill-invocation';
 export { useActivityStore, type ActivityStore } from './stores/activity';
 export { useCronStore, type CronStore } from './stores/cron';

@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { useSessionsStore } from './sessions';
+import { useChatStore } from './chat';
 import type { RpcClient } from '../transport/jsonrpc';
 import type { RestClient } from '../transport/rest';
 
@@ -10,6 +11,7 @@ describe('useSessionsStore', () => {
   beforeEach(() => {
     window.localStorage.clear();
     useSessionsStore.setState({ sessions: [], loading: false, error: undefined, pinnedIds: [] });
+    useChatStore.setState({ sessionId: undefined, storedSessionId: undefined, messages: [], streaming: false, error: undefined, queuedPrompts: [], cacheProfile: undefined });
 
     rpcMock = {
       request: vi.fn(),
@@ -170,6 +172,74 @@ describe('useSessionsStore', () => {
     expect(restMock.sessionDelete).toHaveBeenCalledWith('s-1', 'dev');
     expect(useSessionsStore.getState().sessions).toEqual([]);
     expect(useSessionsStore.getState().pinnedIds).toEqual([]);
+  });
+
+  it('deleting the session the chat is open on clears the chat and its cache', async () => {
+    restMock = {
+      profileSessions: vi.fn(),
+      sessionDelete: vi.fn().mockResolvedValue({ ok: true }),
+    } as unknown as RestClient;
+    const session = { id: 'stored-1', title: 'Open in chat', updatedAt: 1, messageCount: 2, profile: 'dev' };
+    useSessionsStore.setState({ sessions: [session], loading: false, error: undefined, pinnedIds: [] });
+    useChatStore.setState({
+      sessionId: 'live-1',
+      storedSessionId: 'stored-1',
+      messages: [{ id: 'm-1', role: 'user', text: 'gone soon', createdAt: undefined }],
+      streaming: false,
+      cacheProfile: 'dev',
+    });
+    window.localStorage.setItem('hermes-pwa.activeSession.v4:dev', JSON.stringify({ profile: 'dev', storedSessionId: 'stored-1', messages: [] }));
+
+    await useSessionsStore.getState().delete(restMock, session);
+
+    expect(useChatStore.getState().sessionId).toBeUndefined();
+    expect(useChatStore.getState().storedSessionId).toBeUndefined();
+    expect(useChatStore.getState().messages).toEqual([]);
+    expect(window.localStorage.getItem('hermes-pwa.activeSession.v4:dev')).toBeNull();
+  });
+
+  it('deleting the chat session by its lineage root clears the chat too', async () => {
+    restMock = {
+      profileSessions: vi.fn(),
+      sessionDelete: vi.fn().mockResolvedValue({ ok: true }),
+    } as unknown as RestClient;
+    const session = { id: 'head-2', lineageRootId: 'root-1', title: 'Branch', updatedAt: 1, messageCount: 2, profile: 'dev' };
+    useSessionsStore.setState({ sessions: [session], loading: false, error: undefined, pinnedIds: [] });
+    useChatStore.setState({ sessionId: 'live-1', storedSessionId: 'root-1', messages: [], streaming: false, cacheProfile: 'dev' });
+
+    await useSessionsStore.getState().delete(restMock, session);
+
+    expect(useChatStore.getState().storedSessionId).toBeUndefined();
+  });
+
+  it('deleting another session leaves the open chat alone', async () => {
+    restMock = {
+      profileSessions: vi.fn(),
+      sessionDelete: vi.fn().mockResolvedValue({ ok: true }),
+    } as unknown as RestClient;
+    const other = { id: 'stored-other', title: 'Other', updatedAt: 1, messageCount: 2, profile: 'dev' };
+    useSessionsStore.setState({ sessions: [other], loading: false, error: undefined, pinnedIds: [] });
+    const messages = [{ id: 'm-1', role: 'user' as const, text: 'stay', createdAt: undefined }];
+    useChatStore.setState({ sessionId: 'live-1', storedSessionId: 'stored-1', messages, streaming: false, cacheProfile: 'dev' });
+
+    await useSessionsStore.getState().delete(restMock, other);
+
+    expect(useChatStore.getState().storedSessionId).toBe('stored-1');
+    expect(useChatStore.getState().messages).toBe(messages);
+  });
+
+  it('a failed delete does not touch the open chat', async () => {
+    restMock = {
+      profileSessions: vi.fn(),
+      sessionDelete: vi.fn().mockRejectedValue(new Error('locked')),
+    } as unknown as RestClient;
+    const session = { id: 'stored-1', title: 'Open in chat', updatedAt: 1, messageCount: 2, profile: 'dev' };
+    useSessionsStore.setState({ sessions: [session], loading: false, error: undefined, pinnedIds: [] });
+    useChatStore.setState({ sessionId: 'live-1', storedSessionId: 'stored-1', messages: [], streaming: false, cacheProfile: 'dev' });
+
+    await expect(useSessionsStore.getState().delete(restMock, session)).rejects.toThrow('locked');
+
+    expect(useChatStore.getState().storedSessionId).toBe('stored-1');
   });
 
   it('toggles and persists local pins by lineage root id', () => {

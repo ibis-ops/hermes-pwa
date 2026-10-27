@@ -679,6 +679,94 @@ describe('useConnectionStore', () => {
     expect(useConnectionStore.getState().error).toMatch(/Could not reconnect/);
   });
 
+  it('gives up on a server that accepts the socket and drops it before gateway.ready', async () => {
+    // The attempt counter used to reset on every open, so a server (or
+    // proxy) that completes the handshake and then closes at once kept the
+    // client reconnecting forever instead of reaching offline.
+    vi.useFakeTimers();
+    vi.spyOn(Math, 'random').mockReturnValue(0);
+    vi.mocked(restMock.status).mockResolvedValue({ authRequired: false, authProviders: [] });
+    vi.mocked(restMock.wsTicket).mockResolvedValue({ ticket: 't-1', ttlSeconds: 30 });
+
+    const store = useConnectionStore.getState();
+    store.bindTransport(restMock, wsMock, rpcMock);
+    await store.init();
+
+    const retryDelays = [500, 1000, 2000, 4000, 8000, 16000, 30000, 30000, 30000, 30000];
+    for (let attempt = 0; attempt <= retryDelays.length; attempt += 1) {
+      const call = vi.mocked(wsMock.connect).mock.calls[attempt];
+      if (!call) throw new Error(`connect attempt ${attempt} was not made`);
+      call[1]();
+      call[3]({ code: 1006, reason: '', wasClean: false } as CloseEvent);
+      const delay = retryDelays[attempt];
+      if (delay !== undefined) await vi.advanceTimersByTimeAsync(delay);
+    }
+
+    expect(wsMock.connect).toHaveBeenCalledTimes(11);
+    expect(useConnectionStore.getState().state).toBe('offline');
+    expect(useConnectionStore.getState().error).toMatch(/Could not reconnect/);
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(wsMock.connect).toHaveBeenCalledTimes(11);
+  });
+
+  it('a gateway.ready resets the attempt counter so a later drop starts the backoff over', async () => {
+    vi.useFakeTimers();
+    vi.spyOn(Math, 'random').mockReturnValue(0);
+    vi.mocked(restMock.status).mockResolvedValue({ authRequired: false, authProviders: [] });
+    vi.mocked(restMock.wsTicket).mockResolvedValue({ ticket: 't-1', ttlSeconds: 30 });
+
+    const store = useConnectionStore.getState();
+    store.bindTransport(restMock, wsMock, rpcMock);
+    await store.init();
+
+    // Three handshakes that die before ready, then one that completes.
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const call = vi.mocked(wsMock.connect).mock.calls[attempt]!;
+      call[1]();
+      call[3]({ code: 1006, reason: '', wasClean: false } as CloseEvent);
+      await vi.advanceTimersByTimeAsync(500 * 2 ** attempt);
+    }
+    const ready = vi.mocked(wsMock.connect).mock.calls[3]!;
+    ready[1]();
+    rpcMock.events.dispatchEvent({ type: 'gateway.ready' });
+    expect(useConnectionStore.getState().state).toBe('connected');
+
+    ready[3]({ code: 1006, reason: '', wasClean: false } as CloseEvent);
+    expect(useConnectionStore.getState().state).toBe('reconnecting');
+    // First retry after a fresh drop uses the shortest delay again.
+    await vi.advanceTimersByTimeAsync(499);
+    expect(wsMock.connect).toHaveBeenCalledTimes(4);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(wsMock.connect).toHaveBeenCalledTimes(5);
+  });
+
+  it('checkConnectedHealth probes a connected socket and reconnects when it no longer answers', async () => {
+    vi.useFakeTimers();
+    vi.spyOn(Math, 'random').mockReturnValue(0);
+    vi.mocked(rpcMock.request).mockRejectedValue(new Error('JSON-RPC request timed out'));
+    vi.mocked(restMock.wsTicket).mockResolvedValue({ ticket: 't-2', ttlSeconds: 30 });
+    const store = useConnectionStore.getState();
+    store.bindTransport(restMock, wsMock, rpcMock);
+    useConnectionStore.setState({ state: 'connected', error: undefined });
+
+    await store.checkConnectedHealth();
+
+    expect(rpcMock.request).toHaveBeenCalledWith('session.usage', {}, { timeoutMs: 5000 });
+    expect(useConnectionStore.getState().state).toBe('reconnecting');
+    expect(wsMock.close).toHaveBeenCalled();
+  });
+
+  it('checkConnectedHealth does nothing unless connected', async () => {
+    const store = useConnectionStore.getState();
+    store.bindTransport(restMock, wsMock, rpcMock);
+    useConnectionStore.setState({ state: 'reconnecting', error: undefined });
+
+    await store.checkConnectedHealth();
+
+    expect(rpcMock.request).not.toHaveBeenCalled();
+    expect(useConnectionStore.getState().state).toBe('reconnecting');
+  });
+
   it('close before gateway.ready does not allow a stale ready event to reconnect state', async () => {
     vi.mocked(restMock.status).mockResolvedValue({ authRequired: false, authProviders: [] });
     vi.mocked(restMock.wsTicket).mockResolvedValue({ ticket: 't-1', ttlSeconds: 30 });

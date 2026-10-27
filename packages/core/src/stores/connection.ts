@@ -31,6 +31,12 @@ export interface ConnectionStore {
   disconnect(): void;
   setOnline(): void;
   setOffline(): void;
+  /**
+   * Make sure a socket that looks connected still answers (after the app
+   * wakes, a half-open socket would otherwise sit until a request times out).
+   * The shell calls it on visibilitychange and pageshow; no-op unless connected.
+   */
+  checkConnectedHealth(): Promise<void>;
 }
 
 const MAX_RECONNECT_ATTEMPTS = 10;
@@ -244,7 +250,9 @@ export const useConnectionStore = create<ConnectionStore>((set, get) => {
       ws.connect(
         ticket.ticket,
         () => {
-          wsAttempt = 0;
+          // An open socket is not a working one yet: a server that accepts
+          // and drops every connection would otherwise never run out of
+          // attempts. The counter resets on gateway.ready.
           startReadyWatchdog();
         },
         (line) => {
@@ -460,6 +468,10 @@ export const useConnectionStore = create<ConnectionStore>((set, get) => {
         state: 'offline',
         error: 'Network offline. Check your connection and try again.',
       });
+    },
+
+    async checkConnectedHealth() {
+      await checkConnectedRpcHealth();
     },
   };
 });

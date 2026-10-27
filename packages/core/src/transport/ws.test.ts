@@ -65,14 +65,14 @@ describe('makeWsConnection', () => {
     expect(MockWebSocket.instances[0]!.protocols).toEqual(['hermes.ws-ticket', 'ticket-123']);
   });
 
-  it('falls back once to the upstream legacy query-ticket transport when the primary closes before open', () => {
+  it('falls back once to the upstream legacy query-ticket transport when the server refuses the subprotocol before open', () => {
     const onOpen = vi.fn();
     const onClose = vi.fn();
     const conn = makeWsConnection('wss://example.com');
 
     conn.connect('ticket with spaces', onOpen, vi.fn(), onClose);
     const primary = MockWebSocket.instances[0]!;
-    primary.simulateClose(1006);
+    primary.simulateClose(1002);
 
     expect(onClose).not.toHaveBeenCalled();
     expect(MockWebSocket.instances).toHaveLength(2);
@@ -83,13 +83,40 @@ describe('makeWsConnection', () => {
     expect(onOpen).toHaveBeenCalledTimes(1);
   });
 
-  it('does not retry legacy fallback more than once for the same ticket', () => {
+  it('falls back on a TLS handshake failure (1015) before open', () => {
+    const onClose = vi.fn();
+    const conn = makeWsConnection('wss://example.com');
+
+    conn.connect('ticket-123', vi.fn(), vi.fn(), onClose);
+    MockWebSocket.instances[0]!.simulateClose(1015);
+
+    expect(onClose).not.toHaveBeenCalled();
+    expect(MockWebSocket.instances).toHaveLength(2);
+    expect(MockWebSocket.instances[1]!.url).toBe('wss://example.com/api/ws?ticket=ticket-123');
+  });
+
+  it('does not put the ticket in the URL after a plain drop (1006) before open', () => {
+    // 1006 is the network dying or a proxy timing out, not the server
+    // objecting to the ticket subprotocol; retrying over the query string
+    // would leak the ticket into proxy and access logs for nothing.
     const onClose = vi.fn();
     const conn = makeWsConnection('wss://example.com');
 
     conn.connect('ticket-123', vi.fn(), vi.fn(), onClose);
     MockWebSocket.instances[0]!.simulateClose(1006);
-    MockWebSocket.instances[1]!.simulateClose(1006);
+
+    expect(MockWebSocket.instances).toHaveLength(1);
+    expect(onClose).toHaveBeenCalledTimes(1);
+    expect(onClose.mock.calls[0]?.[0]).toMatchObject({ code: 1006 });
+  });
+
+  it('does not retry legacy fallback more than once for the same ticket', () => {
+    const onClose = vi.fn();
+    const conn = makeWsConnection('wss://example.com');
+
+    conn.connect('ticket-123', vi.fn(), vi.fn(), onClose);
+    MockWebSocket.instances[0]!.simulateClose(1002);
+    MockWebSocket.instances[1]!.simulateClose(1002);
 
     expect(MockWebSocket.instances).toHaveLength(2);
     expect(onClose).toHaveBeenCalledTimes(1);
@@ -101,7 +128,7 @@ describe('makeWsConnection', () => {
 
     conn.connect('ticket-123', vi.fn(), vi.fn(), onClose);
     MockWebSocket.instances[0]!.simulateOpen();
-    MockWebSocket.instances[0]!.simulateClose(1006);
+    MockWebSocket.instances[0]!.simulateClose(1002);
 
     expect(MockWebSocket.instances).toHaveLength(1);
     expect(onClose).toHaveBeenCalledTimes(1);

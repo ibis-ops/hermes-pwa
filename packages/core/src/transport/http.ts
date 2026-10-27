@@ -22,6 +22,24 @@ export interface Http {
   setProfile(name: string | undefined): void;
 }
 
+function abortError(signal: AbortSignal): Error {
+  return signal.reason instanceof Error ? signal.reason : new Error('HTTP request timed out');
+}
+
+/**
+ * Settle a body read against the request's abort signal. The headers can
+ * arrive and the body then hang (a proxy holding the stream); fetch does not
+ * always reject the pending read when the signal fires, so race it.
+ */
+function readUntilAborted<T>(read: Promise<T>, signal: AbortSignal): Promise<T> {
+  if (signal.aborted) return Promise.reject(abortError(signal));
+  return new Promise<T>((resolve, reject) => {
+    const onAbort = (): void => reject(abortError(signal));
+    signal.addEventListener('abort', onAbort, { once: true });
+    read.then(resolve, reject).finally(() => signal.removeEventListener('abort', onAbort));
+  });
+}
+
 export function makeHttp(baseUrl = '', profile?: string): Http {
   let currentProfile = profile;
 
@@ -53,28 +71,29 @@ export function makeHttp(baseUrl = '', profile?: string): Http {
       timeoutId = setTimeout(() => controller.abort(new Error('HTTP request timed out')), timeoutMs);
     }
 
-    let response: Response;
+    // The timeout covers the whole exchange, body included: headers that
+    // arrive in time with a body that never finishes are still a hung request.
     try {
-      response = await fetch(url.toString(), {
+      const response = await fetch(url.toString(), {
         ...fetchInit,
         credentials: 'include',
         headers,
         signal: controller.signal,
       });
+
+      if (!response.ok) {
+        throw new HermesHttpError(response.status, response.statusText, await readUntilAborted(response.text(), controller.signal));
+      }
+
+      if (response.status === 204) {
+        return undefined as T;
+      }
+
+      return (await readUntilAborted(response.json(), controller.signal)) as T;
     } finally {
       if (timeoutId) clearTimeout(timeoutId);
       upstreamSignal?.removeEventListener('abort', abortFromUpstream);
     }
-
-    if (!response.ok) {
-      throw new HermesHttpError(response.status, response.statusText, await response.text());
-    }
-
-    if (response.status === 204) {
-      return undefined as T;
-    }
-
-    return (await response.json()) as T;
   }
 
   http.setProfile = (name: string | undefined): void => {

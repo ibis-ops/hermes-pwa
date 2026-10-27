@@ -22,6 +22,15 @@ describe('toActionItem', () => {
     expect(item.createdAt).toBe(123);
   });
 
+  it('keeps the approval-queue request id from a recovery record', () => {
+    const snake = toActionItem({ id: 'a-1', kind: 'approval', title: 'Deploy', request_id: 'q-77', session_id: 's-1' });
+    expect((snake as import('./activity').Approval).requestId).toBe('q-77');
+    const camel = toActionItem({ id: 'a-2', kind: 'approval', title: 'Deploy', requestId: 'q-78' });
+    expect((camel as import('./activity').Approval).requestId).toBe('q-78');
+    const blank = toActionItem({ id: 'a-3', kind: 'approval', title: 'Deploy', request_id: '  ' });
+    expect((blank as import('./activity').Approval).requestId).toBeUndefined();
+  });
+
   it('maps clarify', () => {
     const item = toActionItem({
       id: 'c-1',

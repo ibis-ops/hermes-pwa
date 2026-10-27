@@ -25,6 +25,11 @@ export interface ActivityStore {
   dismiss(id: string): void;
   addItem(item: ActionItem): void;
   updateItem(id: string, patch: Partial<ActionItem>): void;
+  /**
+   * Drop the "running" cards (a gateway process status) for one session, or
+   * all of them; the chat calls this when its turn ends.
+   */
+  clearRunItems(sessionId?: string): void;
   clear(): void;
 }
 
@@ -34,6 +39,40 @@ function updateInPlace(items: ActionItem[], id: string, patch: Partial<ActionIte
 
 function removeById(items: ActionItem[], id: string): ActionItem[] {
   return items.filter((i) => i.id !== id);
+}
+
+/** A session reports one running process at a time; this many across sessions is plenty for the list. */
+const MAX_RUN_ITEMS = 20;
+
+/**
+ * The fields a live card carries that a REST recovery record (or a repeated
+ * event) may lack. When an equivalent item replaces an existing one, these
+ * follow it, otherwise answering the card would lose its way back to the
+ * waiting request.
+ */
+const CARRIED_ITEM_FIELDS = ['serverRequestId', 'requestId', 'command', 'commandComplete', 'choices', 'smartDenied', 'questions', 'sourceSessionId'] as const;
+
+function mergeItemFields(existing: ActionItem, incoming: ActionItem): ActionItem {
+  const merged: Record<string, unknown> = { ...incoming };
+  const previous: Record<string, unknown> = { ...existing };
+  for (const field of CARRIED_ITEM_FIELDS) {
+    if (merged[field] === undefined && previous[field] !== undefined) merged[field] = previous[field];
+  }
+  return merged as unknown as ActionItem;
+}
+
+function sameRunItem(a: ActionItem, b: ActionItem): boolean {
+  return a.kind === 'run' && b.kind === 'run' && a.sessionId === b.sessionId;
+}
+
+/** Keep the newest run items only; items are newest-first, so the oldest are at the end. */
+function capRunItems(items: ActionItem[]): ActionItem[] {
+  let seen = 0;
+  return items.filter((item) => {
+    if (item.kind !== 'run') return true;
+    seen += 1;
+    return seen <= MAX_RUN_ITEMS;
+  });
 }
 
 const EQUIVALENT_APPROVAL_WINDOW_MS = 2 * 60_000;
@@ -70,10 +109,14 @@ function sameApproval(a: ActionItem, b: ActionItem): boolean {
 const REALTIME_APPROVAL_REFRESH_GRACE_MS = 5_000;
 const approvalResponsesInFlight = new Set<string>();
 
+function isEquivalentItem(a: ActionItem, b: ActionItem): boolean {
+  return a.id === b.id || sameApproval(a, b);
+}
+
 function mergeIncomingItems(existing: ActionItem[], incoming: ActionItem[]): ActionItem[] {
   const now = Date.now();
   const rest = existing.filter((current) => {
-    const replacedByIncoming = incoming.some((item) => item.id === current.id || sameApproval(item, current));
+    const replacedByIncoming = incoming.some((item) => isEquivalentItem(item, current));
     if (replacedByIncoming) return false;
 
     // /actions/pending is the backend source of truth for approval cards, but
@@ -87,11 +130,24 @@ function mergeIncomingItems(existing: ActionItem[], incoming: ActionItem[]): Act
 
     return true;
   });
-  return [...incoming, ...rest];
+  // The REST record wins, but the live card's answer path survives on it.
+  const merged = incoming.map((item) => {
+    const replaced = existing.find((current) => isEquivalentItem(item, current));
+    return replaced ? mergeItemFields(replaced, item) : item;
+  });
+  return [...merged, ...rest];
 }
 
 function upsertActivityItem(existing: ActionItem[], item: ActionItem): ActionItem[] {
-  return [item, ...existing.filter((current) => current.id !== item.id && !sameApproval(item, current))];
+  const replaced = existing.find((current) => isEquivalentItem(item, current) || sameRunItem(item, current));
+  const next = replaced ? mergeItemFields(replaced, item) : item;
+  const kept = existing.filter((current) => !isEquivalentItem(item, current) && !sameRunItem(item, current));
+  return capRunItems([next, ...kept]);
+}
+
+/** A server→client answer that could not be written (the socket is down) must not lose the card. */
+function respondFailedError(): string {
+  return 'Could not reach Hermes to send the answer. Check the connection and try again.';
 }
 
 function isStaleApprovalError(err: unknown): boolean {
@@ -126,7 +182,11 @@ export const useActivityStore = create<ActivityStore>((set, get) => ({
       const approval = item && item.kind === 'approval' ? (item as Approval) : undefined;
       if (approval?.serverRequestId) {
         // The live question: the answer goes back on the socket it arrived on.
-        rpc.respond(approval.serverRequestId, { choice });
+        // An answer that never left keeps the card up so it can be tried again.
+        if (rpc.respond(approval.serverRequestId, { choice }) === false) {
+          set({ error: respondFailedError() });
+          return;
+        }
         set((s) => ({ items: removeById(s.items, id) }));
         return;
       }
@@ -163,7 +223,10 @@ export const useActivityStore = create<ActivityStore>((set, get) => ({
           typeof answer === 'string'
             ? Object.fromEntries((clarify.questions ?? []).map((question, index) => [question.qid, index === 0 ? answer : null]))
             : answer;
-        rpc.respond(clarify.serverRequestId, { answers });
+        if (rpc.respond(clarify.serverRequestId, { answers }) === false) {
+          set({ error: respondFailedError() });
+          return;
+        }
         set((s) => ({ items: removeById(s.items, id) }));
         return;
       }
@@ -226,6 +289,13 @@ export const useActivityStore = create<ActivityStore>((set, get) => ({
 
   updateItem(id, patch) {
     set((s) => ({ items: updateInPlace(s.items, id, patch) }));
+  },
+
+  clearRunItems(sessionId) {
+    set((s) => {
+      const items = s.items.filter((item) => item.kind !== 'run' || (sessionId !== undefined && item.sessionId !== sessionId));
+      return items.length === s.items.length ? s : { items };
+    });
   },
 
   clear() {

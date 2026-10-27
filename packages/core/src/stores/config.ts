@@ -43,8 +43,10 @@ function mergeDeep(
 ): Record<string, unknown> {
   const next = clone(target);
   for (const [key, value] of Object.entries(source)) {
-    if (value !== undefined && typeof value === 'object' && !Array.isArray(value)) {
-      const existing = ((next[key] ?? {}) as Record<string, unknown>) || {};
+    // null is a value (clear this setting), not a branch to recurse into.
+    if (value !== null && typeof value === 'object' && !Array.isArray(value)) {
+      const current = next[key];
+      const existing = current !== null && typeof current === 'object' && !Array.isArray(current) ? (current as Record<string, unknown>) : {};
       next[key] = mergeDeep(existing, value as Record<string, unknown>);
     } else if (value !== undefined) {
       next[key] = value;
@@ -71,10 +73,17 @@ export const useConfigStore = create<ConfigStore>((set, get) => ({
   },
 
   async update(rest, path, value) {
-    const current = (get().config ?? {}) as Record<string, unknown>;
+    const previous = get().config;
+    const current = (previous ?? {}) as Record<string, unknown>;
     const next = setPath(current, path, value);
     set({ config: next as HermesConfig });
-    await get().save(rest, next as Partial<HermesConfig>);
+    try {
+      await get().save(rest, next as Partial<HermesConfig>);
+    } catch (err) {
+      // The toggle shows what the gateway has, not what it refused.
+      set({ config: previous });
+      throw err;
+    }
   },
 
   async save(rest, patch) {

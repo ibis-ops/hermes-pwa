@@ -77,6 +77,35 @@ describe('useProjectsStore', () => {
     expect(useProjectsStore.getState().loading).toBe(false);
   });
 
+  it('still loads boards when storage is blocked', async () => {
+    // Safari with all cookies blocked throws on every localStorage access.
+    const getItem = vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
+      throw new Error('SecurityError: localStorage is blocked');
+    });
+    const setItem = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+      throw new Error('SecurityError: localStorage is blocked');
+    });
+    try {
+      vi.mocked(restMock.kanbanBoards).mockResolvedValue([{ slug: 'main', name: 'Main', taskCount: 1, isCurrent: true }]);
+      vi.mocked(restMock.kanbanBoard).mockResolvedValue({ slug: 'main', name: 'Main', columns: [{ status: 'todo', tasks: [] }] });
+
+      await useProjectsStore.getState().loadBoards(restMock);
+      expect(useProjectsStore.getState().activeBoardSlug).toBe('main');
+      expect(useProjectsStore.getState().error).toBeUndefined();
+
+      vi.mocked(restMock.kanbanBoards).mockResolvedValue([
+        { slug: 'main', name: 'Main', taskCount: 1 },
+        { slug: 'ops', name: 'Ops', taskCount: 1 },
+      ]);
+      vi.mocked(restMock.kanbanBoard).mockResolvedValue({ slug: 'ops', name: 'Ops', columns: [] });
+      await expect(useProjectsStore.getState().setActiveBoard(restMock, 'ops')).resolves.toBeUndefined();
+      expect(useProjectsStore.getState().activeBoardSlug).toBe('ops');
+    } finally {
+      getItem.mockRestore();
+      setItem.mockRestore();
+    }
+  });
+
   it('restores stored board when available', async () => {
     localStorage.setItem('hermes-kanban-board', 'stored');
     vi.mocked(restMock.kanbanBoards).mockResolvedValue([

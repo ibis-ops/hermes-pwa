@@ -227,6 +227,142 @@ describe('useActivityStore', () => {
     expect(items[0]?.id).toBe('approval:new');
   });
 
+  it('a REST recovery record keeps the live card\'s way back to the waiting request', async () => {
+    // The live server request carried the ids the answer must go back on;
+    // the REST record for the same approval does not. Replacing the card
+    // outright used to drop them and the answer went out by session only.
+    const restMock = {
+      pendingActions: vi.fn().mockResolvedValue([
+        {
+          id: 'approval:rest-id',
+          kind: 'approval',
+          status: 'needs_you',
+          title: 'Approval required',
+          sessionId: 'live-1',
+          summary: 'rm -rf /tmp/example\nDangerous command approval required',
+          createdAt: 2,
+          highImpact: true,
+        },
+      ]),
+    };
+    useActivityStore.getState().addItem({
+      id: 'q-1',
+      kind: 'approval',
+      status: 'needs_you',
+      title: 'Approval required',
+      sessionId: 'live-1',
+      sourceSessionId: 'live-1',
+      summary: 'rm -rf /tmp/example\nDangerous command approval required',
+      command: 'rm -rf /tmp/example',
+      requestId: 'q-1',
+      serverRequestId: 'srq-1',
+      choices: ['once', 'deny'],
+      smartDenied: true,
+      createdAt: 1,
+      highImpact: true,
+    } as import('../domain/activity').Approval);
+
+    await useActivityStore.getState().load(restMock as never, 'default');
+
+    const items = useActivityStore.getState().items;
+    expect(items).toHaveLength(1);
+    expect(items[0]).toMatchObject({
+      id: 'approval:rest-id',
+      sessionId: 'live-1',
+      requestId: 'q-1',
+      serverRequestId: 'srq-1',
+      command: 'rm -rf /tmp/example',
+      choices: ['once', 'deny'],
+      smartDenied: true,
+    });
+  });
+
+  it('addItem keeps the answer path of the card it replaces', () => {
+    useActivityStore.setState({
+      items: [
+        {
+          id: 'approval:old',
+          kind: 'approval',
+          status: 'needs_you',
+          title: 'Approval required',
+          sessionId: 'sess-1',
+          summary: 'deploy\nShip it',
+          command: 'deploy',
+          requestId: 'q-9',
+          serverRequestId: 'srq-9',
+          createdAt: 1,
+          highImpact: true,
+        } as import('../domain/activity').Approval,
+      ],
+    });
+
+    useActivityStore.getState().addItem({
+      id: 'approval:new',
+      kind: 'approval',
+      status: 'needs_you',
+      title: 'Approval required',
+      sessionId: 'sess-1',
+      summary: 'deploy\nShip it',
+      createdAt: 2,
+    });
+
+    const items = useActivityStore.getState().items;
+    expect(items).toHaveLength(1);
+    expect(items[0]).toMatchObject({ id: 'approval:new', createdAt: 2, requestId: 'q-9', serverRequestId: 'srq-9', command: 'deploy' });
+  });
+
+  it('respondApproval sends the request id whenever the card has one', async () => {
+    useActivityStore.setState({
+      items: [{ id: 'a-1', kind: 'approval', status: 'needs_you', title: 'Deploy', sessionId: 'sess-1', requestId: 'q-5', createdAt: 1, highImpact: true } as import('../domain/activity').Approval],
+    });
+    vi.mocked(rpcMock.request).mockResolvedValue({});
+    await useActivityStore.getState().respondApproval(rpcMock, 'a-1', 'approve');
+    expect(rpcMock.request).toHaveBeenCalledWith('approval.respond', { choice: 'once', session_id: 'sess-1', request_id: 'q-5' });
+  });
+
+  it('a run item replaces the previous run item of its session', () => {
+    useActivityStore.getState().addItem({ id: 'run-1', kind: 'run', status: 'running', title: 'Compiling', sessionId: 'live-1', createdAt: 1 });
+    useActivityStore.getState().addItem({ id: 'run-2', kind: 'run', status: 'running', title: 'Testing', sessionId: 'live-1', createdAt: 2 });
+    useActivityStore.getState().addItem({ id: 'run-3', kind: 'run', status: 'running', title: 'Other bot', sessionId: 'live-2', createdAt: 3 });
+
+    const runs = useActivityStore.getState().items.filter((item) => item.kind === 'run');
+    expect(runs.map((item) => item.id)).toEqual(['run-3', 'run-2']);
+  });
+
+  it('keeps at most 20 run items, dropping the oldest', () => {
+    for (let i = 1; i <= 25; i += 1) {
+      useActivityStore.getState().addItem({ id: `run-${i}`, kind: 'run', status: 'running', title: `Step ${i}`, sessionId: `s-${i}`, createdAt: i });
+    }
+    useActivityStore.getState().addItem({ id: 'a-1', kind: 'approval', status: 'needs_you', title: 'Keep me', createdAt: 99 });
+
+    const items = useActivityStore.getState().items;
+    const runs = items.filter((item) => item.kind === 'run');
+    expect(runs).toHaveLength(20);
+    expect(runs[0]?.id).toBe('run-25');
+    expect(runs[runs.length - 1]?.id).toBe('run-6');
+    expect(items.some((item) => item.id === 'a-1')).toBe(true);
+  });
+
+  it('clearRunItems drops the run items of one session, or all of them', () => {
+    useActivityStore.setState({
+      items: [
+        { id: 'run-a', kind: 'run', status: 'running', title: 'A', sessionId: 'live-a', createdAt: 1 },
+        { id: 'run-b', kind: 'run', status: 'running', title: 'B', sessionId: 'live-b', createdAt: 2 },
+        { id: 'a-1', kind: 'approval', status: 'needs_you', title: 'Keep', sessionId: 'live-a', createdAt: 3 },
+      ],
+    });
+
+    useActivityStore.getState().clearRunItems('live-a');
+    expect(useActivityStore.getState().items.map((item) => item.id)).toEqual(['run-b', 'a-1']);
+
+    const unchanged = useActivityStore.getState().items;
+    useActivityStore.getState().clearRunItems('nobody');
+    expect(useActivityStore.getState().items).toBe(unchanged);
+
+    useActivityStore.getState().clearRunItems();
+    expect(useActivityStore.getState().items.map((item) => item.id)).toEqual(['a-1']);
+  });
+
   it('updateItem patches fields', () => {
     useActivityStore.setState({
       items: [{ id: 'a-1', kind: 'approval', status: 'needs_you', title: 'T1', createdAt: 1 }],
@@ -300,6 +436,45 @@ describe('server→client approval and clarify requests', () => {
     expect(rpc.request).not.toHaveBeenCalledWith('approval.respond', expect.anything());
     expect(useActivityStore.getState().items).toHaveLength(0);
     detach();
+  });
+
+  it('keeps the card and shows an error when the answer could not be written', async () => {
+    // The socket dropped between the question and the tap: the answer never
+    // left. Removing the card anyway would lose the approval silently.
+    const { rpc, handlers } = makeRpc();
+    vi.mocked(rpc.respond).mockReturnValue(false);
+    useActivityStore.getState().attachServerRequests(rpc);
+    handlers.get('approval')!({ id: 'srq-9', method: 'approval', params: { session_id: 'live-1', request_id: 'q-9', command: 'rm x' }, sessionId: 'live-1', replayed: false });
+
+    await useActivityStore.getState().respondApproval(rpc, 'q-9', 'approve');
+
+    expect(rpc.respond).toHaveBeenCalledWith('srq-9', { choice: 'once' });
+    expect(useActivityStore.getState().items).toHaveLength(1);
+    expect(useActivityStore.getState().error).toMatch(/could not reach hermes/i);
+
+    // Once the socket is back the same card answers normally.
+    vi.mocked(rpc.respond).mockReturnValue(true);
+    await useActivityStore.getState().respondApproval(rpc, 'q-9', 'approve');
+    expect(useActivityStore.getState().items).toHaveLength(0);
+  });
+
+  it('keeps a clarify card when its answer could not be written', async () => {
+    const { rpc, handlers } = makeRpc();
+    vi.mocked(rpc.respond).mockReturnValue(false);
+    useActivityStore.getState().attachServerRequests(rpc);
+    handlers.get('clarify')!({
+      id: 'srq-c',
+      method: 'clarify',
+      params: { session_id: 'live-1', questions: [{ qid: 'q1', question: 'Which?', choices: [], multi_select: false }] },
+      sessionId: 'live-1',
+      replayed: false,
+    });
+
+    await useActivityStore.getState().respondClarify(rpc, 'srq-c', 'the first');
+
+    expect(rpc.respond).toHaveBeenCalledWith('srq-c', { answers: { q1: 'the first' } });
+    expect(useActivityStore.getState().items).toHaveLength(1);
+    expect(useActivityStore.getState().error).toMatch(/could not reach hermes/i);
   });
 
   it('drops the card when the gateway withdraws the request', () => {

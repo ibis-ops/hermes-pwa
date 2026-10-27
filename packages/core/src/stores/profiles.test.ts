@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { useProfilesStore } from './profiles';
+import { SELECTED_PROFILE_STORAGE_KEY, useProfilesStore } from './profiles';
+import { useChatStore } from './chat';
 
 const makeRest = (overrides: Partial<{
   profileList: () => Promise<import('../domain/profile').Profile[]>;
@@ -36,6 +37,87 @@ describe('useProfilesStore', () => {
   beforeEach(() => {
     window.localStorage.clear();
     useProfilesStore.setState({ profiles: [], activeName: undefined, currentName: undefined, loading: false, error: undefined });
+    useChatStore.setState({ sessionId: undefined, storedSessionId: undefined, messages: [], streaming: false, error: undefined, queuedPrompts: [], cacheProfile: undefined });
+  });
+
+  it('exposes the selected-profile storage key the chat cold start reads', () => {
+    expect(SELECTED_PROFILE_STORAGE_KEY).toBe('hermes-pwa.selectedProfile.v1');
+  });
+
+  it('renaming the bot in use moves its cached session and the phone choice to the new name', async () => {
+    const rest = makeRest({
+      profileList: vi
+        .fn()
+        .mockResolvedValueOnce([
+          { name: 'default', model: 'claude-opus-4-8', isActive: true },
+          { name: 'research', model: 'gpt-4o', isActive: false },
+        ])
+        .mockResolvedValue([
+          { name: 'default', model: 'claude-opus-4-8', isActive: true },
+          { name: 'research-v2', model: 'gpt-4o', isActive: false },
+        ]),
+    });
+    await useProfilesStore.getState().load(rest);
+    await useProfilesStore.getState().activate(rest, 'research');
+    useChatStore.setState({ sessionId: 'live-r', storedSessionId: 'stored-r', messages: [], streaming: false, cacheProfile: 'research' });
+    window.localStorage.setItem(
+      'hermes-pwa.activeSession.v4:research',
+      JSON.stringify({ profile: 'research', sessionId: 'live-r', storedSessionId: 'stored-r', messages: [{ id: 'm', role: 'user', text: 'kept' }] }),
+    );
+
+    await useProfilesStore.getState().rename(rest, 'research', 'research-v2');
+
+    // The bot in use stays the renamed one rather than falling back to the gateway's.
+    expect(useProfilesStore.getState().activeName).toBe('research-v2');
+    expect(useProfilesStore.getState().profiles.find((p) => p.name === 'research-v2')?.isActive).toBe(true);
+    expect(useChatStore.getState().cacheProfile).toBe('research-v2');
+    expect(useChatStore.getState().storedSessionId).toBe('stored-r');
+    expect(window.localStorage.getItem('hermes-pwa.activeSession.v4:research')).toBeNull();
+    const moved = JSON.parse(window.localStorage.getItem('hermes-pwa.activeSession.v4:research-v2') ?? '{}');
+    expect(moved.profile).toBe('research-v2');
+    expect(moved.storedSessionId).toBe('stored-r');
+    expect(window.localStorage.getItem(SELECTED_PROFILE_STORAGE_KEY)).toBe('research-v2');
+  });
+
+  it('renaming another bot leaves the open chat scope alone', async () => {
+    const rest = makeRest();
+    await useProfilesStore.getState().load(rest);
+    useChatStore.setState({ cacheProfile: 'default' });
+    window.localStorage.setItem('hermes-pwa.activeSession.v4:research', JSON.stringify({ profile: 'research', storedSessionId: 'stored-r', messages: [] }));
+
+    await useProfilesStore.getState().rename(rest, 'research', 'research-v2');
+
+    expect(useChatStore.getState().cacheProfile).toBe('default');
+    expect(window.localStorage.getItem('hermes-pwa.activeSession.v4:research')).toBeNull();
+    expect(window.localStorage.getItem('hermes-pwa.activeSession.v4:research-v2')).toContain('stored-r');
+  });
+
+  it('deleting the bot the chat is open on clears the chat and its cache', async () => {
+    const rest = makeRest();
+    await useProfilesStore.getState().load(rest);
+    useChatStore.setState({ sessionId: 'live-r', storedSessionId: 'stored-r', messages: [{ id: 'm', role: 'user', text: 'x', createdAt: undefined }], streaming: true, cacheProfile: 'research' });
+    window.localStorage.setItem('hermes-pwa.activeSession.v4:research', JSON.stringify({ profile: 'research', storedSessionId: 'stored-r', messages: [] }));
+
+    await useProfilesStore.getState().delete(rest, 'research');
+
+    expect(useChatStore.getState().cacheProfile).toBeUndefined();
+    expect(useChatStore.getState().sessionId).toBeUndefined();
+    expect(useChatStore.getState().messages).toEqual([]);
+    expect(useChatStore.getState().streaming).toBe(false);
+    expect(window.localStorage.getItem('hermes-pwa.activeSession.v4:research')).toBeNull();
+  });
+
+  it('deleting another bot drops only its cache', async () => {
+    const rest = makeRest();
+    await useProfilesStore.getState().load(rest);
+    useChatStore.setState({ storedSessionId: 'stored-d', cacheProfile: 'default' });
+    window.localStorage.setItem('hermes-pwa.activeSession.v4:research', JSON.stringify({ profile: 'research', storedSessionId: 'stored-r', messages: [] }));
+
+    await useProfilesStore.getState().delete(rest, 'research');
+
+    expect(useChatStore.getState().cacheProfile).toBe('default');
+    expect(useChatStore.getState().storedSessionId).toBe('stored-d');
+    expect(window.localStorage.getItem('hermes-pwa.activeSession.v4:research')).toBeNull();
   });
 
   it('loads profiles and marks active', async () => {

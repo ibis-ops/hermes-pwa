@@ -162,6 +162,53 @@ describe('makeHttp', () => {
     }
   });
 
+  it('times out a body that never finishes after the headers arrived', async () => {
+    // A proxy can deliver the headers and then hold the stream; the timeout
+    // used to stop at the headers, so this request hung forever.
+    vi.useFakeTimers();
+    fetchSpy.mockImplementationOnce(() =>
+      Promise.resolve({
+        ok: true,
+        status: 200,
+        statusText: 'OK',
+        json: () => new Promise(() => undefined),
+        text: () => new Promise(() => undefined),
+      } as unknown as Response),
+    );
+
+    const http = makeHttp('http://localhost');
+    const request = http('/hung-body', { timeoutMs: 20 });
+    const rejection = expect(request).rejects.toThrow('HTTP request timed out');
+    await vi.advanceTimersByTimeAsync(20);
+
+    await rejection;
+  });
+
+  it('times out an error body that never finishes', async () => {
+    vi.useFakeTimers();
+    fetchSpy.mockImplementationOnce(() =>
+      Promise.resolve({
+        ok: false,
+        status: 502,
+        statusText: 'Bad Gateway',
+        json: () => new Promise(() => undefined),
+        text: () => new Promise(() => undefined),
+      } as unknown as Response),
+    );
+
+    const http = makeHttp('http://localhost');
+    const request = http('/hung-error-body', { timeoutMs: 20 });
+    const rejection = expect(request).rejects.toThrow('HTTP request timed out');
+    await vi.advanceTimersByTimeAsync(20);
+
+    await rejection;
+  });
+
+  it('still returns a body that completes within the timeout', async () => {
+    const http = makeHttp('http://localhost');
+    await expect(http<{ ok: boolean }>('/quick', { timeoutMs: 1_000 })).resolves.toEqual({ ok: true });
+  });
+
   it('aborts fetch when the request timeout elapses', async () => {
     vi.useFakeTimers();
     fetchSpy.mockImplementationOnce((_url, init) => new Promise((_resolve, reject) => {

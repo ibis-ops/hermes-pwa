@@ -6,14 +6,23 @@ const BOARD_STORAGE_KEY = 'hermes-kanban-board';
 
 function readStoredBoard(): string | undefined {
   if (typeof window === 'undefined') return undefined;
-  const v = window.localStorage.getItem(BOARD_STORAGE_KEY);
-  return v || undefined;
+  try {
+    const v = window.localStorage.getItem(BOARD_STORAGE_KEY);
+    return v || undefined;
+  } catch {
+    // Storage blocked (Safari with cookies off): the board choice is not remembered.
+    return undefined;
+  }
 }
 
 function writeStoredBoard(slug: string | undefined): void {
   if (typeof window === 'undefined') return;
-  if (slug) window.localStorage.setItem(BOARD_STORAGE_KEY, slug);
-  else window.localStorage.removeItem(BOARD_STORAGE_KEY);
+  try {
+    if (slug) window.localStorage.setItem(BOARD_STORAGE_KEY, slug);
+    else window.localStorage.removeItem(BOARD_STORAGE_KEY);
+  } catch {
+    // Best-effort preference only.
+  }
 }
 
 export interface ProjectsStore {
