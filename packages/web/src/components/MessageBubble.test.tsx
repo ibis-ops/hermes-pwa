@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { MessageBubble } from './MessageBubble';
 import { areMessageBubblePropsEqual } from './MessageBubble.helpers';
 import { useActivityStore, useChatStore, type Approval, type RpcClient } from '@hermes-pwa/core';
@@ -16,26 +16,26 @@ describe('MessageBubble', () => {
     const message = { id: 'memo-old', role: 'assistant' as const, text: 'Completed markdown', createdAt: undefined };
     expect(
       areMessageBubblePropsEqual(
-        { rpc: rpcMock, message, isLast: false, streaming: true, liveStatus: '', liveFace: undefined },
-        { rpc: rpcMock, message, isLast: false, streaming: true, liveStatus: '', liveFace: undefined },
+        { rpc: rpcMock, message, isLast: false, streaming: true, liveStatus: '' },
+        { rpc: rpcMock, message, isLast: false, streaming: true, liveStatus: '' },
       ),
     ).toBe(true);
     expect(
       areMessageBubblePropsEqual(
-        { rpc: rpcMock, message, isLast: false, streaming: true, liveStatus: '', liveFace: undefined },
-        { rpc: rpcMock, message: { ...message, text: 'Changed' }, isLast: false, streaming: true, liveStatus: '', liveFace: undefined },
+        { rpc: rpcMock, message, isLast: false, streaming: true, liveStatus: '' },
+        { rpc: rpcMock, message: { ...message, text: 'Changed' }, isLast: false, streaming: true, liveStatus: '' },
       ),
     ).toBe(false);
     expect(
       areMessageBubblePropsEqual(
-        { rpc: rpcMock, message, isLast: true, streaming: true, liveStatus: 'Thinking', liveFace: undefined },
-        { rpc: rpcMock, message, isLast: true, streaming: true, liveStatus: 'Calling tool', liveFace: undefined },
+        { rpc: rpcMock, message, isLast: true, streaming: true, liveStatus: 'Thinking' },
+        { rpc: rpcMock, message, isLast: true, streaming: true, liveStatus: 'Calling tool' },
       ),
     ).toBe(false);
     expect(
       areMessageBubblePropsEqual(
-        { rpc: rpcMock, message, isLast: true, streaming: true, liveStatus: '', liveFace: undefined },
-        { rpc: rpcMock, message, isLast: false, streaming: true, liveStatus: '', liveFace: undefined },
+        { rpc: rpcMock, message, isLast: true, streaming: true, liveStatus: '' },
+        { rpc: rpcMock, message, isLast: false, streaming: true, liveStatus: '' },
       ),
     ).toBe(false);
   });
@@ -66,10 +66,30 @@ describe('MessageBubble', () => {
     expect(link).toHaveAttribute('rel', expect.stringContaining('noreferrer'));
   });
 
-  it('uses a compact activity indicator instead of streaming/done status text', () => {
+  it('shows a typing bubble instead of streaming/done status text while the reply has no text', () => {
     render(<MessageBubble rpc={rpcMock} streaming message={{ id: '2b', role: 'assistant', text: '', createdAt: undefined }} />);
-    expect(screen.getByLabelText('Assistant is active')).toBeInTheDocument();
+    expect(screen.getByLabelText('Hermes is typing')).toBeInTheDocument();
     expect(screen.queryByText(/streaming|done/i)).not.toBeInTheDocument();
+  });
+
+  it('drops the typing bubble once text arrives and shows no avatar or name', () => {
+    const { container } = render(
+      <MessageBubble rpc={rpcMock} streaming isLast message={{ id: '2c', role: 'assistant', text: 'Hello', createdAt: undefined }} />,
+    );
+    expect(screen.queryByLabelText('Hermes is typing')).toBeNull();
+    expect(container.querySelector('.hm-message__avatar')).toBeNull();
+    expect(container.querySelector('.hm-message__header')).toBeNull();
+    expect(screen.queryByText('Hermes')).not.toBeInTheDocument();
+  });
+
+  it('reveals the time stamp of an older bubble on tap and offers Copy', async () => {
+    const { container } = render(
+      <MessageBubble rpc={rpcMock} isLast={false} message={{ id: '2d', role: 'assistant', text: 'Older answer', createdAt: 1_700_000_000 }} />,
+    );
+    expect(screen.queryByTestId('message-meta')).toBeNull();
+    fireEvent.click(container.querySelector('.hm-message__text')!);
+    expect(screen.getByTestId('message-meta')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /copy/i })).toBeInTheDocument();
   });
 
   it('renders tool calls when present', () => {
@@ -363,27 +383,22 @@ describe('MessageBubble', () => {
     expect(screen.getByText(/item stays as regular markdown/)).toBeInTheDocument();
   });
 
-  it('renders app icon and inline live status with animated activity dots', () => {
+  it('renders the live status as one quiet line under the typing bubble', () => {
     const { container } = render(
       <MessageBubble
         rpc={rpcMock}
         streaming
         isLast
-        liveFace="(¬‿¬)"
         liveStatus="computing"
         message={{ id: '9', role: 'assistant', text: '', createdAt: undefined }}
       />,
     );
 
-    expect(container.querySelector('.hm-live-status__face')).toHaveTextContent('(¬‿¬)');
     expect(container.querySelector('.hm-live-status__text')).toHaveTextContent('computing');
-    expect(container.querySelector('.hm-live-status__dots')).toBeInTheDocument();
-    const liveParts = Array.from(container.querySelector('.hm-live-status')?.children ?? []).map((node) =>
-      (node as HTMLElement).className,
-    );
-    expect(liveParts).toEqual(['hm-live-status__face', 'hm-live-status__text', 'hm-live-status__dots']);
-    expect(container.querySelectorAll('.hm-live-status__dots span')).toHaveLength(3);
-    expect(container.querySelector('.hm-message__avatar img')).toHaveAttribute('src', './icons/icon-192.png');
+    expect(container.querySelector('.hm-live-status__face')).toBeNull();
+    expect(container.querySelector('.hm-live-status__dots')).toBeNull();
+    expect(screen.getByLabelText('Hermes is typing')).toBeInTheDocument();
+    expect(container.querySelector('.hm-message__avatar')).toBeNull();
     expect(screen.queryByText('Hermes')).not.toBeInTheDocument();
   });
 });

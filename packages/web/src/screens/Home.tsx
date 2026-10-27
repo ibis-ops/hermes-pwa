@@ -32,12 +32,12 @@ const TILES: {
 }[] = [
   // iOS system colors as filled icon squares with white glyphs; they read the
   // same in light and dark mode.
-  { key: 'chat', label: 'New chat', sub: 'Start fresh', icon: 'chat', tint: '#007aff', color: '#ffffff' },
-  { key: 'approvals', label: 'Approvals', sub: 'Waiting on you', icon: 'shield', tint: '#ff9500', color: '#ffffff' },
-  { key: 'kanban', label: 'Kanban', sub: 'Tasks and runs', icon: 'kanban', tint: '#af52de', color: '#ffffff' },
-  { key: 'sessions', label: 'Sessions', sub: 'History', icon: 'sessions', tint: '#34c759', color: '#ffffff' },
-  { key: 'cron', label: 'Schedules', sub: 'Recurring jobs', icon: 'cron', tint: '#5ac8fa', color: '#ffffff' },
-  { key: 'command', label: 'System', sub: 'Gateway and health', icon: 'system', tint: '#ff3b30', color: '#ffffff' },
+  { key: 'chat', label: 'New chat', sub: 'Start fresh', icon: 'chat', tint: 'var(--hm-color-primary)', color: 'var(--hm-color-primary-text)' },
+  { key: 'approvals', label: 'Approvals', sub: 'Waiting on you', icon: 'shield', tint: 'var(--hm-color-warning)', color: 'var(--hm-color-primary-text)' },
+  { key: 'kanban', label: 'Kanban', sub: 'Tasks and runs', icon: 'kanban', tint: 'var(--hm-color-purple)', color: 'var(--hm-color-primary-text)' },
+  { key: 'sessions', label: 'Sessions', sub: 'History', icon: 'sessions', tint: 'var(--hm-color-success)', color: 'var(--hm-color-primary-text)' },
+  { key: 'cron', label: 'Schedules', sub: 'Recurring jobs', icon: 'cron', tint: 'var(--hm-color-teal)', color: 'var(--hm-color-primary-text)' },
+  { key: 'command', label: 'System', sub: 'Gateway and health', icon: 'system', tint: 'var(--hm-color-danger)', color: 'var(--hm-color-primary-text)' },
 ];
 
 export function Home({ rpc, rest, onNavigate }: HomeProps) {

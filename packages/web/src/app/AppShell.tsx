@@ -625,7 +625,7 @@ export function AppShell({ connectionState, rpc, rest, onRetry }: AppShellProps)
         id: s.id,
         title: `${sessionSourceLabel(sessionSourceKey(s)) ?? 'Unknown'} · ${s.title?.trim() || 'Untitled'}`,
         msgs: s.messageCount ?? 0,
-        dot: s.isActive || s.active ? '#15a06a' : '#9aa2b4',
+        dot: s.isActive || s.active ? 'var(--hm-color-success)' : 'var(--hm-color-text-faint)',
         onClick: () => void handleDrawerSession(s),
       })),
     [filteredDrawerSessions, handleDrawerSession],
@@ -645,7 +645,14 @@ export function AppShell({ connectionState, rpc, rest, onRetry }: AppShellProps)
         >
           <Icon name="menu" size={22} />
         </button>
-        <h1 className="hm-header__title">{screenTitle}</h1>
+        <div className="hm-header__titles">
+          <h1 className="hm-header__title">{screenTitle}</h1>
+          {screen === 'chat' ? (
+            <p className="hm-header__subtitle" data-testid="chat-subtitle">
+              {activeProfileLabel} · {activeModel}
+            </p>
+          ) : null}
+        </div>
         <button
           type="button"
           className="hm-header__status"

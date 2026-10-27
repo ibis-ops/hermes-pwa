@@ -261,8 +261,8 @@ describe('Chat', () => {
     const liveStatus = container.querySelector('.hm-live-status');
     expect(container.querySelector('.hm-live-status__face')).toBeNull();
     expect(liveStatus).toHaveTextContent('(｡•́︿•̀｡) computing...');
-    expect(container.querySelector('.hm-live-status__dots')).toBeInTheDocument();
-    expect(container.querySelector('.hm-message__activity-dots')).toBeNull();
+    expect(container.querySelector('.hm-live-status__dots')).toBeNull();
+    expect(screen.getByLabelText('Hermes is typing')).toBeInTheDocument();
 
     rpcMock.events.dispatchEvent({ type: 'status.update', sessionId: 's-1', payload: { text: 'Calling tool' } });
     await waitFor(() => expect(container.querySelector('.hm-live-status__text')).toHaveTextContent('Calling tool'));
@@ -283,7 +283,7 @@ describe('Chat', () => {
     });
     const { container } = render(<Chat rpc={rpcMock} rest={restMock} />);
 
-    expect(container.querySelectorAll('.hm-message__activity-dots')).toHaveLength(1);
+    expect(screen.getAllByLabelText('Hermes is typing')).toHaveLength(1);
 
     rpcMock.events.dispatchEvent({ type: 'thinking.delta', sessionId: 's-1', payload: { text: '(¬‿¬) computing...' } });
 
@@ -291,7 +291,7 @@ describe('Chat', () => {
     expect(container.querySelectorAll('.hm-message--assistant')[0]?.querySelector('.hm-live-status')).toBeNull();
     expect(container.querySelector('.hm-live-status__text')).toHaveTextContent('(¬‿¬) computing...');
     expect(container.querySelector('.hm-live-status__face')).toBeNull();
-    expect(container.querySelector('.hm-live-status__dots')).toBeInTheDocument();
+    expect(container.querySelector('.hm-live-status__dots')).toBeNull();
   });
 
   it('does not create or update an assistant bubble for compression lifecycle status updates', async () => {
@@ -344,7 +344,7 @@ describe('Chat', () => {
 
     await waitFor(() => expect(container.querySelector('.hm-live-status__text')).toHaveTextContent('(｡•́︿•̀｡) ⠓ computing...'));
     expect(container.querySelector('.hm-live-status__face')).toBeNull();
-    expect(container.querySelector('.hm-live-status__dots')).toBeInTheDocument();
+    expect(container.querySelector('.hm-live-status__dots')).toBeNull();
   });
 
   it('renders unwrapped backend kaomoji inside the live status text', async () => {
@@ -560,7 +560,7 @@ describe('Chat', () => {
 
     await waitFor(() => expect(screen.getByText(/brainstorming\.\.\./)).toBeInTheDocument());
     expect(container.querySelector('.hm-message__caret')).toBeNull();
-    expect(container.querySelector('.hm-message--assistant .hm-message__header .hm-live-status')).toHaveTextContent('brainstorming...');
+    expect(container.querySelector('.hm-message--assistant .hm-live-status')).toHaveTextContent('brainstorming...');
   });
 
   it('hides Thinking when short available reasoning duplicates the final answer', async () => {

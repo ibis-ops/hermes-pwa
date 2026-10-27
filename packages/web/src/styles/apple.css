@@ -3922,3 +3922,378 @@ html.hm-keyboard-open .hm-login {
   line-height: 1.4;
   text-align: center;
 }
+
+/* ════════════════════════════════════════════════════════════════════
+   Pass 7: Messages look. Bubbles without avatars or names, a typing
+   bubble instead of header dots, time stamps on tap, one quiet strip
+   for tools and thinking, the bot and model in the nav bar.
+   ════════════════════════════════════════════════════════════════════ */
+
+/* Screen-reader only text (visible labels that would clutter the strip). */
+.hm-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* Nav bar: title with the bot and model beneath it on the chat screen. */
+.hm-header__titles {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  gap: 1px;
+}
+
+.hm-header__titles .hm-header__title {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: center;
+}
+
+.hm-header__subtitle {
+  margin: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--hm-fs-label);
+  line-height: 1.2;
+  color: var(--hm-color-text-muted);
+}
+
+/* The list: bubbles sit close together; a gap only where the sender changes. */
+.hm-chat__messages {
+  padding: 6px 12px 10px;
+  gap: 2px;
+}
+
+.hm-chat__entry {
+  gap: 6px;
+}
+
+.hm-chat__entry + .hm-chat__entry {
+  margin-top: 2px;
+}
+
+.hm-chat__entry:has(.hm-message-group--user) + .hm-chat__entry:has(.hm-message--assistant),
+.hm-chat__entry:has(.hm-message--assistant) + .hm-chat__entry:has(.hm-message-group--user) {
+  margin-top: 10px;
+}
+
+/* User bubble: blue, right, 18px corners, keeps the typed line breaks. */
+.hm-message-group--user {
+  align-self: flex-end;
+  align-items: flex-end;
+  max-width: 78%;
+}
+
+.hm-message--user {
+  max-width: 100%;
+  padding: 8px 14px;
+  border-radius: 18px;
+  background: var(--hm-color-primary);
+  color: var(--hm-color-primary-text);
+  font-size: var(--hm-fs-body);
+  line-height: 1.3;
+  box-shadow: none;
+}
+
+.hm-message--user p {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* Assistant bubble: grey, left, the same radius; no header above it. */
+.hm-message--assistant {
+  align-self: flex-start;
+  max-width: 100%;
+  width: 100%;
+  padding: 0;
+  gap: 6px;
+  background: transparent;
+}
+
+.hm-message--assistant .hm-message__text {
+  width: fit-content;
+  max-width: 86%;
+  padding: 8px 14px;
+  border-radius: 18px;
+  background: var(--hm-color-bubble);
+  color: var(--hm-color-text);
+  font-size: var(--hm-fs-body);
+  line-height: 1.3;
+}
+
+.hm-message--assistant .hm-message__text > :first-child {
+  margin-block-start: 0;
+}
+
+.hm-message--assistant .hm-message__text > :last-child {
+  margin-block-end: 0;
+}
+
+/* A reply with code or a table takes the full width. */
+.hm-message--assistant .hm-message__text:has(pre, table) {
+  width: 100%;
+  max-width: 100%;
+}
+
+/* Typing: the grey bubble with three dots, before the first token lands. */
+.hm-message__typing {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  width: fit-content;
+  min-height: 36px;
+  padding: 0 16px;
+  border-radius: 18px;
+  background: var(--hm-color-bubble);
+}
+
+.hm-message__typing span {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--hm-color-text-faint);
+  animation: hm-typing 1.4s ease-in-out infinite;
+}
+
+.hm-message__typing span:nth-child(2) {
+  animation-delay: 0.16s;
+}
+
+.hm-message__typing span:nth-child(3) {
+  animation-delay: 0.32s;
+}
+
+@keyframes hm-typing {
+  0%, 60%, 100% { transform: translateY(0); opacity: 0.45; }
+  30%           { transform: translateY(-4px); opacity: 1; }
+}
+
+/* The gateway's status line under the reply in progress. */
+.hm-message--assistant .hm-live-status {
+  margin: 0 0 0 6px;
+  font-size: var(--hm-fs-label);
+  color: var(--hm-color-text-muted);
+}
+
+/* Time stamps: hidden until tapped (the newest message shows its own). */
+.hm-message__meta {
+  margin: 0 6px;
+  font-size: var(--hm-fs-label);
+  font-weight: var(--hm-fw-regular);
+  color: var(--hm-color-text-muted);
+  letter-spacing: 0;
+  line-height: 1.5;
+}
+
+.hm-message__meta--assistant {
+  margin-left: 6px;
+}
+
+.hm-message__meta-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 28px;
+  padding: 0 2px;
+  border: 0;
+  background: transparent;
+  color: var(--hm-color-primary);
+  font: inherit;
+  font-weight: var(--hm-fw-medium);
+}
+
+.hm-message__meta-action:active {
+  opacity: 0.5;
+}
+
+.hm-message__copy svg {
+  opacity: 0.8;
+}
+
+.hm-chat__time {
+  margin: 10px 0 2px;
+  font-size: var(--hm-fs-label);
+  font-weight: var(--hm-fw-medium);
+  color: var(--hm-color-text-muted);
+}
+
+/* Tools and thinking: one quiet strip above the reply, not a card stack. */
+.hm-message__actions {
+  width: 100%;
+  gap: 4px;
+}
+
+.hm-thinking,
+.hm-tool-group {
+  border: 0;
+  border-radius: 14px;
+  background: var(--hm-color-surface);
+}
+
+.hm-tool-group__header {
+  min-height: 36px;
+  padding: 0 12px;
+  gap: 8px;
+  font-size: var(--hm-fs-label);
+  color: var(--hm-color-text-muted);
+}
+
+.hm-tool-group__header-icon {
+  display: inline-flex;
+  color: var(--hm-color-text-muted);
+}
+
+.hm-tool-group__header-meta {
+  font-size: var(--hm-fs-label);
+  color: var(--hm-color-text-muted);
+}
+
+.hm-tool-group {
+  gap: 0;
+  overflow: hidden;
+}
+
+.hm-tool-group__header-icon {
+  width: auto;
+  height: auto;
+  background: transparent;
+}
+
+.hm-tool-group__row,
+.hm-tool-group__row--running,
+.hm-tool-group__row--done {
+  min-height: 36px;
+  border: 0;
+  border-top: 1px solid var(--hm-color-border);
+  border-radius: 0;
+  background: transparent;
+}
+
+.hm-tool-group__row-button {
+  gap: 8px;
+  padding: 7px 12px;
+  font-size: var(--hm-fs-small);
+}
+
+.hm-tool-group__row-button:active {
+  background: var(--hm-color-fill);
+}
+
+.hm-tool-group__row-icon {
+  color: var(--hm-color-text-muted);
+}
+
+.hm-tool-group__row-title,
+.hm-tool-row__name {
+  font-weight: var(--hm-fw-regular);
+}
+
+.hm-tool-group__row--running .hm-tool-group__row-icon {
+  color: var(--hm-color-primary);
+}
+
+.hm-tool-group__row-detail {
+  padding: 0 12px 10px;
+}
+
+.hm-tool-group__row-output {
+  max-height: none;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.hm-tool-group__row-tools {
+  display: flex;
+  gap: 12px;
+  padding: 4px 0 2px;
+}
+
+.hm-tool-group__row-more {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 32px;
+  padding: 0 2px;
+  border: 0;
+  background: transparent;
+  color: var(--hm-color-primary);
+  font-size: var(--hm-fs-label);
+  font-weight: var(--hm-fw-medium);
+}
+
+.hm-tool-group__row-more:active {
+  opacity: 0.5;
+}
+
+.hm-thinking__header {
+  min-height: 36px;
+  font-size: var(--hm-fs-label);
+}
+
+/* Jump back down to the newest reply: sticks to the bottom edge of the list. */
+.hm-chat__jump {
+  position: sticky;
+  bottom: 6px;
+  align-self: center;
+  z-index: 3;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 34px;
+  padding: 0 14px 0 10px;
+  border: 1px solid var(--hm-color-border);
+  border-radius: var(--hm-radius-full);
+  background: var(--hm-color-surface);
+  color: var(--hm-color-primary);
+  font-size: var(--hm-fs-label);
+  font-weight: var(--hm-fw-semibold);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.12);
+  animation: hm-rise var(--hm-duration-normal) var(--hm-ease-out);
+}
+
+/* Colors that bypassed the tokens. */
+.hm-approval-card__deny {
+  background: var(--hm-color-surface);
+  border-color: var(--hm-color-border);
+  color: var(--hm-color-danger);
+}
+
+.hm-empty-state__icon {
+  background: var(--hm-color-success-bg);
+  color: var(--hm-color-success-strong);
+}
+
+.hm-task-card__block {
+  background: var(--hm-color-fill);
+  color: var(--hm-color-text-muted);
+}
+
+.hm-settings-row__value--unset {
+  color: var(--hm-color-text-faint);
+}
+
+.hm-message--user .hm-message__text code,
+.hm-message--user code {
+  background: color-mix(in srgb, var(--hm-color-primary-text) 20%, transparent);
+  color: var(--hm-color-primary-text);
+}
+
+.hm-message__avatar,
+.hm-drawer__session-dot[data-live] {
+  color: var(--hm-color-primary-text);
+}

@@ -1,5 +1,5 @@
 import ReactMarkdown from 'react-markdown';
-import { memo } from 'react';
+import { memo, useState } from 'react';
 import { attachmentRefs, extractFileRefs, stripAttachmentRefs, type Approval, type Message, type ToolCall } from '@hermes-pwa/core';
 import { FileCards } from './FileCards';
 import { ToolGroup } from './ToolGroup';
@@ -67,28 +67,41 @@ function recoveredApprovalTool(
   };
 }
 
-function MessageBubbleView({ message, rpc, rest, isLast, streaming, liveStatus, liveFace, pendingApprovals, activeSessionIds, elapsedFrom, onInterruptSteer }: MessageBubbleProps) {
+/**
+ * One row of the conversation, laid out like Messages: the person's text in a
+ * blue bubble on the right, Hermes's reply in a grey bubble on the left, no
+ * avatars and no names. The time of a message stays out of the way until the
+ * bubble is tapped; the newest message always shows it.
+ */
+function MessageBubbleView({ message, rpc, rest, isLast, streaming, liveStatus, pendingApprovals, activeSessionIds, elapsedFrom, onInterruptSteer }: MessageBubbleProps) {
+  // Tapping a bubble reveals its time stamp, as a swipe does in Messages.
+  const [revealed, setRevealed] = useState(false);
+  const toggleRevealed = () => setRevealed((value) => !value);
+
   if (message.role === 'tool') {
     return null;
   }
 
   const isUser = message.role === 'user';
+  const showMeta = revealed || isLast !== false;
 
   if (isUser) {
     const attachments = attachmentRefs(message.text);
     const visibleText = attachments.length > 0 ? stripAttachmentRefs(message.text) : message.text;
     return (
-      <div className="hm-message-group hm-message-group--user">
+      <div className="hm-message-group hm-message-group--user" data-revealed={revealed ? 'true' : 'false'}>
         {visibleText ? (
-          <div className="hm-message hm-message--user" data-kind={message.displayKind ?? undefined}>
+          <div className="hm-message hm-message--user" data-kind={message.displayKind ?? undefined} onClick={toggleRevealed}>
             <p>{visibleText}</p>
           </div>
         ) : null}
         <FileCards refs={attachments} rest={rest} tone="user" />
-        <MessageMeta
-          message={message}
-          action={onInterruptSteer ? { label: 'Interrupt and send now', onClick: onInterruptSteer } : undefined}
-        />
+        {showMeta || onInterruptSteer ? (
+          <MessageMeta
+            message={message}
+            action={onInterruptSteer ? { label: 'Interrupt and send now', onClick: onInterruptSteer } : undefined}
+          />
+        ) : null}
       </div>
     );
   }
@@ -105,40 +118,11 @@ function MessageBubbleView({ message, rpc, rest, isLast, streaming, liveStatus, 
   // the spawn store holds nothing for this turn.
   const showSubagents = isLast !== false;
   const hasActions = Boolean(message.thinking?.trim()) || Boolean(completedTodoTool) || otherTools.length > 0;
-  const showHeaderStatus = active && Boolean(liveStatus?.trim());
-  const statusFace = liveFace?.trim();
+  const status = active ? liveStatus?.trim() ?? '' : '';
+  const hasText = message.text.trim().length > 0;
 
   return (
-    <div className="hm-message hm-message--assistant">
-      <div className="hm-message__header">
-        <span className="hm-message__avatar">
-          <img src="./icons/icon-192.png" alt="" aria-hidden="true" />
-        </span>
-        {showHeaderStatus ? (
-          <span className="hm-live-status hm-live-status--inline" role="status" aria-live="polite">
-            {statusFace ? <span className="hm-live-status__face" aria-hidden="true">{statusFace}</span> : null}
-            <span className="hm-live-status__text">{liveStatus}</span>
-            <span className="hm-live-status__dots" aria-hidden="true">
-              <span />
-              <span />
-              <span />
-            </span>
-          </span>
-        ) : (
-          <span className="hm-message__activity" aria-label={active ? 'Assistant is active' : 'Assistant response complete'}>
-            {active ? (
-              <span className="hm-message__activity-dots" aria-hidden="true">
-                <span />
-                <span />
-                <span />
-              </span>
-            ) : (
-              <span className="hm-message__activity-dot" aria-hidden="true" />
-            )}
-          </span>
-        )}
-      </div>
-
+    <div className="hm-message hm-message--assistant" data-active={active ? 'true' : 'false'} data-revealed={revealed ? 'true' : 'false'}>
       {hasActions && (
         <div className="hm-message__actions">
           {message.thinking && message.thinking.trim().length > 0 && (
@@ -157,17 +141,29 @@ function MessageBubbleView({ message, rpc, rest, isLast, streaming, liveStatus, 
 
       {showSubagents ? <SubagentPanel since={elapsedFrom ?? message.createdAt} /> : null}
 
-      {message.text ? (
-        <div className="hm-message__text">
+      {hasText ? (
+        <div className="hm-message__text" onClick={toggleRevealed}>
           <ReactMarkdown remarkPlugins={REMARK_PLUGINS} rehypePlugins={REHYPE_PLUGINS} components={MARKDOWN_COMPONENTS}>
             {message.text}
           </ReactMarkdown>
           {showCaret && <span className="hm-message__caret" />}
         </div>
+      ) : active ? (
+        <div className="hm-message__typing" role="img" aria-label="Hermes is typing" data-testid="typing-indicator">
+          <span />
+          <span />
+          <span />
+        </div>
+      ) : null}
+
+      {status ? (
+        <div className="hm-live-status" role="status" aria-live="polite" data-testid="live-status">
+          <span className="hm-live-status__text">{status}</span>
+        </div>
       ) : null}
 
       {!active && <FileCards refs={extractFileRefs(message.text)} rest={rest} tone="assistant" />}
-      <MessageMeta message={message} active={active} elapsedFrom={elapsedFrom} />
+      {showMeta || active ? <MessageMeta message={message} active={active} elapsedFrom={elapsedFrom} copyText={hasText ? message.text : undefined} /> : null}
     </div>
   );
 }

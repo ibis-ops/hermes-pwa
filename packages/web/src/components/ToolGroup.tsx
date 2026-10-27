@@ -4,6 +4,44 @@ import { Icon } from './Icon';
 import { ApprovalInline } from './ApprovalInline';
 import { buildToolView, truncate } from '../lib/toolView';
 
+/** Lines of tool output shown before "Show all"; a long terminal result must not swallow the chat. */
+const OUTPUT_PREVIEW_LINES = 80;
+
+function OutputBlock({ text }: { text: string }) {
+  const [showAll, setShowAll] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const lines = text.split('\n');
+  const capped = !showAll && lines.length > OUTPUT_PREVIEW_LINES;
+  const shown = capped ? lines.slice(0, OUTPUT_PREVIEW_LINES).join('\n') : text;
+
+  async function copy() {
+    try {
+      await navigator.clipboard.writeText(text.replace(/\n$/, ''));
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1600);
+    } catch {
+      // Clipboard can be unavailable; the text is still selectable by hand.
+    }
+  }
+
+  return (
+    <>
+      <pre className="hm-tool-group__row-output">{shown}</pre>
+      <div className="hm-tool-group__row-tools">
+        {capped ? (
+          <button type="button" className="hm-tool-group__row-more" onClick={() => setShowAll(true)}>
+            Show all {lines.length} lines
+          </button>
+        ) : null}
+        <button type="button" className="hm-tool-group__row-more hm-tool-group__row-copy" onClick={() => void copy()} aria-live="polite">
+          <Icon name={copied ? 'check' : 'copy'} size={12} />
+          <span>{copied ? 'Copied' : 'Copy'}</span>
+        </button>
+      </div>
+    </>
+  );
+}
+
 interface ToolGroupProps {
   tools: ToolCall[];
   rpc: RpcClient;
@@ -72,7 +110,7 @@ function ToolRow({ tool, rpc, streaming, approvalsPending }: ToolRowProps) {
       {expanded && view.detail && (
         <div className="hm-tool-group__row-detail">
           {view.detailLabel && <div className="hm-tool-group__row-detail-label">{view.detailLabel}</div>}
-          <pre className="hm-tool-group__row-output">{view.detail}</pre>
+          <OutputBlock text={view.detail} />
         </div>
       )}
       {isPendingTool && <ApprovalInline rpc={rpc} tool={tool} />}
@@ -90,10 +128,10 @@ export function ToolGroup({ tools, rpc, streaming }: ToolGroupProps) {
   return (
     <div className="hm-tool-group">
       <div className="hm-tool-group__header">
-        <span className="hm-tool-group__header-icon">
-          <Icon name="settings" size={12} />
+        <span className="hm-tool-group__header-icon" aria-hidden="true">
+          <Icon name="terminal" size={12} />
         </span>
-        <span className="hm-tool-group__header-title">Tool actions</span>
+        <span className="hm-tool-group__header-title hm-sr-only">Tool actions</span>
         <span className="hm-tool-group__header-meta">
           {tools.length} {tools.length === 1 ? 'step' : 'steps'} · {stateLabel}
         </span>

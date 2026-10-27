@@ -12,8 +12,8 @@ export interface MessageBubbleProps {
   rest?: RestClient | undefined;
   isLast?: boolean;
   streaming?: boolean;
+  /** The gateway's one-line status for the reply in progress ("Calling tool"). */
   liveStatus?: string;
-  liveFace?: string | undefined;
   pendingApprovals?: Approval[] | undefined;
   activeSessionIds?: string[] | undefined;
   /** Epoch seconds of the prompt this reply answers; the elapsed time counts from it. */
@@ -30,7 +30,6 @@ export function areMessageBubblePropsEqual(prev: MessageBubbleProps, next: Messa
     prev.isLast === next.isLast &&
     prev.streaming === next.streaming &&
     prev.liveStatus === next.liveStatus &&
-    prev.liveFace === next.liveFace &&
     prev.pendingApprovals === next.pendingApprovals &&
     prev.activeSessionIds === next.activeSessionIds &&
     prev.elapsedFrom === next.elapsedFrom &&

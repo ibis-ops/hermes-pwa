@@ -9,14 +9,14 @@ interface TaskCardProps {
 function priorityBadge(priority: number | undefined) {
   const p = typeof priority === 'number' ? priority : 0;
   if (p <= 0) return null;
-  let color = '#6b7384';
-  let background = '#f0f2f9';
+  let color = 'var(--hm-color-text-muted)';
+  let background = 'var(--hm-color-fill)';
   if (p >= 10) {
-    color = '#c4413c';
-    background = '#fde8e8';
+    color = 'var(--hm-color-danger-strong)';
+    background = 'var(--hm-color-danger-bg)';
   } else if (p >= 5) {
-    color = '#2540ff';
-    background = '#eef1ff';
+    color = 'var(--hm-color-primary)';
+    background = 'var(--hm-color-primary-tint)';
   }
   return (
     <span className="hm-task-card__priority" style={{ color, background }}>

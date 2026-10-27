@@ -35,17 +35,17 @@ const COLUMN_LABEL: Record<TaskStatus, string> = {
 };
 
 const COLUMN_TINT: Record<TaskStatus, string> = {
-  triage: '#7c8798',
-  todo: '#4a5aef',
-  scheduled: '#8b5cf6',
-  ready: '#2540ff',
-  running: '#15a06a',
-  blocked: '#dc4b46',
-  review: '#c2790f',
-  done: '#15a06a',
-  archived: '#9aa2b4',
-  backlog: '#9aa2b4',
-  in_progress: '#2540ff',
+  triage: 'var(--hm-color-text-muted)',
+  todo: 'var(--hm-color-primary)',
+  scheduled: 'var(--hm-color-purple)',
+  ready: 'var(--hm-color-primary)',
+  running: 'var(--hm-color-success)',
+  blocked: 'var(--hm-color-danger)',
+  review: 'var(--hm-color-warning)',
+  done: 'var(--hm-color-success)',
+  archived: 'var(--hm-color-text-faint)',
+  backlog: 'var(--hm-color-text-faint)',
+  in_progress: 'var(--hm-color-primary)',
 };
 
 const MOVE_STATUSES: TaskStatus[] = [

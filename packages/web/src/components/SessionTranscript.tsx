@@ -95,7 +95,6 @@ export function SessionTranscript({ session, rpc, rest, onClose }: SessionTransc
                   isLast={false}
                   streaming={false}
                   liveStatus=""
-                  liveFace={undefined}
                   pendingApprovals={[]}
                   activeSessionIds={[]}
                   elapsedFrom={m.role === 'assistant' ? promptTimeBefore(messages, index) : undefined}

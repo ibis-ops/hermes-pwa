@@ -7,7 +7,6 @@ import {
   useProfilesStore,
   useActivityStore,
   useConfigStore,
-  sessionSourceLabel,
   type RpcClient,
   type RestClient,
 } from '@hermes-pwa/core';
@@ -112,7 +111,7 @@ export function Chat({ rpc, rest }: ChatProps) {
   } = useChatStore();
   const pendingApprovals = useActivityStore(useShallow((s) => selectPendingApprovals(s.items)));
   const pendingApprovalCount = pendingApprovals.length;
-  const { sessions, load } = useSessionsStore();
+  const load = useSessionsStore((s) => s.load);
   const config = useConfigStore((s) => s.config);
   const loadConfig = useConfigStore((s) => s.load);
   const busyInputMode = normalizeBusyInputMode(config?.display?.busy_input_mode);
@@ -136,6 +135,8 @@ export function Chat({ rpc, rest }: ChatProps) {
   const voiceAudioSequenceRef = useRef(0);
   const [liveStatus, setLiveStatus] = useState<LiveStatus>({ text: '' });
   const [composerLayoutVersion, setComposerLayoutVersion] = useState(0);
+  // Shown when the reply grows below the fold because the person scrolled up.
+  const [newBelow, setNewBelow] = useState(false);
   // The gateway runs every profile and binds a session to the one named at
   // session.create, so the selected bot (activeName) is the one to talk to;
   // currentName is only the profile the gateway process was launched with.
@@ -529,7 +530,14 @@ export function Chat({ rpc, rest }: ChatProps) {
   useEffect(() => {
     const el = listRef.current;
     const shouldForce = forceScrollRef.current;
-    if (!el || (!atBottomRef.current && !shouldForce) || scrollFrameRef.current !== null) return;
+    if (!el) return;
+    if (!atBottomRef.current && !shouldForce) {
+      // Content changed while the person was reading further up: offer a way
+      // back down instead of yanking the list.
+      if (el.scrollHeight - el.clientHeight - el.scrollTop > 40) setNewBelow(true);
+      return;
+    }
+    if (scrollFrameRef.current !== null) return;
     const scroll = () => {
       scrollFrameRef.current = null;
       const current = listRef.current;
@@ -563,19 +571,17 @@ export function Chat({ rpc, rest }: ChatProps) {
     const el = listRef.current;
     if (!el) return;
     atBottomRef.current = el.scrollTop + el.clientHeight >= el.scrollHeight - 20;
+    if (atBottomRef.current) setNewBelow(false);
   }
 
-  const currentSession = sessions.find((s) => {
-    if (!storedSessionId) return false;
-    return s.id === storedSessionId || s.lineageRootId === storedSessionId;
-  });
-  const branchLabel = currentSession?.source
-    ? (sessionSourceLabel(currentSession.source) ?? 'branch')
-    : currentSession?.cwd ?? 'branch';
+  const scrollToLatest = useCallback(() => {
+    const el = listRef.current;
+    if (!el) return;
+    atBottomRef.current = true;
+    setNewBelow(false);
+    el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
+  }, []);
 
-  const activeProfile = useProfilesStore((s) => s.profiles.find((p) => p.name === s.activeName));
-  const profileLabel = activeProfile?.displayName ?? activeName ?? 'default';
-  const modelLabel = activeProfile?.model ?? 'GPT-5.5';
   const busySubmitLabel =
     busyInputMode === 'queue' ? 'Queue message' : busyInputMode === 'interrupt' ? 'Interrupt and send' : 'Steer agent';
   const busyPlaceholder =
@@ -780,18 +786,6 @@ export function Chat({ rpc, rest }: ChatProps) {
         aria-busy={streaming}
         aria-label="Conversation"
       >
-        <div className="hm-chat__context">
-          <span className="hm-chat__context-chip hm-chat__context-chip--primary">
-            <Icon name="robot" size={12} />
-            {profileLabel}
-          </span>
-          <span className="hm-chat__context-chip hm-chat__context-chip--secondary">{modelLabel}</span>
-          <span className="hm-chat__context-chip hm-chat__context-chip--secondary">
-            <Icon name="branch" size={12} />
-            {branchLabel}
-          </span>
-        </div>
-
         {messages.length === 0 ? (
           <div className="hm-empty-state hm-empty-state--chat">
             <img className="hm-empty-state__logo" src="./icons/icon-192.png" alt="" aria-hidden="true" />
@@ -824,7 +818,6 @@ export function Chat({ rpc, rest }: ChatProps) {
                   isLast={index === messages.length - 1}
                   streaming={streaming}
                   liveStatus={index === messages.length - 1 && streaming ? liveStatus.text : ''}
-                  liveFace={undefined}
                   pendingApprovals={pendingApprovalsForMessage(pendingApprovals, index, messages.length)}
                   activeSessionIds={activeSessionIds}
                   elapsedFrom={promptAt}
@@ -852,7 +845,13 @@ export function Chat({ rpc, rest }: ChatProps) {
           </div>
         ))}
 
-        {error ? <div className="hm-warning-banner hm-warning-banner--error">{error}</div> : null}
+        {error ? <div className="hm-warning-banner hm-warning-banner--error" role="alert">{error}</div> : null}
+        {newBelow ? (
+          <button type="button" className="hm-chat__jump" onClick={scrollToLatest} data-testid="jump-to-latest">
+            <Icon name="chevD" size={14} />
+            <span>{streaming ? 'New reply' : 'Latest'}</span>
+          </button>
+        ) : null}
       </div>
       <Composer
         onSend={handleSend}

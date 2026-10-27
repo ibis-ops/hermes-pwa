@@ -1,4 +1,4 @@
-import { render, screen, waitFor, fireEvent } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent, within } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import type { RestClient } from '@hermes-pwa/core';
 import { FileCards } from './FileCards';
@@ -119,7 +119,7 @@ describe('MessageBubble file handling', () => {
     const block = screen.getByTestId('code-block');
     expect(block).toHaveAttribute('data-language', 'python');
     expect(screen.getByText('Python')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /Copy/ })).toBeInTheDocument();
+    expect(within(block).getByRole('button', { name: /Copy/ })).toBeInTheDocument();
     expect(block.querySelector('code.language-python')).not.toBeNull();
   });
 
