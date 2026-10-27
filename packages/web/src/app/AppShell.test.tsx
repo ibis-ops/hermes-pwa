@@ -57,6 +57,11 @@ const restMock = {
   mcpServers: vi.fn().mockResolvedValue([]),
   mcpToggle: vi.fn().mockResolvedValue(undefined),
   skillsList: vi.fn().mockResolvedValue([]),
+  speechVoices: vi.fn().mockResolvedValue({ available: false, voices: [], defaultVoice: undefined }),
+  latestSession: vi.fn().mockResolvedValue(undefined),
+  botGraph: vi.fn().mockResolvedValue(undefined),
+  saveBotGraph: vi.fn(async (map: unknown) => map),
+  speechAudio: vi.fn().mockRejectedValue(new Error('not in tests')),
 } as unknown as import('@hermes-pwa/core').RestClient;
 
 describe('AppShell', () => {
@@ -126,6 +131,15 @@ describe('AppShell', () => {
     expect(window.history.state?.screen).toBe('sessions');
     fireEvent.click(within(tabs).getByRole('button', { name: /More/ }));
     expect(screen.getByRole('dialog', { name: /navigation menu/i })).toBeInTheDocument();
+  });
+
+  it('keeps Bots in the tab bar, second after Chat', async () => {
+    render(<AppShell connectionState="connected" rpc={rpcMock} rest={restMock} />);
+    const tabs = screen.getByTestId('tab-bar');
+    expect(within(tabs).getAllByRole('button').map((tab) => tab.textContent)).toEqual(['Chat', 'Bots', 'Approvals', 'Sessions', 'More']);
+    fireEvent.click(within(tabs).getByRole('button', { name: 'Bots' }));
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'Bots' })).toBeInTheDocument());
+    expect(window.history.state?.screen).toBe('profiles');
   });
 
   it('pushes a history entry for in-app navigation and steps back on popstate', async () => {

@@ -31,4 +31,22 @@ describe('SkillPicker', () => {
     fireEvent.click(screen.getByText('None'));
     expect(onPick).toHaveBeenCalledWith(undefined);
   });
+
+  it('floats over the composer without a dimmed sheet, and closes on Done, Escape or a tap outside', async () => {
+    const rest = { skillsList: vi.fn().mockResolvedValue(skills) } as unknown as RestClient;
+    const onPick = vi.fn();
+    const onClose = vi.fn();
+    render(<SkillPicker rest={rest} presentation="popover" title="Use a skill" onPick={onPick} onClose={onClose} />);
+    await waitFor(() => expect(screen.getAllByTestId('skill-row')).toHaveLength(2));
+    expect(screen.getByTestId('skill-popover')).toBeInTheDocument();
+    expect(document.querySelector('.hm-sheet__overlay')).toBeNull();
+
+    fireEvent.click(screen.getByText('/pdf'));
+    expect(onPick).toHaveBeenCalledWith(expect.objectContaining({ name: 'pdf' }));
+
+    fireEvent.click(screen.getByRole('button', { name: 'Done' }));
+    fireEvent.keyDown(document, { key: 'Escape' });
+    fireEvent.click(screen.getByRole('button', { name: 'Close skills' }));
+    expect(onClose).toHaveBeenCalledTimes(3);
+  });
 });

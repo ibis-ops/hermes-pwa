@@ -106,4 +106,22 @@ export { toAgentHistory, toAgentRun, groupRunsByDay } from './domain/agent-histo
 export type { Artifact } from './domain/artifact';
 export type { HermesConfig } from './domain/config';
 export { extractFileRefs, stripAttachmentRefs, attachmentRefs, localFileUrl, localFileInfoUrl, MAX_FILE_REFS_PER_MESSAGE, type FileRef, type FileRefKind } from './domain/file-refs';
-export type { LocalFileInfo } from './transport/rest';
+export type { LocalFileInfo, SpeechAudio, SpeechVoice, SpeechVoices } from './transport/rest';
+export {
+  TEAM_ROLE_MAX_CHARS,
+  addToMap,
+  botLabel,
+  defaultTeamMap,
+  descendantsOf,
+  possibleBosses,
+  removeFromMap,
+  sameTeamMap,
+  teamTree,
+  toTeamMap,
+  topBot,
+  updateNode,
+  withBots,
+  type TeamMap,
+  type TeamNode,
+  type TeamTreeNode,
+} from './domain/teamMap';

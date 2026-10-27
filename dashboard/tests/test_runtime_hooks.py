@@ -16,6 +16,7 @@ def _load_runtime_module():
     module_name = "hermes_pwa_runtime_test"
     sys.modules.pop(module_name, None)
     sys.modules.pop(f"{module_name}.push_common", None)
+    sys.modules.pop(f"{module_name}.bot_graph", None)
     spec = importlib.util.spec_from_file_location(
         module_name,
         _RUNTIME_ROOT / "__init__.py",
@@ -46,6 +47,7 @@ class RuntimeHookTests(unittest.TestCase):
                 ("pre_approval_request", "_on_pre_approval_request"),
                 ("post_approval_response", "_on_post_approval_response"),
                 ("post_llm_call", "_on_post_llm_call"),
+                ("pre_llm_call", "_on_pre_llm_call"),
             ],
         )
 

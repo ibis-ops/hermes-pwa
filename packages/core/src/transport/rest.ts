@@ -1,3 +1,4 @@
+import { toTeamMap, type TeamMap } from '../domain/teamMap';
 import type { Http } from './http';
 import {
   PWA_BROWSE_ONLY_SESSION_SOURCES,
@@ -208,6 +209,34 @@ export interface LocalFileInfo {
   image: boolean;
 }
 
+/** A voice on the Mac that can read replies aloud. */
+export interface SpeechVoice {
+  /** The exact name the Mac's speech uses. */
+  id: string;
+  /** The name to show. */
+  name: string;
+  /** BCP 47, e.g. en-US. */
+  lang: string;
+  quality: 'premium' | 'enhanced' | 'standard';
+}
+
+export interface SpeechVoices {
+  /** False when Hermes is not on a Mac: the phone reads with its own voice. */
+  available: boolean;
+  /** Best first. */
+  voices: SpeechVoice[];
+  /** The voice used when none is picked. */
+  defaultVoice: string | undefined;
+}
+
+export interface SpeechAudio {
+  /** Base64 audio. */
+  audio: string;
+  mimeType: string;
+  /** The voice that read it. */
+  voice: string | undefined;
+}
+
 export interface RestClient {
   status(): Promise<GatewayStatus>;
   providers(): Promise<AuthProvider[]>;
@@ -295,6 +324,8 @@ export interface RestClient {
   cronDeliveryTargets(): Promise<CronDeliveryTarget[]>;
 
   profileSessions(): Promise<Session[]>;
+  /** One bot's most recent local chat, for the Bots list (undefined when it has none). */
+  latestSession(profile: string): Promise<Session | undefined>;
   sessionMessages(sessionId: string, profile?: string): Promise<unknown>;
   /** Signal, scheduled and delegated sessions across profiles, for read-only browsing. */
   browseOnlySessions(): Promise<Session[]>;
@@ -317,6 +348,14 @@ export interface RestClient {
 
   audioTranscribe(dataUrl: string, mimeType?: string): Promise<string>;
   audioSpeak(text: string): Promise<{ dataUrl: string; mimeType?: string | undefined; provider?: string | undefined }>;
+  /** The team map drawn in the Bots tab, or undefined when none was saved. */
+  botGraph(): Promise<TeamMap | undefined>;
+  /** Save the team map; bots learn their place on their next turn. */
+  saveBotGraph(map: TeamMap): Promise<TeamMap>;
+  /** The Mac's voices for reading replies aloud (the plugin's own speech, not Hermes TTS). */
+  speechVoices(): Promise<SpeechVoices>;
+  /** One piece of a reply read aloud on the Mac. The text stays on the Mac. */
+  speechAudio(text: string, options?: { voice?: string | undefined; rate?: number | undefined; signal?: AbortSignal | undefined }): Promise<SpeechAudio>;
   fileUpload(path: string, dataUrl: string, overwrite?: boolean): Promise<unknown>;
   /** Name, size and type of a file on the Hermes host, via the plugin's allowlisted file route. */
   localFileInfo(path: string): Promise<LocalFileInfo>;
@@ -695,6 +734,12 @@ export function makeRestClient(http: Http): RestClient {
       );
     },
 
+    async latestSession(profile: string): Promise<Session | undefined> {
+      const path = profileSessionsPath(profile, PWA_NON_LOCAL_SESSION_SOURCES).replace('limit=100', 'limit=1');
+      const raw = await http<Record<string, unknown>>(path, { skipProfile: true });
+      return sessionsFromResult(raw)[0];
+    },
+
     async profileSessions(): Promise<Session[]> {
       // Current release-scope PWA shows local TUI/CLI/Desktop-style sessions only.
       // Messaging sources stay out of ordinary PWA session UX until a later product decision.
@@ -822,6 +867,63 @@ export function makeRestClient(http: Http): RestClient {
         dataUrl,
         mimeType: typeof raw.mime_type === 'string' ? raw.mime_type : undefined,
         provider: typeof raw.provider === 'string' ? raw.provider : undefined,
+      };
+    },
+
+    async botGraph(): Promise<TeamMap | undefined> {
+      const raw = await http<Record<string, unknown>>('/api/plugins/hermes-pwa/bots/graph', { skipProfile: true });
+      return toTeamMap(raw?.graph);
+    },
+
+    async saveBotGraph(map: TeamMap): Promise<TeamMap> {
+      const raw = await http<Record<string, unknown>>('/api/plugins/hermes-pwa/bots/graph', {
+        method: 'PUT',
+        body: JSON.stringify({ nodes: map.nodes }),
+        skipProfile: true,
+      });
+      const saved = toTeamMap(raw?.graph);
+      if (!saved) throw new Error('The team map was not saved.');
+      return saved;
+    },
+
+    async speechVoices(): Promise<SpeechVoices> {
+      const raw = await http<Record<string, unknown>>('/api/plugins/hermes-pwa/speech/voices', { skipProfile: true });
+      const voices = Array.isArray(raw.voices) ? raw.voices : [];
+      return {
+        available: raw.available === true,
+        voices: voices.flatMap((entry): SpeechVoice[] => {
+          if (!entry || typeof entry !== 'object') return [];
+          const item = entry as Record<string, unknown>;
+          if (typeof item.id !== 'string' || !item.id) return [];
+          const quality = item.quality === 'premium' || item.quality === 'enhanced' ? item.quality : 'standard';
+          return [{
+            id: item.id,
+            name: typeof item.name === 'string' && item.name ? item.name : item.id,
+            lang: typeof item.lang === 'string' ? item.lang : '',
+            quality,
+          }];
+        }),
+        defaultVoice: typeof raw.default === 'string' && raw.default ? raw.default : undefined,
+      };
+    },
+
+    async speechAudio(
+      text: string,
+      options: { voice?: string | undefined; rate?: number | undefined; signal?: AbortSignal | undefined } = {},
+    ): Promise<SpeechAudio> {
+      const raw = await http<Record<string, unknown>>('/api/plugins/hermes-pwa/speech', {
+        method: 'POST',
+        body: JSON.stringify({ text, ...(options.voice ? { voice: options.voice } : {}), rate: options.rate ?? 1 }),
+        timeoutMs: AUDIO_HTTP_TIMEOUT_MS,
+        skipProfile: true,
+        ...(options.signal ? { signal: options.signal } : {}),
+      });
+      const audio = typeof raw.audio === 'string' ? raw.audio : '';
+      if (!audio) throw new Error('Speech response did not include audio.');
+      return {
+        audio,
+        mimeType: typeof raw.mimeType === 'string' && raw.mimeType ? raw.mimeType : 'audio/mp4',
+        voice: typeof raw.voice === 'string' && raw.voice ? raw.voice : undefined,
       };
     },
 

@@ -22,6 +22,9 @@ import { ConfirmSheet } from '../components/ActionSheet';
 import { pendingApprovalsForMessage, selectPendingApprovals } from '../lib/pendingApprovals';
 import { formatDividerTime, needsTimeDivider, toMillis } from '../lib/chatTime';
 import { DEFAULT_SKILL_EVENT, applyDefaultSkill, readDefaultSkill } from '../lib/defaultSkill';
+import { dataUrlToObjectUrl, silentAudioUrl } from '../lib/audioBlob';
+import { readAloud } from '../lib/readAloud';
+import { useReadAloud } from '../hooks/useReadAloud';
 
 interface ChatProps {
   rpc: RpcClient;
@@ -29,9 +32,6 @@ interface ChatProps {
 }
 
 type BusyInputMode = 'queue' | 'steer' | 'interrupt';
-
-const SILENT_WAV_DATA_URL =
-  'data:audio/wav;base64,UklGRigAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQQAAAAAAA==';
 
 function normalizeBusyInputMode(value: unknown): BusyInputMode {
   return value === 'queue' || value === 'interrupt' || value === 'steer' ? value : 'queue';
@@ -80,6 +80,9 @@ export function Chat({ rpc, rest }: ChatProps) {
   const busyInputMode = normalizeBusyInputMode(config?.display?.busy_input_mode);
   const activeName = useProfilesStore((s) => s.activeName);
   const currentName = useProfilesStore((s) => s.currentName);
+  const reading = useReadAloud();
+  // Stable, so a bubble only re-renders when its own reading state changes.
+  const handleReadAloud = useCallback((messageId: string, text: string) => readAloud.toggle(messageId, text), []);
   const listRef = useRef<HTMLDivElement>(null);
   const atBottomRef = useRef(true);
   const forceScrollRef = useRef(false);
@@ -308,7 +311,8 @@ export function Chat({ rpc, rest }: ChatProps) {
     const audio = voiceAudioRef.current ?? new Audio();
     audio.setAttribute('playsinline', '');
     voiceAudioRef.current = audio;
-    if (!audio.src) audio.src = SILENT_WAV_DATA_URL;
+    // blob:, not data: the app's content security policy refuses data: media.
+    if (!audio.src) audio.src = silentAudioUrl();
     void audio
       .play()
       .then(() => {
@@ -330,27 +334,34 @@ export function Chat({ rpc, rest }: ChatProps) {
       const audio = voiceAudioRef.current ?? new Audio();
       audio.setAttribute('playsinline', '');
       voiceAudioRef.current = audio;
-      audio.src = response.dataUrl;
-      await new Promise<void>((resolve, reject) => {
-        const cleanup = () => {
-          audio.removeEventListener('ended', onEnded);
-          audio.removeEventListener('error', onError);
-        };
-        const onEnded = () => {
-          cleanup();
-          resolve();
-        };
-        const onError = () => {
-          cleanup();
-          reject(new Error('Voice playback failed.'));
-        };
-        audio.addEventListener('ended', onEnded, { once: true });
-        audio.addEventListener('error', onError, { once: true });
-        void audio.play().catch((error: unknown) => {
-          cleanup();
-          reject(error instanceof Error ? error : new Error('Voice playback was blocked.'));
+      // Hermes answers with a data: URL, which the content security policy
+      // refuses for media; the same bytes as a blob: URL play.
+      const objectUrl = dataUrlToObjectUrl(response.dataUrl);
+      audio.src = objectUrl;
+      try {
+        await new Promise<void>((resolve, reject) => {
+          const cleanup = () => {
+            audio.removeEventListener('ended', onEnded);
+            audio.removeEventListener('error', onError);
+          };
+          const onEnded = () => {
+            cleanup();
+            resolve();
+          };
+          const onError = () => {
+            cleanup();
+            reject(new Error('Voice playback failed.'));
+          };
+          audio.addEventListener('ended', onEnded, { once: true });
+          audio.addEventListener('error', onError, { once: true });
+          void audio.play().catch((error: unknown) => {
+            cleanup();
+            reject(error instanceof Error ? error : new Error('Voice playback was blocked.'));
+          });
         });
-      });
+      } finally {
+        URL.revokeObjectURL(objectUrl);
+      }
       if (ownSequence === voiceAudioSequenceRef.current) {
         audio.removeAttribute('src');
         audio.load();
@@ -443,6 +454,9 @@ export function Chat({ rpc, rest }: ChatProps) {
                   elapsedFrom={promptAt}
                   onInterruptSteer={index === interruptSteerIndex ? askInterruptSteer : undefined}
                   stopped={index === stoppedIndex}
+                  readAloudStatus={reading.messageId === m.id ? reading.status : 'idle'}
+                  readAloudError={reading.messageId === m.id ? reading.error : undefined}
+                  onReadAloud={m.role === 'assistant' ? handleReadAloud : undefined}
                 />
               </div>
             );

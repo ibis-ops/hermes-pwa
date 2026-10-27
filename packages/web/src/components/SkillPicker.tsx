@@ -11,6 +11,12 @@ interface SkillPickerProps {
   selected?: string | undefined;
   /** Offer a "None" row (for clearing a default). */
   allowNone?: boolean;
+  /**
+   * `popover` floats above the composer like the "/" list and dims nothing,
+   * so the chat stays in view; `sheet` (the default) is a tall sheet for
+   * settings.
+   */
+  presentation?: 'sheet' | 'popover';
   onPick: (skill: Skill | undefined) => void;
   onClose: () => void;
 }
@@ -28,7 +34,15 @@ function categoryLabel(category: string | undefined): string {
  * The Hermes skills as a grouped, searchable list. Picking one hands back the
  * skill; callers turn it into a `/slug` command.
  */
-export function SkillPicker({ rest, title = 'Skills', selected, allowNone = false, onPick, onClose }: SkillPickerProps) {
+export function SkillPicker({
+  rest,
+  title = 'Skills',
+  selected,
+  allowNone = false,
+  presentation = 'sheet',
+  onPick,
+  onClose,
+}: SkillPickerProps) {
   const [skills, setSkills] = useState<Skill[] | undefined>(undefined);
   const [error, setError] = useState<string | undefined>(undefined);
   const [query, setQuery] = useState('');
@@ -50,6 +64,16 @@ export function SkillPicker({ rest, title = 'Skills', selected, allowNone = fals
     };
   }, [rest]);
 
+  // The popover has no sheet around it to take Escape.
+  useEffect(() => {
+    if (presentation !== 'popover') return undefined;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onClose();
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, [presentation, onClose]);
+
   const groups = useMemo(() => {
     const needle = query.trim().toLowerCase();
     const matching = (skills ?? []).filter(
@@ -69,22 +93,25 @@ export function SkillPicker({ rest, title = 'Skills', selected, allowNone = fals
     return [...byCategory.entries()].sort(([a], [b]) => (a === 'Other' ? 1 : b === 'Other' ? -1 : a.localeCompare(b)));
   }, [skills, query]);
 
-  return (
-    <BottomSheet title={title} onClose={onClose} className="hm-sheet--skills" contentClassName="hm-skill-picker">
-      <div className="hm-skill-picker__search">
-        <Icon name="search" size={16} />
-        <input
-          type="search"
-          value={query}
-          onChange={(event) => setQuery(event.target.value)}
-          placeholder="Search skills"
-          aria-label="Search skills"
-          autoCapitalize="none"
-          autoCorrect="off"
-          spellCheck={false}
-          enterKeyHint="search"
-        />
-      </div>
+  const search = (
+    <div className="hm-skill-picker__search">
+      <Icon name="search" size={16} />
+      <input
+        type="search"
+        value={query}
+        onChange={(event) => setQuery(event.target.value)}
+        placeholder="Search skills"
+        aria-label="Search skills"
+        autoCapitalize="none"
+        autoCorrect="off"
+        spellCheck={false}
+        enterKeyHint="search"
+      />
+    </div>
+  );
+
+  const results = (
+    <>
       {error ? <div className="hm-warning-banner hm-warning-banner--error">{error}</div> : null}
       {skills === undefined && !error ? <SkeletonRows rows={5} label="Loading skills" /> : null}
       {allowNone && !query ? (
@@ -129,6 +156,32 @@ export function SkillPicker({ rest, title = 'Skills', selected, allowNone = fals
           })}
         </div>
       ))}
+    </>
+  );
+
+  if (presentation === 'popover') {
+    return (
+      <>
+        {/* Catches a tap outside to close; clear, so nothing goes dark. */}
+        <button type="button" className="hm-skill-popover__catcher" aria-label="Close skills" tabIndex={-1} onClick={onClose} />
+        <div className="hm-skill-popover hm-skill-picker" role="dialog" aria-label={title} data-testid="skill-popover">
+          <div className="hm-skill-popover__head">
+            <span className="hm-skill-popover__title">{title}</span>
+            <button type="button" className="hm-skill-popover__done" onClick={onClose}>
+              Done
+            </button>
+          </div>
+          <div className="hm-skill-popover__search">{search}</div>
+          <div className="hm-skill-popover__list">{results}</div>
+        </div>
+      </>
+    );
+  }
+
+  return (
+    <BottomSheet title={title} onClose={onClose} className="hm-sheet--skills" contentClassName="hm-skill-picker">
+      {search}
+      {results}
     </BottomSheet>
   );
 }

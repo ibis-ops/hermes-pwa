@@ -34,6 +34,12 @@ const required = [
   'plugin.yaml',
   '__init__.py',
   'push_common.py',
+  // plugin_api.py imports these at load; a package without them cannot start.
+  'local_files.py',
+  'agent_history.py',
+  'obsidian_activity.py',
+  'pwa_speech.py',
+  'bot_graph.py',
   'dashboard/manifest.json',
   'dashboard/plugin_api.py',
   'dashboard/dist/index.js',

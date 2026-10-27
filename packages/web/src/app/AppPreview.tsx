@@ -5,6 +5,7 @@
  */
 import { useEffect } from 'react';
 import {
+  HermesHttpError,
   makeRpcEvents,
   useConnectionStore,
   useSessionsStore,
@@ -235,6 +236,13 @@ const noopRest: RestClient = {
   kanbanTaskDetail:    () => Promise.reject(new Error('preview')),
   kanbanComment:       () => Promise.resolve(),
   profileSessions:     () => Promise.resolve(previewSessions),
+  latestSession:       (profile: string) => Promise.resolve(
+    profile === 'default' ? previewSessions[0] as unknown as Session
+      : profile === 'ops' ? { ...previewSessions[1], updatedAt: Date.now() - 26 * 60 * 60 * 1000 } as unknown as Session
+        : undefined,
+  ),
+  botGraph:            () => Promise.resolve(undefined),
+  saveBotGraph:        (map) => Promise.resolve({ ...map, version: 1 }),
   sessionMessages:     () => Promise.resolve({ messages: [] }),
   sessionUpdate:       () => Promise.resolve({ ok: true }),
   sessionDelete:       () => Promise.resolve({ ok: true }),
@@ -315,6 +323,17 @@ const noopRest: RestClient = {
   ] as Skill[]),
   audioTranscribe:     () => Promise.resolve(''),
   audioSpeak:          () => Promise.resolve({ dataUrl: 'data:audio/wav;base64,UklGRigAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQQAAAAAAA==', mimeType: 'audio/wav' }),
+  speechVoices:        () => Promise.resolve({
+    available: true,
+    defaultVoice: 'Samantha',
+    voices: [
+      { id: 'Ava (Premium)', name: 'Ava', lang: 'en-US', quality: 'premium' },
+      { id: 'Samantha', name: 'Samantha', lang: 'en-US', quality: 'standard' },
+      { id: 'Daniel', name: 'Daniel', lang: 'en-GB', quality: 'standard' },
+    ],
+  }),
+  // No Mac in the preview: read-aloud falls back to the browser's own voice.
+  speechAudio:         () => Promise.reject(new HermesHttpError(501, 'Not Implemented', 'preview')),
   fileUpload:          () => Promise.resolve({ path: 'preview.txt' }),
   localFileInfo:       () => Promise.resolve({ name: 'preview.png', size: 1024, mime: 'image/png', inline: true, image: true }),
   obsidianActivity:    () => Promise.resolve({

@@ -49,6 +49,16 @@ export function formatDayLabel(ms: number, nowMs = Date.now()): string {
   return (sameYear ? MONTH_DAY : MONTH_DAY_YEAR).format(ms);
 }
 
+/** A list row's time, as the Messages list shows it: "6:42 PM", "Yesterday", "Monday", "Oct 12". */
+export function formatListTime(ms: number, nowMs = Date.now()): string {
+  const dayDelta = Math.round((startOfDay(nowMs) - startOfDay(ms)) / DAY_MS);
+  if (dayDelta <= 0) return TIME.format(ms);
+  if (dayDelta === 1) return 'Yesterday';
+  if (dayDelta < 7) return WEEKDAY.format(ms);
+  const sameYear = new Date(ms).getFullYear() === new Date(nowMs).getFullYear();
+  return (sameYear ? MONTH_DAY : MONTH_DAY_YEAR).format(ms);
+}
+
 /** Short clock time for a single row, "6:42 PM". */
 export function formatClockTime(ms: number): string {
   return TIME.format(ms);

@@ -22,6 +22,11 @@ export interface MessageBubbleProps {
   onInterruptSteer?: (() => void) | undefined;
   /** The reply's turn was ended early (Stop, or an interrupt) rather than finished. */
   stopped?: boolean | undefined;
+  /** This reply's read-aloud state ('idle' unless it is the one being read). */
+  readAloudStatus?: 'idle' | 'loading' | 'playing' | undefined;
+  readAloudError?: string | undefined;
+  /** Read a reply aloud, or stop it. Stable across renders. */
+  onReadAloud?: ((messageId: string, text: string) => void) | undefined;
 }
 
 export function areMessageBubblePropsEqual(prev: MessageBubbleProps, next: MessageBubbleProps): boolean {
@@ -36,7 +41,10 @@ export function areMessageBubblePropsEqual(prev: MessageBubbleProps, next: Messa
     prev.activeSessionIds === next.activeSessionIds &&
     prev.elapsedFrom === next.elapsedFrom &&
     prev.onInterruptSteer === next.onInterruptSteer &&
-    prev.stopped === next.stopped
+    prev.stopped === next.stopped &&
+    prev.readAloudStatus === next.readAloudStatus &&
+    prev.readAloudError === next.readAloudError &&
+    prev.onReadAloud === next.onReadAloud
   );
 }
 

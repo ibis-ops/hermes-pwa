@@ -4924,3 +4924,792 @@ html.hm-keyboard-open .hm-chat .hm-composer {
   color: var(--hm-color-danger-text);
   font-weight: var(--hm-fw-medium);
 }
+
+/* ------------------------------------------------------------------ */
+/* Pass 13: skills over the composer, lighter sheet backdrops, Listen  */
+/* ------------------------------------------------------------------ */
+
+/* Sheets dim what is behind them lightly, as iOS does, instead of
+   blacking half the screen out. */
+.hm-sheet__overlay {
+  background: rgba(0, 0, 0, 0.26);
+}
+
+:root[data-theme='dark'] .hm-sheet__overlay {
+  background: rgba(0, 0, 0, 0.5);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme]) .hm-sheet__overlay {
+    background: rgba(0, 0, 0, 0.5);
+  }
+}
+
+/* "Use a skill" floats over the composer like the "/" list: the chat
+   stays in view and nothing goes dark. */
+.hm-skill-popover__catcher {
+  position: fixed;
+  inset: 0;
+  z-index: 19;
+  border: 0;
+  padding: 0;
+  background: transparent;
+}
+
+.hm-skill-popover {
+  position: absolute;
+  left: 10px;
+  right: 10px;
+  bottom: calc(100% - 2px);
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  max-height: min(56vh, 460px);
+  border: 1px solid var(--hm-color-border);
+  border-radius: 18px;
+  background: color-mix(in srgb, var(--hm-color-surface) 97%, transparent);
+  box-shadow: 0 10px 34px rgba(0, 0, 0, 0.16), 0 1px 4px rgba(0, 0, 0, 0.06);
+  -webkit-backdrop-filter: blur(18px);
+  backdrop-filter: blur(18px);
+  overflow: hidden;
+  transform-origin: bottom left;
+  animation: hm-popover-in 170ms var(--hm-ease-out);
+}
+
+/* With the keyboard up there is less room above the composer. */
+html.hm-keyboard-open .hm-skill-popover {
+  max-height: min(40vh, 300px);
+}
+
+.hm-skill-popover__head {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px 4px 16px;
+}
+
+.hm-skill-popover__title {
+  font-size: var(--hm-fs-label);
+  font-weight: var(--hm-fw-semibold);
+  color: var(--hm-color-text-muted);
+}
+
+.hm-skill-popover__done {
+  position: relative;
+  min-height: 30px;
+  padding: 0 4px;
+  border: 0;
+  background: transparent;
+  color: var(--hm-color-accent-text);
+  font: inherit;
+  font-weight: var(--hm-fw-semibold);
+}
+
+.hm-skill-popover__done::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 44px;
+  height: 44px;
+  transform: translate(-50%, -50%);
+}
+
+.hm-skill-popover__search {
+  flex: none;
+  padding: 4px 10px 8px;
+}
+
+.hm-skill-popover__search .hm-skill-picker__search {
+  position: static;
+  margin: 0;
+}
+
+.hm-skill-popover__list {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 0;
+  padding: 0 10px 10px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}
+
+@keyframes hm-popover-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hm-skill-popover {
+    animation: none;
+  }
+}
+
+/* Listen, under a reply. While it reads, it turns into Stop. */
+.hm-message__listen[data-status='playing'],
+.hm-message__listen[data-status='loading'] {
+  color: var(--hm-color-danger-text);
+}
+
+.hm-message__listen[data-status='loading'] svg {
+  animation: hm-listen-pulse 1s ease-in-out infinite;
+}
+
+@keyframes hm-listen-pulse {
+  50% {
+    opacity: 0.35;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hm-message__listen[data-status='loading'] svg {
+    animation: none;
+  }
+}
+
+.hm-message__meta-error {
+  color: var(--hm-color-danger-text);
+}
+
+.hm-sheet--voices .hm-sheet__content {
+  max-height: 80dvh;
+}
+
+.hm-sheet--voices .hm-sheet__title {
+  text-align: center;
+}
+
+.hm-voice-picker__note {
+  flex: none;
+  margin: 4px 6px 0;
+  font-size: var(--hm-fs-label);
+}
+
+/* ------------------------------------------------------------------ */
+/* Pass 14: Bots as the Messages list, bot cards, the team map         */
+/* ------------------------------------------------------------------ */
+
+.hm-bots {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 14px;
+  padding: 12px 16px calc(24px + env(safe-area-inset-bottom));
+  overflow-y: auto;
+}
+
+.hm-bots__switch {
+  flex: none;
+}
+
+.hm-bot-avatar {
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  border-radius: 50%;
+  color: #ffffff;
+  font-weight: var(--hm-fw-semibold);
+  line-height: 1;
+  letter-spacing: 0.02em;
+  text-shadow: 0 1px 1px rgba(0, 0, 0, 0.14);
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.hm-bots__list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border-radius: 12px;
+  background: var(--hm-color-surface);
+  overflow: hidden;
+}
+
+.hm-bot-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+/* Hairlines start at the text, as in Messages. */
+.hm-bot-row + .hm-bot-row::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  right: 0;
+  left: 70px;
+  height: 0.5px;
+  background: var(--hm-color-border);
+}
+
+.hm-bot-row__main {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  min-height: 74px;
+  padding: 10px 2px 10px 12px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+}
+
+.hm-bot-row__main:active {
+  background: var(--hm-color-fill);
+}
+
+.hm-bot-row__text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.hm-bot-row__top {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+}
+
+.hm-bot-row__name {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--hm-color-text);
+  font-size: var(--hm-fs-body);
+  font-weight: var(--hm-fw-semibold);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hm-bot-row__current {
+  flex: none;
+  padding: 1px 6px;
+  border-radius: 6px;
+  background: var(--hm-color-info-bg);
+  color: var(--hm-color-accent-text);
+  font-size: 0.6875rem;
+  font-weight: var(--hm-fw-semibold);
+}
+
+.hm-bot-row__time {
+  flex: none;
+  margin-left: auto;
+  color: var(--hm-color-text-muted);
+  font-size: var(--hm-fs-label);
+  white-space: nowrap;
+}
+
+.hm-bot-row__preview,
+.hm-bot-row__model {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hm-bot-row__preview {
+  color: var(--hm-color-text-muted);
+  font-size: var(--hm-fs-small);
+}
+
+.hm-bot-row__model {
+  color: var(--hm-color-text-faint);
+  font-size: var(--hm-fs-label);
+}
+
+.hm-bot-row__info {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  margin-right: 4px;
+  border: 0;
+  border-radius: 22px;
+  background: transparent;
+  color: var(--hm-color-accent-text);
+}
+
+.hm-bot-row__info:active {
+  background: var(--hm-color-fill);
+}
+
+.hm-bots__new {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 46px;
+  border: 0;
+  border-radius: 12px;
+  background: var(--hm-color-surface);
+  color: var(--hm-color-accent-text);
+  font: inherit;
+  font-weight: var(--hm-fw-semibold);
+}
+
+.hm-bots__new:active {
+  background: var(--hm-color-fill);
+}
+
+.hm-bots__footnote {
+  margin: 0 4px;
+  font-size: var(--hm-fs-label);
+  line-height: 1.4;
+}
+
+.hm-bots__reload {
+  border: 0;
+  background: transparent;
+  color: var(--hm-color-accent-text);
+  font: inherit;
+  font-weight: var(--hm-fw-semibold);
+}
+
+/* ── A bot's card ────────────────────────────────────────────────── */
+.hm-sheet--bot .hm-sheet__content,
+.hm-sheet--team-node .hm-sheet__content {
+  max-height: 92dvh;
+}
+
+.hm-sheet--bot .hm-sheet__title,
+.hm-sheet--team-node .hm-sheet__title {
+  text-align: center;
+}
+
+.hm-bot-details,
+.hm-team-node {
+  overflow-y: auto;
+}
+
+.hm-bot-details__hero {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 0 6px;
+  text-align: center;
+}
+
+.hm-bot-details__handle {
+  font-size: var(--hm-fs-small);
+}
+
+.hm-bot-details__desc {
+  max-width: 34ch;
+  margin: 0;
+  font-size: var(--hm-fs-small);
+  line-height: 1.35;
+}
+
+.hm-bot-details__message {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 40px;
+  margin-top: 6px;
+  padding: 0 20px;
+  border: 0;
+  border-radius: 20px;
+  background: var(--hm-color-primary);
+  color: var(--hm-color-primary-text);
+  font: inherit;
+  font-weight: var(--hm-fw-semibold);
+}
+
+.hm-bot-details__heading,
+.hm-team-node__heading {
+  flex: none;
+  margin: 10px 16px 2px;
+  color: var(--hm-color-text-muted);
+  font-size: var(--hm-fs-label);
+  font-weight: var(--hm-fw-regular);
+}
+
+.hm-bot-details__group,
+.hm-team-node__group {
+  flex: none;
+  border-radius: 12px;
+  background: var(--hm-color-surface-2);
+  overflow: hidden;
+}
+
+.hm-bot-details__field {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 46px;
+  padding: 4px 12px 4px 16px;
+  font-size: var(--hm-fs-body);
+}
+
+.hm-bot-details__field + .hm-bot-details__field::before,
+.hm-team-node__row + .hm-team-node__row::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  right: 0;
+  left: 16px;
+  height: 0.5px;
+  background: var(--hm-color-border);
+}
+
+.hm-bot-details__field > span:first-child {
+  flex: none;
+  white-space: nowrap;
+}
+
+.hm-bot-details__field .hm-select {
+  min-width: 0;
+  max-width: 55%;
+  border: 0;
+  background: transparent;
+  color: var(--hm-color-text-muted);
+  text-align: right;
+  text-align-last: right;
+}
+
+.hm-bot-details__field .hm-input {
+  width: 100%;
+  border: 0;
+  background: transparent;
+}
+
+.hm-bot-details__action {
+  flex: none;
+  min-height: 46px;
+  border: 0;
+  border-radius: 12px;
+  background: var(--hm-color-surface-2);
+  color: var(--hm-color-accent-text);
+  font: inherit;
+  font-weight: var(--hm-fw-semibold);
+}
+
+.hm-bot-details__action:disabled {
+  color: var(--hm-color-text-faint);
+}
+
+.hm-bot-details__action--destructive,
+.hm-team-node__remove {
+  margin-top: 8px;
+  color: var(--hm-color-danger-text);
+}
+
+.hm-bot-details__note,
+.hm-team-node__note {
+  flex: none;
+  margin: 2px 16px;
+  font-size: var(--hm-fs-label);
+  line-height: 1.4;
+}
+
+.hm-bot-details__note--error,
+.hm-team-node__note--error {
+  color: var(--hm-color-danger-text);
+}
+
+.hm-bot-details__confirm {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.hm-bot-details__confirm-text {
+  margin: 0 8px;
+  color: var(--hm-color-text-muted);
+  font-size: var(--hm-fs-small);
+  line-height: 1.4;
+  text-align: center;
+}
+
+/* ── The team map ────────────────────────────────────────────────── */
+.hm-team {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.hm-team__banner {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px 16px;
+  border-radius: 12px;
+  background: var(--hm-color-info-bg);
+}
+
+.hm-team__banner-title {
+  margin: 0;
+  color: var(--hm-color-text);
+  font-weight: var(--hm-fw-semibold);
+}
+
+.hm-team__banner-text {
+  margin: 0;
+  font-size: var(--hm-fs-small);
+  line-height: 1.4;
+}
+
+.hm-team__banner-save {
+  align-self: flex-start;
+  margin-top: 4px;
+}
+
+.hm-team__you-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 2px 4px;
+}
+
+.hm-team__you,
+.hm-team-node__you {
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--hm-color-text);
+  color: var(--hm-color-bg);
+  font-weight: var(--hm-fw-semibold);
+}
+
+.hm-team__you {
+  width: 36px;
+  height: 36px;
+  font-size: 0.75rem;
+}
+
+.hm-team__you-label {
+  color: var(--hm-color-text-muted);
+  font-size: var(--hm-fs-small);
+}
+
+/* The tree hangs from a line under Sean; each level steps in. */
+.hm-team__tree,
+.hm-team__children {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.hm-team__tree {
+  position: relative;
+  margin-left: 17px;
+  padding-left: 14px;
+}
+
+.hm-team__children {
+  position: relative;
+  margin: 0 0 0 17px;
+  padding-left: 14px;
+}
+
+.hm-team__branch {
+  position: relative;
+  padding-top: 6px;
+}
+
+/* A short arm from the line to each card... */
+.hm-team__branch::before {
+  content: '';
+  position: absolute;
+  top: 33px;
+  left: -14px;
+  width: 12px;
+  height: 1.5px;
+  background: var(--hm-color-border);
+}
+
+/* ...and the line itself, which stops at the last card's arm. */
+.hm-team__branch::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -14px;
+  width: 1.5px;
+  background: var(--hm-color-border);
+}
+
+.hm-team__branch:last-child::after {
+  bottom: auto;
+  height: 34px;
+}
+
+.hm-team__node {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 54px;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 12px;
+  background: var(--hm-color-surface);
+  color: inherit;
+  font: inherit;
+  text-align: left;
+}
+
+.hm-team__node:active {
+  background: var(--hm-color-fill);
+}
+
+.hm-team__node-text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.hm-team__node-name {
+  color: var(--hm-color-text);
+  font-weight: var(--hm-fw-semibold);
+}
+
+.hm-team__node-role,
+.hm-team__node-lines {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hm-team__node-role {
+  color: var(--hm-color-text-muted);
+  font-size: var(--hm-fs-small);
+}
+
+.hm-team__node-lines {
+  color: var(--hm-color-text-faint);
+  font-size: var(--hm-fs-label);
+}
+
+.hm-team__node-chevron {
+  flex: none;
+  color: var(--hm-color-text-faint);
+}
+
+.hm-team__heading {
+  margin: 8px 4px 0;
+  color: var(--hm-color-text-muted);
+  font-size: var(--hm-fs-label);
+  font-weight: var(--hm-fw-regular);
+}
+
+.hm-team__unmapped {
+  display: flex;
+  flex-direction: column;
+  border-radius: 12px;
+  background: var(--hm-color-surface);
+  overflow: hidden;
+}
+
+.hm-team__add {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 48px;
+  padding: 6px 12px;
+  border: 0;
+  background: transparent;
+  color: var(--hm-color-text);
+  font: inherit;
+  text-align: left;
+}
+
+.hm-team__add-label {
+  margin-left: auto;
+  color: var(--hm-color-accent-text);
+  font-size: var(--hm-fs-small);
+  font-weight: var(--hm-fw-semibold);
+}
+
+.hm-team__footnote {
+  margin: 6px 4px 0;
+  font-size: var(--hm-fs-label);
+  line-height: 1.4;
+}
+
+/* ── Editing one bot's place ─────────────────────────────────────── */
+.hm-team-node__field {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.hm-team-node__field .hm-team-node__heading {
+  margin: 4px 16px 0;
+}
+
+.hm-team-node__field textarea {
+  resize: none;
+}
+
+.hm-team-node__row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 46px;
+  padding: 6px 12px;
+  border: 0;
+  background: transparent;
+  color: var(--hm-color-text);
+  font: inherit;
+  text-align: left;
+}
+
+.hm-team-node__row svg {
+  color: var(--hm-color-accent-text);
+}
+
+.hm-team-node__row-label {
+  flex: 1;
+  min-width: 0;
+}
+
+.hm-team-node__you {
+  width: 28px;
+  height: 28px;
+  font-size: 0.625rem;
+}
+
+.hm-team-node__empty {
+  margin: 12px 16px;
+  font-size: var(--hm-fs-small);
+}
+
+.hm-team-node__remove {
+  flex: none;
+  min-height: 46px;
+  border: 0;
+  border-radius: 12px;
+  background: var(--hm-color-surface-2);
+  font: inherit;
+  font-weight: var(--hm-fw-semibold);
+}
+
+.hm-team-node__save {
+  width: 100%;
+}

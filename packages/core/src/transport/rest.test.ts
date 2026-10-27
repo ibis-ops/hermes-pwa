@@ -149,6 +149,21 @@ describe('makeRestClient', () => {
     expect(sessions.map((s) => s.id)).toEqual(['local-chat']);
   });
 
+  it('latestSession asks one bot for its single newest local chat', async () => {
+    httpMock.mockResolvedValueOnce({ sessions: [{ id: 'mgr-1', title: 'Clarify what happened', source: 'tui', last_active: 300 }] });
+
+    const latest = await client.latestSession('manager');
+
+    expect(queryForCall(0).get('profile')).toBe('manager');
+    expect(queryForCall(0).get('limit')).toBe('1');
+    expect(queryForCall(0).get('order')).toBe('recent');
+    expect(httpMock.mock.calls[0]?.[1]).toEqual({ skipProfile: true });
+    expect(latest?.title).toBe('Clarify what happened');
+
+    httpMock.mockResolvedValueOnce({ sessions: [] });
+    await expect(client.latestSession('quiet-bot')).resolves.toBeUndefined();
+  });
+
   it('profileSessions scopes the local slice to the active profile', async () => {
     client.setActiveProfile('dev');
     httpMock.mockResolvedValueOnce({ sessions: [{ id: 'dev-local', title: 'Dev local', source: 'tui', last_active: 1 }] });
@@ -427,6 +442,44 @@ describe('makeRestClient', () => {
       body: JSON.stringify({ text: 'hello' }),
       timeoutMs: 120_000,
     });
+  });
+
+  it('reads the Mac voices for read-aloud, dropping malformed entries', async () => {
+    httpMock.mockResolvedValueOnce({
+      available: true,
+      default: 'Ava (Premium)',
+      voices: [
+        { id: 'Ava (Premium)', name: 'Ava', lang: 'en-US', quality: 'premium' },
+        { id: 'Samantha', name: 'Samantha', lang: 'en-US', quality: 'odd' },
+        { name: 'no id' },
+        null,
+      ],
+    });
+    const result = await client.speechVoices();
+    expect(httpMock).toHaveBeenCalledWith('/api/plugins/hermes-pwa/speech/voices', { skipProfile: true });
+    expect(result).toEqual({
+      available: true,
+      defaultVoice: 'Ava (Premium)',
+      voices: [
+        { id: 'Ava (Premium)', name: 'Ava', lang: 'en-US', quality: 'premium' },
+        { id: 'Samantha', name: 'Samantha', lang: 'en-US', quality: 'standard' },
+      ],
+    });
+  });
+
+  it('asks the Mac to read one piece of a reply', async () => {
+    httpMock.mockResolvedValueOnce({ audio: 'QUFD', mimeType: 'audio/mp4', voice: 'Samantha' });
+    const result = await client.speechAudio('Read this.', { voice: 'Samantha', rate: 1.2 });
+    expect(httpMock).toHaveBeenCalledWith('/api/plugins/hermes-pwa/speech', {
+      method: 'POST',
+      body: JSON.stringify({ text: 'Read this.', voice: 'Samantha', rate: 1.2 }),
+      timeoutMs: 120_000,
+      skipProfile: true,
+    });
+    expect(result).toEqual({ audio: 'QUFD', mimeType: 'audio/mp4', voice: 'Samantha' });
+
+    httpMock.mockResolvedValueOnce({});
+    await expect(client.speechAudio('x')).rejects.toThrow('Speech response did not include audio.');
   });
 
   it('propagates HermesHttpError', async () => {

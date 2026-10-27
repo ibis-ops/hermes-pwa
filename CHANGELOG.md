@@ -5,6 +5,27 @@ All notable changes are documented here. The format follows
 
 ## Unreleased
 
+### Bots, read-aloud, and runs that keep going
+
+- **Runs no longer get cut off by accident.** Every send goes to Hermes marked "run after", so a
+  message sent while the chat only looked idle waits behind the running turn instead of meeting
+  the bot's busy setting, which by default interrupts it. Before a quiet turn is shown as idle the
+  app asks Hermes whether it is still running. Stop ignores taps for a moment after a send and takes
+  two taps; "Interrupt and send now" asks first; a reply that was stopped says "Stopped".
+- **Listen under replies.** Replies are read aloud by a voice on the Mac (macOS speech, Premium
+  voices included), in short pieces so playback starts fast, and the text stays on the Mac. When
+  Hermes is not on a Mac the phone's own voice reads. Settings has the voice, the speed and a sample.
+  Voice-mode replies play again: the app's content security policy refused their `data:` audio.
+- **Skills over the composer.** "Use a skill" opens a list over the composer, like the "/" list,
+  instead of a half-height sheet; every sheet now dims what is behind it lightly.
+- **Bots.** A Bots tab in the bottom bar. The Bots screen lists bots like Messages, newest chat
+  first, and tapping a bot opens its chat; each bot's card holds Message, its model settings, its
+  name and Delete.
+- **Team map.** The Bots screen's Team view draws who reports to whom and which bots can message
+  which, starting with the manager on top. The plugin tells each bot its place at the start of a
+  chat and after the map changes. It is a guide: nothing is blocked, and Hermes configuration is
+  not touched.
+
 ### Phone app polish
 
 - **Messages look.** Chat bubbles without headers or avatars, typing dots, time stamps between

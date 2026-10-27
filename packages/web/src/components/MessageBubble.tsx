@@ -73,7 +73,22 @@ function recoveredApprovalTool(
  * avatars and no names. The time of a message stays out of the way until the
  * bubble is tapped; the newest message always shows it.
  */
-function MessageBubbleView({ message, rpc, rest, isLast, streaming, liveStatus, pendingApprovals, activeSessionIds, elapsedFrom, onInterruptSteer, stopped }: MessageBubbleProps) {
+function MessageBubbleView({
+  message,
+  rpc,
+  rest,
+  isLast,
+  streaming,
+  liveStatus,
+  pendingApprovals,
+  activeSessionIds,
+  elapsedFrom,
+  onInterruptSteer,
+  stopped,
+  readAloudStatus = 'idle',
+  readAloudError,
+  onReadAloud,
+}: MessageBubbleProps) {
   // Tapping a bubble reveals its time stamp, as a swipe does in Messages.
   const [revealed, setRevealed] = useState(false);
   const toggleRevealed = () => setRevealed((value) => !value);
@@ -163,15 +178,24 @@ function MessageBubbleView({ message, rpc, rest, isLast, streaming, liveStatus, 
       ) : null}
 
       {!active && <FileCards refs={extractFileRefs(message.text)} rest={rest} tone="assistant" />}
-      {/* Older bubbles keep their time and Copy in the page, out of sight until
-          tapped or reached with the keyboard (screen readers always hear it). */}
-      <div className="hm-message__meta-reveal" data-collapsed={showMeta || active ? 'false' : 'true'}>
+      {/* Older bubbles keep their time, Copy and Listen in the page, out of
+          sight until tapped or reached with the keyboard (screen readers
+          always hear it). A reply being read keeps its Stop in view. */}
+      <div
+        className="hm-message__meta-reveal"
+        data-collapsed={showMeta || active || readAloudStatus !== 'idle' || readAloudError ? 'false' : 'true'}
+      >
         <MessageMeta
           message={message}
           active={active}
           elapsedFrom={elapsedFrom}
           copyText={hasText ? message.text : undefined}
           stopped={stopped}
+          readAloud={
+            hasText && onReadAloud
+              ? { status: readAloudStatus, error: readAloudError, onToggle: () => onReadAloud(message.id, message.text) }
+              : undefined
+          }
         />
       </div>
     </div>

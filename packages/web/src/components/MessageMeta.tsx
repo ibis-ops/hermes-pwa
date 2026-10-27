@@ -15,6 +15,14 @@ interface MessageMetaProps {
   copyText?: string | undefined;
   /** The reply's turn was ended early (Stop, or an interrupt), not finished. */
   stopped?: boolean | undefined;
+  /** A Listen control that reads the reply aloud, and stops it. */
+  readAloud?: ReadAloudControl | undefined;
+}
+
+export interface ReadAloudControl {
+  status: 'idle' | 'loading' | 'playing';
+  error?: string | undefined;
+  onToggle: () => void;
 }
 
 function elapsedSeconds(startMs: number | undefined, endMs: number | undefined): number | undefined {
@@ -29,7 +37,7 @@ function elapsedSeconds(startMs: number | undefined, endMs: number | undefined):
  * Copy control. The chat shows it for the newest message and for any bubble
  * the person taps.
  */
-export function MessageMeta({ message, active = false, elapsedFrom, action, copyText, stopped = false }: MessageMetaProps) {
+export function MessageMeta({ message, active = false, elapsedFrom, action, copyText, stopped = false, readAloud }: MessageMetaProps) {
   const [now, setNow] = useState(() => Date.now());
   const [copied, setCopied] = useState(false);
   useEffect(() => {
@@ -48,8 +56,9 @@ export function MessageMeta({ message, active = false, elapsedFrom, action, copy
   const time = stampMs !== undefined && !active ? formatClockTime(stampMs) : undefined;
   const canCopy = Boolean(copyText && copyText.trim()) && !active;
   const showStopped = stopped && isAssistant && !active;
+  const listen = readAloud && isAssistant && !active ? readAloud : undefined;
 
-  if (time === undefined && elapsed === undefined && !action && !canCopy && !showStopped) return null;
+  if (time === undefined && elapsed === undefined && !action && !canCopy && !showStopped && !listen) return null;
 
   async function copy() {
     if (!copyText) return;
@@ -100,6 +109,28 @@ export function MessageMeta({ message, active = false, elapsedFrom, action, copy
             <Icon name={copied ? 'check' : 'copy'} size={12} />
             <span>{copied ? 'Copied' : 'Copy'}</span>
           </button>
+        </>
+      ) : null}
+      {listen ? (
+        <>
+          {parts.length > 0 || action || canCopy ? ' · ' : ''}
+          <button
+            type="button"
+            className="hm-message__meta-action hm-message__listen"
+            data-status={listen.status}
+            onClick={listen.onToggle}
+            aria-label={listen.status === 'idle' ? 'Read this reply aloud' : 'Stop reading aloud'}
+            data-testid="read-aloud"
+          >
+            <Icon name={listen.status === 'idle' ? 'speaker' : 'stopSquare'} size={12} />
+            <span>{listen.status === 'loading' ? 'Loading…' : listen.status === 'playing' ? 'Stop' : 'Listen'}</span>
+          </button>
+          {listen.error ? (
+            <span className="hm-message__meta-error" role="status">
+              {' · '}
+              {listen.error}
+            </span>
+          ) : null}
         </>
       ) : null}
     </div>

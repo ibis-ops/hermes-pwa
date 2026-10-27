@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import inspect
 import json
 import logging
@@ -16,6 +17,7 @@ from urllib.request import Request as UrlRequest, urlopen
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Response, StreamingResponse
+from starlette.concurrency import run_in_threadpool
 
 router = APIRouter()
 _file_log = logging.getLogger("hermes_pwa.files")
@@ -35,6 +37,8 @@ from local_files import (  # noqa: E402
     response_headers as local_file_headers,
 )
 from agent_history import cached_history as agent_cached_history  # noqa: E402
+import pwa_speech  # noqa: E402
+import bot_graph  # noqa: E402
 from obsidian_activity import (  # noqa: E402
     NoteAccessError,
     cached_activity as obsidian_cached_activity,
@@ -1061,6 +1065,76 @@ def obsidian_note(vault: str = "", path: str = "") -> JSONResponse:
     except NoteAccessError as exc:
         raise HTTPException(status_code=exc.status, detail=exc.detail) from None
     return _data_response(payload)
+
+
+@router.get("/bots/graph", dependencies=[Depends(_require_dashboard_auth)])
+def bots_graph() -> JSONResponse:
+    """The team map Sean drew in the Bots tab, or null when none was saved."""
+    return _data_response({"graph": bot_graph.load()})
+
+
+@router.put("/bots/graph", dependencies=[Depends(_require_dashboard_auth)])
+async def save_bots_graph(request: Request) -> JSONResponse:
+    """Save the team map. Bots learn their place on their next turn; nothing is blocked."""
+    body = await _json_body(request)
+    try:
+        record = bot_graph.save(body)
+    except bot_graph.GraphError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return _data_response({"graph": record})
+
+
+@router.get("/speech/voices", dependencies=[Depends(_require_dashboard_auth)])
+def speech_voices() -> JSONResponse:
+    """The Mac's voices for reading replies aloud, best first.
+
+    ``available`` is false on a host without macOS ``say``: the phone then
+    reads with its own voice.
+    """
+    unavailable = {"available": False, "voices": [], "default": None}
+    if not pwa_speech.available():
+        return _data_response(unavailable)
+    try:
+        voices = pwa_speech.reading_voices(pwa_speech.list_voices())
+    except (pwa_speech.SpeechUnavailable, pwa_speech.SpeechError):
+        return _data_response(unavailable)
+    return _data_response(
+        {
+            "available": True,
+            "voices": [voice.as_dict() for voice in voices],
+            "default": voices[0].id if voices else None,
+        }
+    )
+
+
+@router.post("/speech", dependencies=[Depends(_require_dashboard_auth)])
+async def speech_audio(request: Request) -> JSONResponse:
+    """One piece of a reply read aloud by a voice on the Mac, as base64 AAC.
+
+    The text is spoken on this machine; it is not sent anywhere else.
+    """
+    body = await _json_body(request)
+    if not isinstance(body, dict):
+        raise HTTPException(status_code=400, detail="expected a JSON object")
+    text = body.get("text")
+    voice = body.get("voice")
+    if not isinstance(text, str) or not text.strip():
+        raise HTTPException(status_code=400, detail="text is required")
+    if voice is not None and not isinstance(voice, str):
+        raise HTTPException(status_code=400, detail="voice must be a string")
+    try:
+        audio, used = await run_in_threadpool(pwa_speech.synthesize, text, voice or None, body.get("rate", 1.0))
+    except pwa_speech.SpeechUnavailable as exc:
+        raise HTTPException(status_code=501, detail="read aloud needs Hermes on a Mac") from exc
+    except pwa_speech.SpeechBusy as exc:
+        raise HTTPException(status_code=503, detail="speech is busy, try again") from exc
+    except pwa_speech.SpeechError as exc:
+        raise HTTPException(status_code=502, detail="speech failed") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return _data_response(
+        {"audio": base64.b64encode(audio).decode("ascii"), "mimeType": "audio/mp4", "voice": used}
+    )
 
 
 @router.get("/health")

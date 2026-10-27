@@ -33,6 +33,14 @@ const makeRest = (overrides = {}) =>
     pushSubscribe: vi.fn().mockResolvedValue({ id: 'sha256:sub', enabled: true }),
     pushUnsubscribe: vi.fn().mockResolvedValue({ ok: true }),
     pushTest: vi.fn().mockResolvedValue({ ok: true }),
+    speechVoices: vi.fn().mockResolvedValue({
+      available: true,
+      defaultVoice: 'Samantha',
+      voices: [
+        { id: 'Samantha', name: 'Samantha', lang: 'en-US', quality: 'standard' },
+        { id: 'Daniel', name: 'Daniel', lang: 'en-GB', quality: 'standard' },
+      ],
+    }),
     ...overrides,
   }) as unknown as import('@hermes-pwa/core').RestClient;
 

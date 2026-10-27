@@ -358,6 +358,8 @@ export function Composer({
     setSlashActiveIndex(0);
   }, []);
 
+  const closeSkillPicker = useCallback(() => setSkillPickerOpen(false), []);
+
   const applySkill = useCallback((skill: Skill | undefined) => {
     setSkillPickerOpen(false);
     if (!skill) return;
@@ -633,6 +635,16 @@ export function Composer({
         </p>
       ) : null}
 
+      {skillPickerOpen && rest ? (
+        <SkillPicker
+          rest={rest}
+          title="Use a skill"
+          presentation="popover"
+          onPick={applySkill}
+          onClose={closeSkillPicker}
+        />
+      ) : null}
+
       {slashPaletteOpen && (
         <div className="hm-slash-palette" role="listbox" aria-label="Slash commands">
           <div className="hm-slash-palette__header">
@@ -683,9 +695,6 @@ export function Composer({
           onVoiceMode={onTranscribeAudio ? toggleVoiceMode : undefined}
           voiceModeOn={voiceModeEnabled}
         />
-        {skillPickerOpen && rest ? (
-          <SkillPicker rest={rest} title="Use a skill" onPick={applySkill} onClose={() => setSkillPickerOpen(false)} />
-        ) : null}
 
         <textarea
           ref={textareaRef}

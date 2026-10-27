@@ -6,6 +6,7 @@ import queue
 import threading
 from typing import Any, Callable
 
+from .bot_graph import hook_context as team_map_context
 from .push_common import (
     approval_push_payload,
     claim_push_dedupe,
@@ -208,7 +209,21 @@ def _on_post_llm_call(**kwargs: Any) -> None:
         logger.debug("Hermes PWA turn-complete hook ignored error: %s", exc)
 
 
+def _on_pre_llm_call(**kwargs: Any) -> dict[str, str] | None:
+    """Tell a bot its place on Sean's team map: once per chat, and again after the map changes."""
+    try:
+        text = team_map_context(
+            str(kwargs.get("session_id") or ""),
+            parent_session_id=str(kwargs.get("parent_session_id") or ""),
+        )
+    except Exception as exc:  # pragma: no cover - defensive: the turn goes ahead without the map
+        logger.debug("Hermes PWA team map hook ignored error: %s", exc)
+        return None
+    return {"context": text} if text else None
+
+
 def register(ctx: Any) -> None:
     ctx.register_hook("pre_approval_request", _on_pre_approval_request)
     ctx.register_hook("post_approval_response", _on_post_approval_response)
     ctx.register_hook("post_llm_call", _on_post_llm_call)
+    ctx.register_hook("pre_llm_call", _on_pre_llm_call)

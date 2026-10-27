@@ -5,6 +5,7 @@ import { Icon } from '../components/Icon';
 import { BottomSheet } from '../components/BottomSheet';
 import { SkillPicker } from '../components/SkillPicker';
 import { ConfirmSheet } from '../components/ActionSheet';
+import { ReadAloudSettings } from '../components/ReadAloudSettings';
 import { readDefaultSkill, writeDefaultSkill } from '../lib/defaultSkill';
 import { readAppearance, writeAppearance, type Appearance } from '../lib/appearance';
 import { clearLocalChatCache } from '../lib/localCache';
@@ -343,6 +344,10 @@ export function Settings({ rest, onNavigate, onLogout }: SettingsProps) {
           ))}
         </div>
         <p className="hm-settings__footnote hm-muted">Automatic follows the phone's light or dark setting.</p>
+      </Section>
+
+      <Section title="Read aloud">
+        <ReadAloudSettings rest={rest} />
       </Section>
 
       <Section title="Connection">

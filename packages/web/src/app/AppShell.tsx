@@ -9,6 +9,7 @@ import { SkeletonRows } from '../components/Skeleton';
 import { LazyScreenErrorBoundary } from './LazyScreenErrorBoundary';
 import { usePresence } from '../hooks/usePresence';
 import { useChatSync } from '../hooks/useChatSync';
+import { useReadAloudSource } from '../hooks/useReadAloud';
 import { useVisualViewport } from '../hooks/useVisualViewport';
 import { useSettledConnectionState } from '../hooks/useSettledConnectionState';
 import { getInitialScreen, persistScreen } from '../lib/screenStorage';
@@ -162,9 +163,10 @@ const DRAWER_ITEMS: { key: Screen; label: string; icon: IconName }[] = [
   { key: 'settings', label: 'Settings', icon: 'settings' },
 ];
 
-/** The tab bar: the three places a thumb goes most, and More for the rest. */
+/** The tab bar: the four places a thumb goes most, and More for the rest. */
 const TAB_ITEMS: { key: Screen | 'more'; label: string; icon: IconName }[] = [
   { key: 'chat', label: 'Chat', icon: 'chat' },
+  { key: 'profiles', label: 'Bots', icon: 'profiles' },
   { key: 'approvals', label: 'Approvals', icon: 'shield' },
   { key: 'sessions', label: 'Sessions', icon: 'sessions' },
   { key: 'more', label: 'More', icon: 'menu' },
@@ -323,6 +325,8 @@ export function AppShell({ connectionState, rpc, rest, onRetry }: AppShellProps)
   const loadBoards = useProjectsStore((s) => s.loadBoards);
   // The chat follows the gateway from here, whichever screen is open.
   useChatSync(rpc, rest, activeName, currentName);
+  // Read-aloud audio comes from the Mac through the same client.
+  useReadAloudSource(rest, activeName);
 
   const currentSession = sessions.find((s) => {
     if (storedSessionId && (s.id === storedSessionId || s.lineageRootId === storedSessionId)) return true;
