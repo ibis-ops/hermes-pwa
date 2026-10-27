@@ -452,6 +452,17 @@ describe('makeRestClient', () => {
     expect(sent[1]).toEqual({ name: 'blank' });
   });
 
+  it('tries a message on the router without the selected bot', async () => {
+    httpMock.mockResolvedValue({ route: 'answer', source: 'jev', confidence: 0.99 });
+    const result = await client.routerTry('What is 2+2?');
+    expect(httpMock).toHaveBeenCalledWith('/api/plugins/hermes-pwa/router/try', {
+      method: 'POST',
+      body: JSON.stringify({ message: 'What is 2+2?' }),
+      skipProfile: true,
+    });
+    expect([result.route, result.source]).toEqual(['answer', 'jev']);
+  });
+
   it('uses extended HTTP timeout for audio transcription and speech', async () => {
     httpMock.mockResolvedValueOnce({ text: 'transcript' });
     await client.audioTranscribe('data:audio/webm;base64,AAAA', 'audio/webm');

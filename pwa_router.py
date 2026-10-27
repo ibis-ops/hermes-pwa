@@ -281,16 +281,34 @@ def _refused_zdr(exc: BaseException) -> bool:
     )
 
 
-def delegation_routes() -> tuple[dict[str, str] | None, bool]:
-    """This bot's delegation profile routes as ``{profile: description}``, and whether a
-    delegated bot may hand work on (orchestration). ``(None, False)`` when profile routes are off
-    or the config cannot be read. Read-only: ``load_config_readonly`` is never mutated."""
+def _profile_config(bot: str) -> dict[str, Any] | None:
+    """Another bot's config.yaml, read-only, for the dashboard, which runs as the default bot."""
+    if not bot_graph.NAME_RE.match(bot):
+        return None
+    root = bot_graph._root_hermes_home()
+    path = root / "config.yaml" if bot == "default" else root / "profiles" / bot / "config.yaml"
     try:
-        from hermes_cli.config import load_config_readonly  # type: ignore
+        import yaml  # type: ignore
 
-        config = load_config_readonly() or {}
+        data = yaml.safe_load(path.read_text(encoding="utf-8"))
     except Exception:
-        return None, False
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def delegation_routes(bot: str | None = None) -> tuple[dict[str, str] | None, bool]:
+    """A bot's delegation profile routes as ``{profile: description}``, and whether a delegated
+    bot may hand work on (orchestration). Without ``bot``, the bot this process runs as.
+    ``(None, False)`` when profile routes are off or the config cannot be read. Read-only:
+    ``load_config_readonly`` is never mutated and no file is written."""
+    config: Any = _profile_config(bot) if bot else None
+    if config is None:
+        try:
+            from hermes_cli.config import load_config_readonly  # type: ignore
+
+            config = load_config_readonly() or {}
+        except Exception:
+            return None, False
     delegation = config.get("delegation") if isinstance(config, dict) else None
     if not isinstance(delegation, dict) or delegation.get("backend") != "profile_routes":
         return None, False
@@ -862,6 +880,44 @@ def hook_context(
     decision["split"] = bool(decision.get("team")) and not orchestration
     record(decision, bot=name, session_id=session_id, message=text)
     return directive(name, decision, orchestration)
+
+
+MAX_TRY_CHARS = 2000
+
+
+def try_message(message: object, *, post: Poster | None = None) -> dict[str, Any]:
+    """Where a message to the router would go, for tuning the team map's roles from the app.
+    Asks Jev exactly as a real message would, with the router bot's own delegation routes, but
+    logs nothing, remembers nothing for follow-ups and starts no bot."""
+    text = message_text(message).strip()
+    if not text:
+        raise RouterSettingsError("type a message to try")
+    settings = load_settings()
+    bot = str(settings.get("bot") or "router")
+    routes, orchestration = delegation_routes(bot)
+    credentials = jev_credentials()
+    decision = decide(
+        text[:MAX_TRY_CHARS],
+        bot=bot,
+        settings=settings,
+        graph=bot_graph.load(),
+        routes=routes,
+        key=credentials[1] if credentials else None,
+        provider=credentials[0] if credentials else VERCEL,
+        post=post,
+    )
+    team = decision.get("team") or {}
+    return {
+        "route": decision.get("route"),
+        "guess": decision.get("guess"),
+        "confidence": decision.get("confidence"),
+        "source": decision.get("source"),
+        "reason": decision.get("reason") or "",
+        "split": bool(team) and not orchestration,
+        "team": sorted(team),
+        "ms": decision.get("ms"),
+        "cost": decision.get("cost"),
+    }
 
 
 def status() -> dict[str, Any]:

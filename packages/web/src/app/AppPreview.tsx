@@ -188,6 +188,7 @@ const previewProfiles: Profile[] = [
   { name: 'career-content', model: 'Claude Sonnet',     displayName: 'career-content', description: 'Long-form content & posts',                      isActive: false },
   { name: 'ops',            model: 'GPT-5.5 · High',   displayName: 'ops',            description: 'Infra, deploys & incident response',             isActive: false },
   { name: 'research',       model: 'o-series · High',  displayName: 'research',       description: 'Deep research, keeps things reversible',         isActive: false },
+  { name: 'router',         model: 'Claude Haiku 5.5', displayName: 'router',         description: 'Front door: quick answers, hands real work on',  isActive: false },
 ];
 
 const previewTasks: Task[] = [
@@ -207,8 +208,8 @@ const previewColumns: Column[] = PREVIEW_STATUSES
 
 let previewRouter: RouterStatus = {
   settings: { enabled: false, bot: 'router', jevModel: '', minConfidence: 0.6 },
-  keyConfigured: false,
-  provider: undefined,
+  keyConfigured: true,
+  provider: 'Vercel AI Gateway',
   keyName: 'HERMES_PWA_JEV_API_KEY',
   staleBots: ['manager', 'gmail-connector'],
   updateCommand: 'for bot in manager gmail-connector; do hermes -p "$bot" plugins update hermes-pwa; done',
@@ -390,6 +391,12 @@ const noopRest: RestClient = {
     return Promise.resolve(previewRouter);
   },
   routerDecisions:     () => Promise.resolve(previewRouter.decisions),
+  routerTry:           (message) =>
+    Promise.resolve(
+      /calendar|meeting|event/i.test(message)
+        ? { route: 'google-calander', guess: null, confidence: 0.99, source: 'jev', reason: '', split: false, team: [], ms: 230, cost: 0.00003 }
+        : { route: 'answer', guess: null, confidence: 0.97, source: 'jev', reason: '', split: false, team: [], ms: 210, cost: 0.00003 },
+    ),
   obsidianNote:        () => Promise.resolve({ vault: 'General', phoneVault: 'Vault 1', path: 'Clients/Ann Lee/Ann Lee.md', name: 'Ann Lee', text: '---\ntype: note\ntags: [client]\n---\n\n# Ann Lee\n\nCheck-in prep for Friday.', size: 80, modifiedAt: Date.now() - 3_600_000 }),
   messagingPlatforms:  () => Promise.resolve({
     gatewayRunning: true,

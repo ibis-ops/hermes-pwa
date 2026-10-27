@@ -588,6 +588,45 @@ class RouteTests(TempHome):
         self.assertEqual([d["route"] for d in only], ["manager"])
         self.assertEqual(len(self.client.get("/router").json()["decisions"]), 2)
 
+    def write_profile_config(self, bot, text):
+        folder = Path(self.tmp.name) / "profiles" / bot
+        folder.mkdir(parents=True, exist_ok=True)
+        (folder / "config.yaml").write_text(text, encoding="utf-8")
+
+    def test_try_a_message_asks_jev_with_the_routers_own_routes_and_logs_nothing(self):
+        bot_graph.save(ROUTER_ON_TOP)
+        pwa_router.save_settings({"enabled": True, "bot": "router"})
+        # The router bot's own config, as the dashboard (running as the default bot) reads it.
+        self.write_profile_config(
+            "router",
+            "delegation:\n  backend: profile_routes\n  backends:\n    profile_routes:\n      profiles:\n"
+            "        - name: manager\n          description: Coordinates the other bots.\n"
+            "        - name: gmail-connector\n          description: Reads and sends email in Sean's Gmail.\n",
+        )
+        (Path(self.tmp.name) / ".env").write_text("HERMES_PWA_JEV_API_KEY=vck_test\n", encoding="utf-8")
+        post = vercel_answer("manager", 0.96)
+        with patch.object(pwa_router, "_post_json", post):
+            response = self.client.post("/router/try", json={"message": "Plan my week across email and calendar"})
+        self.assertEqual(response.status_code, 200, response.text)
+        result = response.json()
+        self.assertEqual((result["route"], result["source"], result["split"], result["team"]), ("manager", "jev", True, ["gmail-connector"]))
+        self.assertEqual(sorted(post.calls[0]["body"]["questions"]["route"]["criteria"]), ["answer", "gmail-connector", "manager"])
+        self.assertEqual(pwa_router.recent(), [])  # nothing logged
+        self.assertEqual(self.client.post("/router/try", json={"message": "   "}).status_code, 400)
+        self.assertIn(self.anonymous.post("/router/try", json={"message": "hi"}).status_code, (401, 403))
+        cross = self.client.post("/router/try", json={"message": "hi"}, headers={"Sec-Fetch-Site": "cross-site"})
+        self.assertEqual(cross.status_code, 403)
+
+    def test_try_without_a_key_says_so(self):
+        pwa_router.save_settings({"enabled": True, "bot": "router"})
+        self.write_profile_config(
+            "router",
+            "delegation:\n  backend: profile_routes\n  backends:\n    profile_routes:\n      profiles:\n"
+            "        - name: gmail-connector\n          description: Reads email.\n",
+        )
+        result = self.client.post("/router/try", json={"message": "hi"}).json()
+        self.assertEqual((result["route"], result["reason"]), (None, "no Jev key on the Mac"))
+
 
 class RuntimeHookTests(TempHome):
     def test_pre_llm_call_adds_the_team_map_and_the_router_note(self):

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import {
+  HermesHttpError,
   ROUTER_ROLE,
   botLabel,
   defaultTeamMap,
@@ -17,7 +18,7 @@ import { BotAvatar } from './BotAvatar';
 import { Icon } from './Icon';
 import { useRouterStatus } from '../hooks/useRouter';
 import { pickFastModel } from '../lib/routerSetup';
-import { routeNoteText } from '../lib/routeNote';
+import { routeNoteText, tryResultText } from '../lib/routeNote';
 import { formatListTime } from '../lib/chatTime';
 
 const ROUTER_NAME = 'router';
@@ -225,6 +226,70 @@ interface SettingsProps {
   onOpenBot?: ((name: string) => void) | undefined;
 }
 
+/**
+ * Ask where a message would go, without sending it to a bot: for tuning the roles Jev reads.
+ * Jev is asked exactly as for a real message, at a real (tiny) cost; nothing is logged.
+ */
+function TryMessage({ rest }: { rest: RestClient }) {
+  const [text, setText] = useState('');
+  const [asking, setAsking] = useState(false);
+  const [result, setResult] = useState<{ tone: 'ok' | 'error'; text: string } | undefined>(undefined);
+
+  async function ask() {
+    const message = text.trim();
+    if (!message || asking) return;
+    setAsking(true);
+    try {
+      setResult({ tone: 'ok', text: tryResultText(await rest.routerTry(message)) });
+    } catch (err) {
+      setResult({
+        tone: 'error',
+        text:
+          err instanceof HermesHttpError && err.status === 404
+            ? 'Trying a message needs the Hermes dashboard on your Mac to restart.'
+            : errorText(err, 'Jev could not be asked. Try again.'),
+      });
+    } finally {
+      setAsking(false);
+    }
+  }
+
+  return (
+    <>
+      <h4 className="hm-router__heading">Try a message</h4>
+      <form
+        className="hm-router__try"
+        onSubmit={(event) => {
+          event.preventDefault();
+          void ask();
+        }}
+      >
+        <input
+          className="hm-input"
+          value={text}
+          onChange={(event) => setText(event.target.value)}
+          placeholder="What's on my calendar tomorrow?"
+          aria-label="Message to try"
+          maxLength={2000}
+          enterKeyHint="go"
+        />
+        <button type="submit" className="hm-router__try-btn" disabled={!text.trim() || asking}>
+          {asking ? 'Asking…' : 'Try'}
+        </button>
+      </form>
+      {result ? (
+        <p className={`hm-router__note${result.tone === 'error' ? ' hm-router__note--error' : ''}`} role="status" data-testid="router-try-result">
+          {result.text}
+        </p>
+      ) : null}
+      <p className="hm-router__note hm-muted">
+        Shows where Jev would send it; no bot gets it and nothing is kept. Jev reads each bot&apos;s role on the team map, so edit a
+        role in Team to steer it.
+      </p>
+    </>
+  );
+}
+
 function RouterSettingsBody({ rest, status, onStatus, onOpenBot }: SettingsProps) {
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<string | undefined>(undefined);
@@ -304,6 +369,8 @@ function RouterSettingsBody({ rest, status, onStatus, onOpenBot }: SettingsProps
         ))}
       </div>
       <p className="hm-router__note hm-muted">Below that, Jev&apos;s pick is only a hint and {botLabel(settings.bot)} decides.</p>
+
+      {keyConfigured ? <TryMessage rest={rest} /> : null}
 
       <h4 className="hm-router__heading">Latest decisions</h4>
       {decisions.length === 0 ? (

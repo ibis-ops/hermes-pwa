@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { routerTextKey, type Message, type RouterDecision } from '@hermes-pwa/core';
-import { decisionsByKey, routeNoteText, routeNotesFor } from './routeNote';
+import { decisionsByKey, routeNoteText, routeNotesFor, tryResultText } from './routeNote';
 
 function decision(partial: Partial<RouterDecision>): RouterDecision {
   return {
@@ -59,5 +59,21 @@ describe('route notes', () => {
       a1: 'Sent to Gmail Connector · Jev 90% sure',
       a2: 'Quick answer · Jev 99% sure',
     });
+  });
+
+  it('says where a tried message would go', () => {
+    const base = { route: null, guess: null, confidence: null, source: 'router' as const, reason: '', split: false, team: [], ms: 200, cost: 0.00003 };
+    expect(tryResultText({ ...base, route: 'answer', source: 'jev', confidence: 0.99 })).toBe('Router would answer it itself · Jev 99% sure');
+    expect(tryResultText({ ...base, route: 'google-calander', source: 'jev', confidence: 1 })).toBe('It would go to Google Calander · Jev 100% sure');
+    expect(
+      tryResultText({ ...base, route: 'manager', source: 'jev', confidence: 0.97, split: true, team: ['default', 'gmail-connector', 'google-calander', 'signal-connector'] }),
+    ).toBe("Router would split it across Manager's team (Default, Gmail Connector, Google Calander and 1 more) · Jev 97% sure");
+    expect(tryResultText({ ...base, guess: 'manager', confidence: 0.42, reason: 'Jev was not sure' })).toBe(
+      'Jev is not sure (best guess Manager, 42%), so Router would decide',
+    );
+    expect(tryResultText({ ...base, reason: 'Vercel AI Gateway is out of credits' })).toBe(
+      'Jev did not decide: Vercel AI Gateway is out of credits. Router would decide',
+    );
+    expect(tryResultText({ ...base, route: 'answer', reason: 'no other bot to hand work to' })).toBe('Router would answer it: no other bot to hand work to');
   });
 });

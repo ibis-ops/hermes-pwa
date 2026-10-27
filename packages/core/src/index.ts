@@ -134,7 +134,9 @@ export {
   toRouterDecision,
   toRouterSettings,
   toRouterStatus,
+  toRouterTry,
   type RouterDecision,
   type RouterSettings,
   type RouterStatus,
+  type RouterTry,
 } from './domain/router';

@@ -19,6 +19,10 @@ All notable changes are documented here. The format follows
   message went after a gateway restart, and the router is told to put the earlier ask in the
   goal, since the bot it hands work to does not see the chat.
 - **What Jev costs.** The Router sheet sums what Jev's latest answers cost.
+- **Try a message.** The Router sheet asks Jev where a message would go, with the router's own
+  delegation routes, and says so ("It would go to Google Calander · Jev 99% sure", or that the
+  router would split it across a team). No bot gets the message and nothing is logged, so roles on
+  the team map can be tuned without running anything.
 
 ### Router audit, and every bot on the same plugin
 

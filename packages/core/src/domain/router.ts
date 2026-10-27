@@ -64,6 +64,21 @@ export interface RouterStatus {
   decisions: RouterDecision[];
 }
 
+/** Where a message would go, from the Router sheet's "Try a message": nothing is sent or kept. */
+export interface RouterTry {
+  route: string | null;
+  guess: string | null;
+  confidence: number | null;
+  source: 'jev' | 'router';
+  reason: string;
+  /** The router would run the pick's team itself. */
+  split: boolean;
+  /** That team, by bot name. */
+  team: string[];
+  ms: number | null;
+  cost: number | null;
+}
+
 /** The plugin's own Jev key in Hermes's .env, when the Mac does not say otherwise. */
 export const ROUTER_KEY_NAME = 'HERMES_PWA_JEV_API_KEY';
 
@@ -127,6 +142,21 @@ export function toRouterStatus(raw: unknown): RouterStatus {
       const decision = toRouterDecision(entry);
       return decision ? [decision] : [];
     }),
+  };
+}
+
+export function toRouterTry(raw: unknown): RouterTry {
+  const record = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {};
+  return {
+    route: str(record.route) || null,
+    guess: str(record.guess) || null,
+    confidence: num(record.confidence),
+    source: record.source === 'jev' ? 'jev' : 'router',
+    reason: str(record.reason),
+    split: record.split === true,
+    team: Array.isArray(record.team) ? record.team.filter((name): name is string => typeof name === 'string' && name.length > 0) : [],
+    ms: num(record.ms),
+    cost: num(record.cost),
   };
 }
 

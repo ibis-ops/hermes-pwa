@@ -25,7 +25,7 @@ import { toEnvVar } from '../domain/env';
 import type { MessagingOverview } from '../domain/messaging';
 import { toMessagingOverview } from '../domain/messaging';
 import { toObsidianActivity, toObsidianNoteContent, type ObsidianActivity, type ObsidianNoteContent } from '../domain/obsidian';
-import { toRouterDecision, toRouterStatus, type RouterDecision, type RouterSettings, type RouterStatus } from '../domain/router';
+import { toRouterDecision, toRouterStatus, toRouterTry, type RouterDecision, type RouterSettings, type RouterStatus, type RouterTry } from '../domain/router';
 import { toAgentHistory, type AgentHistory } from '../domain/agent-history';
 import type {
   AuxiliaryModels,
@@ -379,6 +379,8 @@ export interface RestClient {
   obsidianSync(): Promise<VaultSyncResult>;
   /** The router bot's settings, whether Jev has a key on the Mac, and its newest decisions. */
   routerStatus(): Promise<RouterStatus>;
+  /** Where a message would go: Jev is asked, but nothing is sent to a bot or logged. */
+  routerTry(message: string): Promise<RouterTry>;
   /** Change the router settings; returns the new status. */
   saveRouter(patch: Partial<Omit<RouterSettings, 'updatedAt'>>): Promise<RouterStatus>;
   /** Jev's newest routing decisions, for one Hermes session when given. */
@@ -1008,6 +1010,16 @@ export function makeRestClient(http: Http): RestClient {
 
     async routerStatus(): Promise<RouterStatus> {
       return toRouterStatus(await http<unknown>('/api/plugins/hermes-pwa/router', { skipProfile: true }));
+    },
+
+    async routerTry(message: string): Promise<RouterTry> {
+      return toRouterTry(
+        await http<unknown>('/api/plugins/hermes-pwa/router/try', {
+          method: 'POST',
+          body: JSON.stringify({ message }),
+          skipProfile: true,
+        }),
+      );
     },
 
     async saveRouter(patch: Partial<Omit<RouterSettings, 'updatedAt'>>): Promise<RouterStatus> {

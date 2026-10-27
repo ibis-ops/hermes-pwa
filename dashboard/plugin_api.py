@@ -1114,6 +1114,19 @@ async def save_router(request: Request) -> JSONResponse:
     return _data_response({**pwa_router.status(), "decisions": pwa_router.recent(limit=20)})
 
 
+@router.post("/router/try", dependencies=[Depends(_require_dashboard_auth)])
+async def router_try(request: Request) -> JSONResponse:
+    """Where a message would go: Jev is asked as for a real message, but nothing is logged and
+    no bot starts. For tuning the roles on the team map."""
+    body = await _json_body(request)
+    message = body.get("message") if isinstance(body, dict) else None
+    try:
+        result = await run_in_threadpool(pwa_router.try_message, message)
+    except pwa_router.RouterSettingsError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return _data_response(result)
+
+
 @router.get("/router/decisions", dependencies=[Depends(_require_dashboard_auth)])
 def router_decisions(session_id: str = "", limit: int = 50) -> JSONResponse:
     """Jev's newest routing decisions, for one chat when ``session_id`` is given."""

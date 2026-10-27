@@ -5880,6 +5880,32 @@ button.hm-router-card:active {
   color: var(--hm-color-danger-text);
 }
 
+.hm-router__try {
+  display: flex;
+  gap: 8px;
+}
+
+.hm-router__try .hm-input {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.hm-router__try-btn {
+  flex: none;
+  min-height: 44px;
+  padding: 0 16px;
+  border: 0;
+  border-radius: 10px;
+  background: var(--hm-color-primary);
+  color: #fff;
+  font: inherit;
+  font-weight: var(--hm-fw-semibold);
+}
+
+.hm-router__try-btn:disabled {
+  opacity: 0.4;
+}
+
 .hm-router__primary {
   width: 100%;
   margin-top: 4px;

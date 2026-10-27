@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ROUTER_SELF, routerTextKey, toRouterStatus } from './router';
+import { ROUTER_SELF, routerTextKey, toRouterStatus, toRouterTry } from './router';
 
 describe('router', () => {
   it('fingerprints a message the same way the plugin does', () => {
@@ -44,5 +44,20 @@ describe('router', () => {
     const stale = toRouterStatus({ staleBots: ['manager', 7, '', 'gmail-connector'], updateCommand: 'hermes -p manager plugins update hermes-pwa' });
     expect(stale.staleBots).toEqual(['manager', 'gmail-connector']);
     expect(stale.updateCommand).toBe('hermes -p manager plugins update hermes-pwa');
+  });
+
+  it('reads where a tried message would go', () => {
+    expect(toRouterTry({ route: 'manager', source: 'jev', confidence: 0.97, split: true, team: ['gmail-connector', 3], ms: 210, cost: 0.00003 })).toEqual({
+      route: 'manager',
+      guess: null,
+      confidence: 0.97,
+      source: 'jev',
+      reason: '',
+      split: true,
+      team: ['gmail-connector'],
+      ms: 210,
+      cost: 0.00003,
+    });
+    expect(toRouterTry(null)).toMatchObject({ route: null, source: 'router', split: false, team: [] });
   });
 });

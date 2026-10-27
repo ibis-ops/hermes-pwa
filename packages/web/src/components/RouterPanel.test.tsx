@@ -128,6 +128,33 @@ describe('RouterCard', () => {
     expect(await screen.findByRole('button', { name: 'Router settings' })).toHaveTextContent('On: Jev picks who takes each message.');
   });
 
+  it('tries a message and says where it would go, without a bot getting it', async () => {
+    const connected: RouterStatus = { ...OFF, settings: { ...OFF.settings, enabled: true }, keyConfigured: true, provider: 'Vercel AI Gateway' };
+    const routerTry = vi
+      .fn()
+      .mockResolvedValueOnce({ route: 'google-calander', guess: null, confidence: 1, source: 'jev', reason: '', split: false, team: [], ms: 240, cost: 0.00003 })
+      .mockRejectedValueOnce(new HermesHttpError(404, 'Not Found', '{"detail":"Not Found"}'));
+    render(
+      <RouterCard
+        rest={makeRest({ routerStatus: vi.fn().mockResolvedValue(connected), routerTry })}
+        bots={[...PROFILES.map((p) => p.name), 'router']}
+        onMapChanged={vi.fn()}
+      />,
+    );
+    fireEvent.click(await screen.findByRole('button', { name: 'Router settings' }));
+    const sheet = await screen.findByRole('dialog', { name: 'Router' });
+    const input = within(sheet).getByRole('textbox', { name: 'Message to try' });
+    expect(within(sheet).getByRole('button', { name: 'Try' })).toBeDisabled();
+    fireEvent.change(input, { target: { value: "What's on my calendar tomorrow?" } });
+    fireEvent.click(within(sheet).getByRole('button', { name: 'Try' }));
+    expect(await within(sheet).findByTestId('router-try-result')).toHaveTextContent('It would go to Google Calander · Jev 100% sure');
+    expect(routerTry).toHaveBeenCalledWith("What's on my calendar tomorrow?");
+    fireEvent.click(within(sheet).getByRole('button', { name: 'Try' }));
+    await waitFor(() =>
+      expect(within(sheet).getByTestId('router-try-result')).toHaveTextContent('Trying a message needs the Hermes dashboard on your Mac to restart.'),
+    );
+  });
+
   it('shows no update notice when every copy matches', async () => {
     render(<RouterCard rest={makeRest()} bots={PROFILES.map((p) => p.name)} onMapChanged={vi.fn()} />);
     await screen.findByRole('button', { name: 'Router settings' });
