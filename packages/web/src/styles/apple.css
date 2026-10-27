@@ -5833,6 +5833,30 @@ button.hm-router-card:active {
   line-height: 1.4;
 }
 
+.hm-router-reach__list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 6px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.hm-router-reach__item {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.hm-router-reach__bot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--hm-color-text);
+  font-size: var(--hm-fs-small);
+  font-weight: var(--hm-fw-semibold);
+}
+
 .hm-router {
   display: flex;
   flex-direction: column;

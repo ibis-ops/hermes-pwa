@@ -144,6 +144,15 @@ class CandidateTests(unittest.TestCase):
         # Profile routes off: the map alone decides.
         self.assertEqual(sorted(pwa_router.candidates("router", ROUTER_ON_TOP, None)), ["gmail-connector", "manager", "signal-connector"])
 
+    def test_bots_on_the_map_without_a_route_are_unreachable(self):
+        # Seen on the Mac: Claude Cowork Driver was on the map but not in the router's routes.
+        self.assertEqual(pwa_router.unreachable("router", ROUTER_ON_TOP, ROUTES), {"signal-connector": "Sends Signal messages."})
+        graph = {"nodes": {**ROUTER_ON_TOP["nodes"], "router": {**ROUTER_ON_TOP["nodes"]["router"], "canMessage": ["claude-cowork-driver", "manager"]}}}
+        self.assertEqual(pwa_router.unreachable("router", graph, ROUTES), {"claude-cowork-driver": "The bot called Claude Cowork Driver."})
+        # Routes unknown (profile routes off): the map alone decides, so nothing is unreachable.
+        self.assertEqual(pwa_router.unreachable("router", ROUTER_ON_TOP, None), {})
+        self.assertEqual(pwa_router.unreachable("router", None, ROUTES), {})
+
 
 class DecideTests(unittest.TestCase):
     def setUp(self):
@@ -165,7 +174,10 @@ class DecideTests(unittest.TestCase):
         self.assertEqual(call["body"]["providerOptions"], {"gateway": {"zeroDataRetention": True}})
         self.assertNotIn("session_id", call["body"])
         self.assertEqual(call["body"]["state"], {"message": "Any email from the Kahunas clients today?"})
-        self.assertEqual(sorted(call["body"]["questions"]["route"]["criteria"]), ["answer", "gmail-connector", "manager"])
+        # Signal Connector is on the map without a route: Jev still sees it, so a pick for it is named.
+        self.assertEqual(
+            sorted(call["body"]["questions"]["route"]["criteria"]), ["answer", "gmail-connector", "manager", "signal-connector"]
+        )
 
     def test_a_plan_without_zero_data_retention_still_routes(self):
         post = vercel_answer("manager", 0.8, refuse_zdr=True)
@@ -244,7 +256,7 @@ class DecideTests(unittest.TestCase):
         self.assertEqual(call["body"]["state"], {"message": "Any email from the Kahunas clients today?"})
         question = call["body"]["questions"]["route"]
         self.assertEqual(question["type"], "choice")
-        self.assertEqual(sorted(question["criteria"]), ["answer", "gmail-connector", "manager"])
+        self.assertEqual(sorted(question["criteria"]), ["answer", "gmail-connector", "manager", "signal-connector"])
         self.assertEqual(call["body"]["session_id"], "s-1")
         self.assertNotIn("providerOptions", call["body"])
         self.assertEqual(decision["zdr"], None)
@@ -313,7 +325,7 @@ class DecideTests(unittest.TestCase):
         )
         # A choice that is not one of the options is not followed, and the reason says so.
         stray = pwa_router.decide("hi", bot="router", settings=ON, graph=ROUTER_ON_TOP, routes=ROUTES, key="k",
-                                  post=jev_answer("signal-connector", 0.99))
+                                  post=jev_answer("kahunas-connector", 0.99))
         self.assertEqual((stray["route"], stray["reason"]), (None, "Jev gave no usable answer"))
 
         def not_json(url, headers, body, timeout):
@@ -335,6 +347,23 @@ class DecideTests(unittest.TestCase):
     def test_no_one_to_hand_to_means_answer(self):
         decision = pwa_router.decide("hi", bot="router", settings=ON, graph={"nodes": {"router": {"reportsTo": None, "canMessage": [], "role": ""}}}, routes={}, key="k")
         self.assertEqual(decision["route"], "answer")
+
+    def test_a_pick_the_router_cannot_reach_is_named_not_handed_elsewhere(self):
+        post = jev_answer("signal-connector", 0.9)
+        decision = pwa_router.decide("Anything new on Signal?", bot="router", settings=ON, graph=ROUTER_ON_TOP, routes=ROUTES,
+                                     key="k", post=post)
+        self.assertEqual((decision["route"], decision["source"], decision["blocked"], decision["team"]), ("signal-connector", "jev", True, {}))
+        self.assertEqual(decision["unreachable"], {"signal-connector": "Sends Signal messages."})
+        # Jev reads what it does like any other bot.
+        self.assertIn("Sends Signal messages.", post.calls[0]["body"]["questions"]["route"]["criteria"]["signal-connector"])
+        # Only bots it cannot reach on the map: the router still answers when there is no one at all.
+        alone = {"nodes": {"router": {"reportsTo": None, "canMessage": ["signal-connector"], "role": ""}}}
+        only_blocked = pwa_router.decide("Anything new on Signal?", bot="router", settings=ON, graph=alone, routes=ROUTES,
+                                         key="k", post=jev_answer("signal-connector", 0.9))
+        self.assertEqual((only_blocked["route"], only_blocked["blocked"]), ("signal-connector", True))
+        reachable = pwa_router.decide("Any new email?", bot="router", settings=ON, graph=ROUTER_ON_TOP, routes=ROUTES, key="k",
+                                      post=jev_answer("gmail-connector", 0.9))
+        self.assertFalse(reachable["blocked"])
 
 
 class DirectiveTests(unittest.TestCase):
@@ -364,6 +393,31 @@ class DirectiveTests(unittest.TestCase):
         self.assertIn("Jev did not decide this time (no Jev key on the Mac)", off)
         for text in (answer, hand, unsure, nested, off):
             self.assertNotIn("\u2014", text)
+
+    def test_a_bot_the_router_cannot_reach_is_explained_not_rerouted(self):
+        decision = pwa_router.decide("Anything new on Signal?", bot="router", settings=ON, graph=ROUTER_ON_TOP, routes=ROUTES,
+                                     key="k", post=jev_answer("signal-connector", 0.9))
+        text = pwa_router.directive("router", decision, False)
+        self.assertIn("Jev picked Signal Connector (@signal-connector) for this (90% sure), but Signal Connector is not in your "
+                      "delegation routes, so delegate_task cannot run it.", text)
+        self.assertIn("he can add Signal Connector under Router in the phone app", text)
+        self.assertIn("Do not give this to a different bot or do it yourself unless Sean says to.", text)
+        self.assertNotIn("Hand it over", text)
+        self.assertEqual(text.count("delegation routes"), 1)  # no second note about the same bot
+        # Every other note names the bots it cannot reach, so a request for one is not quietly rerouted.
+        handoff = pwa_router.decide("Any new email?", bot="router", settings=ON, graph=ROUTER_ON_TOP, routes=ROUTES, key="k",
+                                    post=jev_answer("gmail-connector", 0.9))
+        note = pwa_router.directive("router", handoff, False)
+        self.assertIn('profile "gmail-connector"', note)
+        self.assertIn("Signal Connector (@signal-connector) is on Sean's team map but not in your delegation routes, so "
+                      "delegate_task cannot run it. If Sean asks for it, say so", note)
+        two = pwa_router.directive("router", {**handoff, "unreachable": {"signal-connector": "", "claude-cowork-driver": ""}}, False)
+        self.assertIn("Signal Connector (@signal-connector) and Claude Cowork Driver (@claude-cowork-driver) are on Sean's team map", two)
+        self.assertIn("cannot run them. If Sean asks for one of them", two)
+        everyone = pwa_router.directive("router", {**handoff, "unreachable": {}}, False)
+        self.assertNotIn("team map", everyone)
+        for text_ in (text, note, two):
+            self.assertNotIn("\u2014", text_)
 
     def test_a_team_job_is_split_by_the_router_when_bots_cannot_hand_work_on(self):
         options = pwa_router.candidates("router", ROUTER_ON_TOP, ROUTES)
@@ -432,6 +486,58 @@ class CredentialTests(TempHome):
             status["updateCommand"],
             'for bot in manager gmail-connector; do hermes -p "$bot" plugins update hermes-pwa; done',
         )
+
+
+class ReachTests(TempHome):
+    def write(self, relative, text):
+        path = Path(self.tmp.name) / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text, encoding="utf-8")
+
+    def test_status_lists_the_bots_the_router_cannot_reach_with_a_first_draft_of_their_line(self):
+        self.assertEqual(pwa_router.status()["unreachable"], [])
+        pwa_router.save_settings({"enabled": True, "bot": "router"})
+        graph = {"nodes": {
+            "router": {"reportsTo": None, "canMessage": ["claude-cowork-driver", "gmail-connector", "signal-connector"], "role": ""},
+            "claude-cowork-driver": {"reportsTo": "router", "canMessage": [], "role": ""},
+            "gmail-connector": {"reportsTo": "router", "canMessage": [], "role": ""},
+            "signal-connector": {"reportsTo": "router", "canMessage": [], "role": "Reads Signal chats."},
+        }}
+        bot_graph.save(graph)
+        self.write(
+            "profiles/router/config.yaml",
+            "delegation:\n  backend: profile_routes\n  backends:\n    profile_routes:\n      profiles:\n"
+            "        - name: gmail-connector\n          description: Reads email.\n",
+        )
+        self.write(
+            "profiles/claude-cowork-driver/SOUL.md",
+            "# Claude Cowork\n\n**Role:** Claude Cowork\n**Mission:** connect to claude cowork and claude code.\n\nYou are...\n",
+        )
+        self.assertEqual(
+            pwa_router.status()["unreachable"],
+            [
+                {"name": "claude-cowork-driver", "suggestion": "Connect to claude cowork and claude code"},
+                # Its role on the map comes first.
+                {"name": "signal-connector", "suggestion": "Reads Signal chats."},
+            ],
+        )
+        # Once the routes include them, none is left.
+        self.write(
+            "profiles/router/config.yaml",
+            "delegation:\n  backend: profile_routes\n  backends:\n    profile_routes:\n      profiles:\n"
+            "        - name: gmail-connector\n        - name: claude-cowork-driver\n        - name: signal-connector\n",
+        )
+        self.assertEqual(pwa_router.status()["unreachable"], [])
+
+    def test_soul_mission_reads_only_the_mission_line(self):
+        self.write("profiles/kahunas-connector/SOUL.md", "Mission: " + "pulls coaching data " * 30 + "\n")
+        line = pwa_router.soul_mission("kahunas-connector")
+        self.assertTrue(line.startswith("Pulls coaching data"))
+        self.assertLessEqual(len(line), pwa_router.MAX_SUGGESTION_CHARS)
+        self.write("profiles/manager/SOUL.md", "# Manager\nCoordinates the team.\n")
+        self.assertEqual(pwa_router.soul_mission("manager"), "")
+        self.assertEqual(pwa_router.soul_mission("nobody-here"), "")
+        self.assertEqual(pwa_router.soul_mission("../etc"), "")
 
 
 class HookAndLogTests(TempHome):
@@ -520,6 +626,17 @@ class HookAndLogTests(TempHome):
         other = vercel_answer("answer", 0.9)
         self.hook("hello", session="s-9", post=other, history=[{"role": "user", "content": "hello"}])
         self.assertNotIn("previous_message", other.calls[0]["body"]["state"])
+
+    def test_logs_a_pick_the_router_cannot_reach(self):
+        bot_graph.save(ROUTER_ON_TOP)
+        pwa_router.save_settings({"enabled": True})
+        os.environ["AI_GATEWAY_API_KEY"] = "vck_test"
+        self.addCleanup(os.environ.pop, "AI_GATEWAY_API_KEY", None)
+        self.assertIn("cannot run it", self.hook("Anything new on Signal?", post=vercel_answer("signal-connector", 0.92)))
+        entry = pwa_router.recent()[0]
+        self.assertEqual((entry["route"], entry["blocked"], entry["split"]), ("signal-connector", True, False))
+        self.hook("Any new email?", session="s-2", post=vercel_answer("gmail-connector", 0.96))
+        self.assertFalse(pwa_router.recent()[0]["blocked"])
 
     def test_logs_when_the_router_splits_a_team_job(self):
         bot_graph.save(ROUTER_ON_TOP)
@@ -617,7 +734,10 @@ class RouteTests(TempHome):
         self.assertEqual(response.status_code, 200, response.text)
         result = response.json()
         self.assertEqual((result["route"], result["source"], result["split"], result["team"]), ("manager", "jev", True, ["gmail-connector"]))
-        self.assertEqual(sorted(post.calls[0]["body"]["questions"]["route"]["criteria"]), ["answer", "gmail-connector", "manager"])
+        self.assertEqual(
+            sorted(post.calls[0]["body"]["questions"]["route"]["criteria"]), ["answer", "gmail-connector", "manager", "signal-connector"]
+        )
+        self.assertFalse(result["blocked"])
         self.assertEqual(pwa_router.recent(), [])  # nothing logged
         self.assertEqual(self.client.post("/router/try", json={"message": "   "}).status_code, 400)
         self.assertIn(self.anonymous.post("/router/try", json={"message": "hi"}).status_code, (401, 403))

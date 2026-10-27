@@ -7,11 +7,13 @@ import {
   useModelStore,
   useProfilesStore,
   withBots,
+  withProfileRoute,
   withRouterOnTop,
   type RestClient,
   type RouterDecision,
   type RouterSettings,
   type RouterStatus,
+  type UnreachableBot,
 } from '@hermes-pwa/core';
 import { BottomSheet } from './BottomSheet';
 import { BotAvatar } from './BotAvatar';
@@ -101,6 +103,136 @@ function StaleCopies({ status }: { status: RouterStatus }) {
         gateway from System:
       </p>
       <CommandButton command={updateCommand} />
+    </div>
+  );
+}
+
+interface ReachRowProps {
+  rest: RestClient;
+  /** The router bot, whose delegation routes get the new entry. */
+  bot: string;
+  entry: UnreachableBot;
+  onAdded: (name: string) => void;
+}
+
+/** One bot the router cannot hand work to, with the line Jev and the router will read about it. */
+function ReachRow({ rest, bot, entry, onAdded }: ReachRowProps) {
+  const [line, setLine] = useState(entry.suggestion);
+  const [busy, setBusy] = useState(false);
+  const [problem, setProblem] = useState<string | undefined>(undefined);
+  const label = botLabel(entry.name);
+
+  async function add() {
+    const description = line.trim();
+    if (!description || busy) return;
+    setBusy(true);
+    setProblem(undefined);
+    try {
+      // Hermes's own delegation API: it checks the profile exists and saves under its config lock.
+      // A save replaces the whole list, so the current one is read first and kept as it is.
+      const current = await rest.profileRoutes(bot);
+      if (current.backend !== 'profile_routes') {
+        throw new Error(`${botLabel(bot)} does not hand work on by profile routes, so a route would not be used.`);
+      }
+      await rest.saveProfileRoutes(bot, withProfileRoute(current, entry.name, description));
+      onAdded(entry.name);
+    } catch (err) {
+      setProblem(
+        err instanceof HermesHttpError && err.status === 404
+          ? 'Adding a route needs a newer Hermes on your Mac.'
+          : errorText(err, 'That did not save. Try again.'),
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <li className="hm-router-reach__item" data-testid="router-reach-bot">
+      <span className="hm-router-reach__bot">
+        <BotAvatar name={entry.name} size={24} />
+        <span>{label}</span>
+      </span>
+      <form
+        className="hm-router__try"
+        onSubmit={(event) => {
+          event.preventDefault();
+          void add();
+        }}
+      >
+        <input
+          className="hm-input"
+          value={line}
+          onChange={(event) => setLine(event.target.value)}
+          placeholder="What it does, in a line"
+          aria-label={`What ${label} does`}
+          maxLength={300}
+          enterKeyHint="done"
+        />
+        <button type="submit" className="hm-router__try-btn" disabled={!line.trim() || busy}>
+          {busy ? 'Adding…' : 'Add'}
+        </button>
+      </form>
+      {problem ? (
+        <p className="hm-router__note hm-router__note--error" role="alert">
+          {problem}
+        </p>
+      ) : null}
+    </li>
+  );
+}
+
+interface ReachProps {
+  rest: RestClient;
+  status: RouterStatus;
+  onStatus: (status: RouterStatus) => void;
+}
+
+/**
+ * Bots on the team map the router cannot hand work to. Hermes runs a delegated task only as a
+ * profile in the router bot's delegation routes, so Jev's pick for one of these could not be
+ * handed over: the router says so instead. Adding one writes the router bot's routes through
+ * Hermes's own delegation API, as Sean's own change from his phone.
+ */
+function UnreachableBots({ rest, status, onStatus }: ReachProps) {
+  const [added, setAdded] = useState<string[]>([]);
+  const { unreachable, settings } = status;
+  if (unreachable.length === 0 && added.length === 0) return null;
+
+  async function onAdded(name: string) {
+    setAdded((names) => [...names.filter((entry) => entry !== name), name]);
+    try {
+      onStatus(await rest.routerStatus());
+    } catch {
+      // The route is saved either way; the list catches up on the next status.
+    }
+  }
+
+  return (
+    <div className="hm-router-stale hm-router-reach" role="note" data-testid="router-reach">
+      {unreachable.length > 0 ? (
+        <>
+          <p className="hm-router-stale__title">
+            {botLabel(settings.bot)} can&apos;t hand work to {namesLine(unreachable.map((entry) => entry.name))}
+          </p>
+          <p className="hm-router-stale__text">
+            {unreachable.length === 1 ? 'It is' : 'They are'} on your team map but not in {botLabel(settings.bot)}&apos;s delegation
+            routes, so a message for {unreachable.length === 1 ? 'it' : 'one of them'} gets an explanation instead. Add{' '}
+            {unreachable.length === 1 ? 'it' : 'each'} with a line on what it does: Jev and {botLabel(settings.bot)} read that line to
+            choose it.
+          </p>
+          <ul className="hm-router-reach__list">
+            {unreachable.map((entry) => (
+              <ReachRow key={entry.name} rest={rest} bot={settings.bot} entry={entry} onAdded={(name) => void onAdded(name)} />
+            ))}
+          </ul>
+        </>
+      ) : null}
+      {added.length > 0 ? (
+        <p className="hm-router-stale__text" role="status" data-testid="router-reach-added">
+          Added {namesLine(added)}. Start a new chat with {botLabel(settings.bot)} to use {added.length === 1 ? 'it' : 'them'}.
+        </p>
+      ) : null}
     </div>
   );
 }
@@ -283,8 +415,8 @@ function TryMessage({ rest }: { rest: RestClient }) {
         </p>
       ) : null}
       <p className="hm-router__note hm-muted">
-        Shows where Jev would send it; no bot gets it and nothing is kept. Jev reads each bot&apos;s role on the team map, so edit a
-        role in Team to steer it.
+        Shows where Jev would send it; no bot gets it and nothing is kept. Jev reads each bot&apos;s role on the team map (without
+        one, its line in Router&apos;s delegation routes), so edit a role in Team to steer it.
       </p>
     </>
   );
@@ -351,6 +483,8 @@ function RouterSettingsBody({ rest, status, onStatus, onOpenBot }: SettingsProps
           <span className={`hm-router__dot${keyConfigured ? ' hm-router__dot--on' : ''}`} aria-hidden="true" />
         </div>
       </div>
+
+      <UnreachableBots rest={rest} status={status} onStatus={onStatus} />
 
       <h4 className="hm-router__heading">Hand off when Jev is</h4>
       <div className="hm-segmented" role="radiogroup" aria-label="How sure Jev must be">
@@ -440,7 +574,9 @@ export function RouterCard({ rest, bots, onMapChanged, onOpenBot }: RouterCardPr
         ? 'On, but Jev needs its key on the Mac. Router decides for now.'
         : unanswered
           ? `On, but Jev did not answer last time: ${unanswered}. Router decides for now.`
-          : 'On: Jev picks who takes each message.';
+          : status.unreachable.length > 0
+            ? `On, but ${botLabel(status.settings.bot)} can't hand work to ${namesLine(status.unreachable.map((entry) => entry.name))} yet.`
+            : 'On: Jev picks who takes each message.';
 
   return (
     <>

@@ -37,6 +37,7 @@ const makeRest = (overrides = {}) =>
       keyConfigured: false,
       staleBots: [],
       updateCommand: '',
+      unreachable: [],
       decisions: [],
     }),
     ...overrides,

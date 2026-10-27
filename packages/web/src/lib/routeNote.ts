@@ -14,6 +14,7 @@ function capitalized(text: string): string {
  */
 export function routeNoteText(decision: RouterDecision, options: { detailed?: boolean } = {}): string {
   if (decision.source === 'jev' && decision.route === ROUTER_SELF) return `Quick answer${sure(decision)}`;
+  if (decision.source === 'jev' && decision.route && decision.blocked) return `For ${botLabel(decision.route)}, which Router can't reach yet${sure(decision)}`;
   if (decision.source === 'jev' && decision.route && decision.split) return `Split across ${botLabel(decision.route)}'s team${sure(decision)}`;
   if (decision.source === 'jev' && decision.route) return `Sent to ${botLabel(decision.route)}${sure(decision)}`;
   if (decision.route === ROUTER_SELF) return 'Answered here';
@@ -32,6 +33,7 @@ function names(bots: string[]): string {
 export function tryResultText(result: RouterTry): string {
   const percent = result.confidence !== null ? ` · Jev ${Math.round(result.confidence * 100)}% sure` : '';
   if (result.source === 'jev' && result.route === ROUTER_SELF) return `Router would answer it itself${percent}`;
+  if (result.source === 'jev' && result.route && result.blocked) return `It needs ${botLabel(result.route)}, which Router can't reach yet${percent}`;
   if (result.source === 'jev' && result.route && result.split) {
     return `Router would split it across ${botLabel(result.route)}'s team${result.team.length ? ` (${names(result.team)})` : ''}${percent}`;
   }

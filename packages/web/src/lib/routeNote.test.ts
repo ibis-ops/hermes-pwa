@@ -19,6 +19,7 @@ function decision(partial: Partial<RouterDecision>): RouterDecision {
     provider: null,
     zdr: null,
     split: false,
+    blocked: false,
     ...partial,
   };
 }
@@ -28,6 +29,10 @@ describe('route notes', () => {
     expect(routeNoteText(decision({ route: 'answer', source: 'jev', confidence: 0.934 }))).toBe('Quick answer · Jev 93% sure');
     expect(routeNoteText(decision({ route: 'gmail-connector', source: 'jev', confidence: 0.88 }))).toBe('Sent to Gmail Connector · Jev 88% sure');
     expect(routeNoteText(decision({ route: 'manager', source: 'jev', confidence: 0.97, split: true }))).toBe("Split across Manager's team · Jev 97% sure");
+    // Jev's pick is a bot the router cannot hand work to: the router explained instead.
+    expect(routeNoteText(decision({ route: 'claude-cowork-driver', source: 'jev', confidence: 0.88, blocked: true }))).toBe(
+      "For Claude Cowork Driver, which Router can't reach yet · Jev 88% sure",
+    );
     expect(routeNoteText(decision({ route: 'answer', source: 'router' }))).toBe('Answered here');
     expect(routeNoteText(decision({ guess: 'manager', confidence: 0.4 }))).toBe('Router decided · Jev was not sure');
     expect(routeNoteText(decision({ reason: 'no OpenRouter key on the Mac' }))).toBe('Router decided · Jev not set up');
@@ -62,9 +67,12 @@ describe('route notes', () => {
   });
 
   it('says where a tried message would go', () => {
-    const base = { route: null, guess: null, confidence: null, source: 'router' as const, reason: '', split: false, team: [], ms: 200, cost: 0.00003 };
+    const base = { route: null, guess: null, confidence: null, source: 'router' as const, reason: '', split: false, team: [], blocked: false, ms: 200, cost: 0.00003 };
     expect(tryResultText({ ...base, route: 'answer', source: 'jev', confidence: 0.99 })).toBe('Router would answer it itself · Jev 99% sure');
     expect(tryResultText({ ...base, route: 'google-calander', source: 'jev', confidence: 1 })).toBe('It would go to Google Calander · Jev 100% sure');
+    expect(tryResultText({ ...base, route: 'claude-cowork-driver', source: 'jev', confidence: 0.9, blocked: true })).toBe(
+      "It needs Claude Cowork Driver, which Router can't reach yet · Jev 90% sure",
+    );
     expect(
       tryResultText({ ...base, route: 'manager', source: 'jev', confidence: 0.97, split: true, team: ['default', 'gmail-connector', 'google-calander', 'signal-connector'] }),
     ).toBe("Router would split it across Manager's team (Default, Gmail Connector, Google Calander and 1 more) · Jev 97% sure");

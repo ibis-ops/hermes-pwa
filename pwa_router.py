@@ -9,7 +9,10 @@ the model runs, and acts on it with ``delegate_task``. When Jev is unsure,
 unreachable or not set up, the router is told so and decides for itself. When
 Jev picks a bot that runs a team on the map and Hermes lets only the top of a
 delegation hand work on (``delegation.max_spawn_depth`` 1), the router splits
-the job across that team itself, since the bot could not use its team.
+the job across that team itself, since the bot could not use its team. Jev
+also sees the bots on the map that the router's delegation routes leave out,
+so a message for one of them makes the router tell Sean it cannot reach that
+bot yet, instead of handing the job to whichever bot is nearest.
 
 Settings live in the plugin's state folder (``router.json``): whether routing
 is on, which bot is the router, the Jev model, and how sure Jev must be. The
@@ -19,8 +22,9 @@ Vercel AI Gateway key, or an OpenRouter one); Hermes's own
 when a decision is made, so a new key works without a restart. On Vercel each
 request asks for zero data retention. Each decision is kept in a short local
 log (``router_decisions.jsonl``) so the phone app can show it. Nothing here
-writes Hermes configuration; it only reads the key and the router's own
-delegation routes.
+writes Hermes configuration; it only reads the key, the router's own
+delegation routes and the mission line of a bot's SOUL.md (a first draft of
+the route description the app offers when Sean adds that bot to the routes).
 """
 
 from __future__ import annotations
@@ -348,6 +352,50 @@ def candidates(bot: str, graph: dict[str, Any] | None, routes: dict[str, str] | 
     return out
 
 
+def unreachable(bot: str, graph: dict[str, Any] | None, routes: dict[str, str] | None) -> dict[str, str]:
+    """Bots the team map lets ``bot`` message that its delegation routes leave out, with what each
+    one does. ``delegate_task`` refuses a profile outside the routes, so the router cannot hand
+    them work. Seen on the Mac: Claude Cowork Driver was on the map but not in the routes, and
+    Sean's questions about his Claude projects went to the default bot. Empty when the routes are
+    not known (profile routes off): then the map alone decides who the router reaches."""
+    if routes is None:
+        return {}
+    nodes = (graph or {}).get("nodes") or {}
+    me = nodes.get(bot) or {}
+    out: dict[str, str] = {}
+    for name in me.get("canMessage") or []:
+        if not isinstance(name, str) or name in routes or name in (bot, SELF) or name in out:
+            continue
+        role = str((nodes.get(name) or {}).get("role") or "").strip()
+        out[name] = role or f"The bot called {bot_graph.bot_label(name)}."
+    return out
+
+
+_MISSION_RE = re.compile(r"^\s*[*_]*mission[*_]*\s*:\s*[*_]*\s*(\S.*)$", re.I | re.M)
+MAX_SUGGESTION_CHARS = 200
+
+
+def soul_mission(bot: str) -> str:
+    """The "Mission:" line of a bot's SOUL.md, read-only: a first draft of the line that tells Jev
+    and the router what the bot does, for Sean to edit before he adds the bot to the routes."""
+    if not bot_graph.NAME_RE.match(bot):
+        return ""
+    root = bot_graph._root_hermes_home()
+    path = root / "SOUL.md" if bot == "default" else root / "profiles" / bot / "SOUL.md"
+    try:
+        with path.open(encoding="utf-8", errors="replace") as handle:
+            head = handle.read(4000)
+    except OSError:
+        return ""
+    match = _MISSION_RE.search(head)
+    if not match:
+        return ""
+    line = " ".join(match.group(1).split()).strip(" *_").rstrip(".")
+    if len(line) > MAX_SUGGESTION_CHARS:
+        line = line[:MAX_SUGGESTION_CHARS].rsplit(" ", 1)[0]
+    return line[:1].upper() + line[1:]
+
+
 def _criteria(bot: str, options: dict[str, str]) -> dict[str, str]:
     criteria = {
         SELF: (
@@ -555,9 +603,15 @@ def decide(
     """Who takes this message. ``source`` is "jev" when Jev's pick stands, else "router".
 
     ``previous`` is the message before this one in the chat, ``(time, text, where it went)``; when
-    not given, the one this process routed last for the session."""
+    not given, the one this process routed last for the session.
+
+    Jev also sees the bots on the map the router cannot reach (``unreachable``), so a message for
+    one of them is named as such (``blocked``) instead of going to whichever reachable bot is
+    nearest."""
     now = time.time() if now is None else now
     options = candidates(bot, graph, routes)
+    blocked = unreachable(bot, graph, routes)
+    choices = {**options, **blocked}
     if previous is None and session_id:
         with _previous_lock:
             previous = _previous.get(session_id)
@@ -568,13 +622,15 @@ def decide(
         "source": "router",
         "reason": "",
         "options": options,
+        "unreachable": blocked,
+        "blocked": False,
         "team": {},
         "cost": None,
         "ms": None,
         "provider": None,
         "zdr": None,
     }
-    if not options:
+    if not choices:
         decision.update(route=SELF, reason="no other bot to hand work to")
     elif not key:
         decision["reason"] = "no Jev key on the Mac"
@@ -587,7 +643,7 @@ def decide(
             return ask_jev(
                 message,
                 bot=bot,
-                options=options,
+                options=choices,
                 key=key,
                 model=jev_model(provider, settings),
                 provider=provider,
@@ -625,7 +681,9 @@ def decide(
             decision.update(cost=answer["cost"], confidence=answer["confidence"])
             if answer["confidence"] >= float(settings.get("minConfidence") or DEFAULT_MIN_CONFIDENCE):
                 decision.update(route=answer["choice"], source="jev")
-                if answer["choice"] != SELF:
+                if answer["choice"] in blocked:
+                    decision["blocked"] = True
+                elif answer["choice"] != SELF:
                     decision["team"] = team_of(answer["choice"], graph, options)
             else:
                 decision.update(guess=answer["choice"], reason="Jev was not sure")
@@ -652,8 +710,9 @@ def _percent(value: float | None) -> str:
     return f"{round((value or 0) * 100)}%"
 
 
-# A delegate_task without a profile runs as the router itself: its fast model, not the specialist.
-_NAME_THE_PROFILE = "Give every task its profile name; a task without one runs as you, on your fast model, not as that bot."
+# A delegate_task without a profile takes the default route (the routes' own default bot when one is
+# set, else the router's model), never the specialist the task was meant for.
+_NAME_THE_PROFILE = "Give every task its profile name; a task without one does not run as that bot."
 # Seen on the Mac: a bot without its own Gmail login gave up, and the router went looking under
 # ~/.hermes for another bot's Google token and borrowed it. Bots never touch ~/.hermes.
 _NO_WORKAROUNDS = (
@@ -662,8 +721,31 @@ _NO_WORKAROUNDS = (
 )
 
 
+def _names(parts: list[str]) -> str:
+    return parts[0] if len(parts) == 1 else f"{', '.join(parts[:-1])} and {parts[-1]}"
+
+
+def _reach_note(decision: dict[str, Any]) -> str:
+    """For the bots the router cannot hand work to: say so when Sean asks for one, rather than
+    quietly giving his job to whichever bot is nearest (what happened before this note)."""
+    blocked: dict[str, str] = decision.get("unreachable") or {}
+    if not blocked or decision.get("blocked"):
+        return ""
+    one = len(blocked) == 1
+    return (
+        f" {_names([_who(name) for name in blocked])} {'is' if one else 'are'} on Sean's team map but not in your "
+        f"delegation routes, so delegate_task cannot run {'it' if one else 'them'}. If Sean asks for "
+        f"{'it' if one else 'one of them'}, say so and that he can add it under Router in the phone app, rather "
+        "than giving the job to another bot."
+    )
+
+
 def directive(bot: str, decision: dict[str, Any], orchestration: bool) -> str:
     """What the router is told before it answers."""
+    return _directive(bot, decision, orchestration) + _reach_note(decision)
+
+
+def _directive(bot: str, decision: dict[str, Any], orchestration: bool) -> str:
     route = decision.get("route")
     options: dict[str, str] = decision.get("options") or {}
     head = "[Router note from Sean's phone app, for this message only.]"
@@ -677,6 +759,13 @@ def directive(bot: str, decision: dict[str, Any], orchestration: bool) -> str:
         return f"{head} There is no other bot to hand work to, so answer it yourself."
     if route:
         picked = f"{head} Jev picked {_who(route)} for this ({_percent(decision.get('confidence'))} sure)"
+        if decision.get("blocked"):
+            label = bot_graph.bot_label(route)
+            return (
+                f"{picked}, but {label} is not in your delegation routes, so delegate_task cannot run it. Tell Sean "
+                f"that in a line, and that he can add {label} under Router in the phone app; it works from his next "
+                "new chat. Do not give this to a different bot or do it yourself unless Sean says to."
+            )
         team: dict[str, str] = decision.get("team") or {}
         if team and not orchestration:
             # Hermes lets only the top of a delegation hand work on (delegation.max_spawn_depth 1), so a
@@ -746,6 +835,7 @@ def record(decision: dict[str, Any], *, bot: str, session_id: str, message: str)
         "provider": decision.get("provider"),
         "zdr": decision.get("zdr"),
         "split": bool(decision.get("split")),
+        "blocked": bool(decision.get("blocked")),
     }
     path = decisions_path()
     try:
@@ -927,26 +1017,49 @@ def try_message(message: object, *, post: Poster | None = None) -> dict[str, Any
         "reason": decision.get("reason") or "",
         "split": bool(team) and not orchestration,
         "team": sorted(team),
+        "blocked": bool(decision.get("blocked")),
         "ms": decision.get("ms"),
         "cost": decision.get("cost"),
     }
 
 
+def unreachable_bots(settings: dict[str, Any] | None = None) -> list[dict[str, str]]:
+    """The bots on the map the router bot cannot hand work to, each with a first draft of the line
+    that says what it does (its role on the map, else its SOUL.md mission), for the app to offer
+    adding them to the router bot's delegation routes. Read-only."""
+    bot = str((settings or load_settings()).get("bot") or "router")
+    routes, _ = delegation_routes(bot)
+    graph = bot_graph.load()
+    nodes = (graph or {}).get("nodes") or {}
+    out: list[dict[str, str]] = []
+    for name in unreachable(bot, graph, routes):
+        role = str((nodes.get(name) or {}).get("role") or "").strip()
+        out.append({"name": name, "suggestion": role or soul_mission(name)})
+    return out
+
+
 def status() -> dict[str, Any]:
-    """What the app shows: the settings, whether Jev can be asked and through which service, and
-    which bots run an older copy of this plugin (they miss the team map and the router notes)."""
+    """What the app shows: the settings, whether Jev can be asked and through which service,
+    which bots run an older copy of this plugin (they miss the team map and the router notes), and
+    which bots on the map the router cannot hand work to."""
     credentials = jev_credentials()
+    settings = load_settings()
     try:
         stale = plugin_copies.stale_bots(bot_graph._root_hermes_home(), Path(__file__).resolve().parent)
     except Exception:  # pragma: no cover - defensive: the status still answers
         stale = []
+    try:
+        blocked = unreachable_bots(settings)
+    except Exception:  # pragma: no cover - defensive: the status still answers
+        blocked = []
     return {
-        "settings": load_settings(),
+        "settings": settings,
         "keyConfigured": credentials is not None,
         "provider": credentials[0].label if credentials else None,
         "keyName": KEY_ENV,
         "staleBots": stale,
         "updateCommand": plugin_copies.update_command(stale),
+        "unreachable": blocked,
     }
 
 

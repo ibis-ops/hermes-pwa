@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ROUTER_SELF, routerTextKey, toRouterStatus, toRouterTry } from './router';
+import { ROUTER_SELF, routerTextKey, toProfileRoutes, toRouterStatus, toRouterTry, withProfileRoute } from './router';
 
 describe('router', () => {
   it('fingerprints a message the same way the plugin does', () => {
@@ -55,9 +55,64 @@ describe('router', () => {
       reason: '',
       split: true,
       team: ['gmail-connector'],
+      blocked: false,
       ms: 210,
       cost: 0.00003,
     });
-    expect(toRouterTry(null)).toMatchObject({ route: null, source: 'router', split: false, team: [] });
+    expect(toRouterTry(null)).toMatchObject({ route: null, source: 'router', split: false, team: [], blocked: false });
+    expect(toRouterTry({ route: 'claude-cowork-driver', source: 'jev', confidence: 0.9, blocked: true }).blocked).toBe(true);
+  });
+
+  it('reads the bots the router cannot hand work to, and decisions it could not hand over', () => {
+    expect(toRouterStatus({}).unreachable).toEqual([]);
+    const status = toRouterStatus({
+      unreachable: [{ name: 'claude-cowork-driver', suggestion: 'Drives Claude Cowork on the Mac' }, { name: '' }, 'x', { name: 'signal-connector' }],
+      decisions: [{ at: '2026-10-27T22:15:03Z', route: 'claude-cowork-driver', source: 'jev', confidence: 0.84, blocked: true }],
+    });
+    expect(status.unreachable).toEqual([
+      { name: 'claude-cowork-driver', suggestion: 'Drives Claude Cowork on the Mac' },
+      { name: 'signal-connector', suggestion: '' },
+    ]);
+    expect(status.decisions[0]!.blocked).toBe(true);
+    expect(toRouterStatus({ decisions: [{ at: '2026-10-27T22:00:00Z', route: 'manager', source: 'jev' }] }).decisions[0]!.blocked).toBe(false);
+  });
+
+  it('reads and extends a bot\'s delegation profile routes, keeping every other one', () => {
+    // The shape of Hermes's GET /api/delegation/routing.
+    const routes = toProfileRoutes({
+      configured: 'profile_routes',
+      profile_routes: {
+        profiles: [
+          { name: 'default', description: 'General work.' },
+          { name: 'gmail-connector', description: '  Reads and sends email.  ' },
+          { name: 'gmail-connector', description: 'a repeat' },
+          { name: '', description: 'no name' },
+          'junk',
+          { name: 'manager' },
+        ],
+        default: 'default',
+      },
+      model_map: { options: [] },
+    });
+    expect(routes).toEqual({
+      backend: 'profile_routes',
+      profiles: [
+        { name: 'default', description: 'General work.' },
+        { name: 'gmail-connector', description: 'Reads and sends email.' },
+        { name: 'manager', description: '' },
+      ],
+      default: 'default',
+    });
+    const added = withProfileRoute(routes, 'claude-cowork-driver', '  Drives Claude Cowork\n and Claude Code on the Mac ');
+    expect(added.profiles.map((route) => route.name)).toEqual(['default', 'gmail-connector', 'manager', 'claude-cowork-driver']);
+    expect(added.profiles[3]).toEqual({ name: 'claude-cowork-driver', description: 'Drives Claude Cowork and Claude Code on the Mac' });
+    expect(added.default).toBe('default');
+    // A bot already listed gets its line replaced in place.
+    expect(withProfileRoute(routes, 'manager', 'Coordinates the team.').profiles).toEqual([
+      { name: 'default', description: 'General work.' },
+      { name: 'gmail-connector', description: 'Reads and sends email.' },
+      { name: 'manager', description: 'Coordinates the team.' },
+    ]);
+    expect(toProfileRoutes(undefined)).toEqual({ backend: 'default', profiles: [], default: null });
   });
 });

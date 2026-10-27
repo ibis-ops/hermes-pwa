@@ -19,10 +19,20 @@ All notable changes are documented here. The format follows
   message went after a gateway restart, and the router is told to put the earlier ask in the
   goal, since the bot it hands work to does not see the chat.
 - **Handoffs that reach the right bot, and no borrowed logins.** Tested on the Mac: the router once
-  delegated without a profile, which runs the task as the router on its fast model, and when Gmail
-  Connector had no Gmail login of its own the router searched `~/.hermes` for another bot's Google
-  token and used it. The router note now says to give every task its profile name, and when a bot
-  cannot do its part, to tell Sean what it was missing instead of doing it with another bot's access.
+  delegated without a profile, which sends the task down the default route instead of to the bot
+  that owns it, and when Gmail Connector had no Gmail login of its own the router searched
+  `~/.hermes` for another bot's Google token and used it. The router note now says to give every
+  task its profile name, and when a bot cannot do its part, to tell Sean what it was missing
+  instead of doing it with another bot's access.
+- **Bots the router cannot reach.** In Sean's own chat, questions about his running Claude Cowork
+  projects went to the default bot, because Claude Cowork Driver was on the team map but not in the
+  router bot's delegation routes, so Jev never saw it as a choice. Jev now sees every bot on the
+  map; when it picks one the routes leave out, the router tells Sean it cannot reach that bot yet
+  instead of handing the job to another one, and every router note names those bots. The Router
+  card and sheet list them, each with a first draft of its line (its role on the map, else the
+  mission in its SOUL.md), and one tap adds it to the router bot's routes through Hermes's own
+  delegation API. Asked on the Mac, Jev now picks Claude Cowork Driver for those messages (61 to
+  91% sure), and 82 to 100% once its route is in.
 - **What Jev costs.** The Router sheet sums what Jev's latest answers cost.
 - **Try a message.** The Router sheet asks Jev where a message would go, with the router's own
   delegation routes, and says so ("It would go to Google Calander · Jev 99% sure", or that the

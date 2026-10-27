@@ -25,7 +25,17 @@ import { toEnvVar } from '../domain/env';
 import type { MessagingOverview } from '../domain/messaging';
 import { toMessagingOverview } from '../domain/messaging';
 import { toObsidianActivity, toObsidianNoteContent, type ObsidianActivity, type ObsidianNoteContent } from '../domain/obsidian';
-import { toRouterDecision, toRouterStatus, toRouterTry, type RouterDecision, type RouterSettings, type RouterStatus, type RouterTry } from '../domain/router';
+import {
+  toProfileRoutes,
+  toRouterDecision,
+  toRouterStatus,
+  toRouterTry,
+  type ProfileRoutes,
+  type RouterDecision,
+  type RouterSettings,
+  type RouterStatus,
+  type RouterTry,
+} from '../domain/router';
 import { toAgentHistory, type AgentHistory } from '../domain/agent-history';
 import type {
   AuxiliaryModels,
@@ -385,6 +395,13 @@ export interface RestClient {
   saveRouter(patch: Partial<Omit<RouterSettings, 'updatedAt'>>): Promise<RouterStatus>;
   /** Jev's newest routing decisions, for one Hermes session when given. */
   routerDecisions(sessionId?: string, limit?: number): Promise<RouterDecision[]>;
+  /** A bot's delegation profile routes, from Hermes's own delegation API (read-only). */
+  profileRoutes(bot: string): Promise<ProfileRoutes>;
+  /**
+   * Replace a bot's delegation profile routes through Hermes's own delegation API, which checks
+   * every name is a profile and saves under its config lock. Returns the routes as saved.
+   */
+  saveProfileRoutes(bot: string, routes: ProfileRoutes): Promise<ProfileRoutes>;
   /** Every delegated agent run across profiles, newest first. */
   agentHistory(days?: number): Promise<AgentHistory>;
 }
@@ -1037,6 +1054,22 @@ export function makeRestClient(http: Http): RestClient {
         const decision = toRouterDecision(entry);
         return decision ? [decision] : [];
       });
+    },
+
+    async profileRoutes(bot: string): Promise<ProfileRoutes> {
+      return toProfileRoutes(await http<unknown>(`/api/delegation/routing?profile=${encodeURIComponent(bot)}`));
+    },
+
+    async saveProfileRoutes(bot: string, routes: ProfileRoutes): Promise<ProfileRoutes> {
+      const body = {
+        profiles: routes.profiles.map((route) => (route.description ? { name: route.name, description: route.description } : { name: route.name })),
+        default: routes.default,
+      };
+      const raw = await http<Record<string, unknown>>(`/api/delegation/backends/profile_routes?profile=${encodeURIComponent(bot)}`, {
+        method: 'PUT',
+        body: JSON.stringify(body),
+      });
+      return toProfileRoutes({ configured: routes.backend, profile_routes: raw?.profile_routes });
     },
   };
 }

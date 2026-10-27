@@ -463,6 +463,37 @@ describe('makeRestClient', () => {
     expect([result.route, result.source]).toEqual(['answer', 'jev']);
   });
 
+  it("reads and saves the router bot's delegation routes through Hermes's own API, for that bot", async () => {
+    httpMock.mockResolvedValueOnce({
+      configured: 'profile_routes',
+      profile_routes: { profiles: [{ name: 'default', description: 'General work.' }], default: 'default' },
+    });
+    const routes = await client.profileRoutes('router');
+    expect(httpMock).toHaveBeenLastCalledWith('/api/delegation/routing?profile=router');
+    httpMock.mockResolvedValueOnce({
+      ok: true,
+      profile_routes: { profiles: [{ name: 'default', description: 'General work.' }, { name: 'claude-cowork-driver', description: 'Drives Claude Cowork.' }], default: 'default' },
+    });
+    const saved = await client.saveProfileRoutes('router', {
+      ...routes,
+      profiles: [...routes.profiles, { name: 'claude-cowork-driver', description: 'Drives Claude Cowork.' }, { name: 'manager', description: '' }],
+    });
+    const [path, init] = httpMock.mock.calls.at(-1)!;
+    expect(path).toBe('/api/delegation/backends/profile_routes?profile=router');
+    expect(init).toMatchObject({ method: 'PUT' });
+    // Hermes replaces the whole block: every route goes back, and an empty line is left out.
+    expect(JSON.parse(String(init?.body))).toEqual({
+      profiles: [
+        { name: 'default', description: 'General work.' },
+        { name: 'claude-cowork-driver', description: 'Drives Claude Cowork.' },
+        { name: 'manager' },
+      ],
+      default: 'default',
+    });
+    expect(saved.profiles.map((route) => route.name)).toEqual(['default', 'claude-cowork-driver']);
+    expect(saved.backend).toBe('profile_routes');
+  });
+
   it('uses extended HTTP timeout for audio transcription and speech', async () => {
     httpMock.mockResolvedValueOnce({ text: 'transcript' });
     await client.audioTranscribe('data:audio/webm;base64,AAAA', 'audio/webm');

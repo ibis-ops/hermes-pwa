@@ -10,6 +10,7 @@ const OFF: RouterStatus = {
   keyName: 'HERMES_PWA_JEV_API_KEY',
   staleBots: [],
   updateCommand: '',
+  unreachable: [],
   decisions: [],
 };
 
@@ -77,7 +78,7 @@ describe('RouterCard', () => {
       ...OFF,
       settings: { ...OFF.settings, enabled: true },
       decisions: [
-        { at: '2026-10-27T20:00:00Z', bot: 'router', sessionId: 's', key: 'k', preview: 'Any email from clients?', route: 'gmail-connector', guess: null, confidence: 0.9, source: 'jev', reason: '', ms: 300, cost: 0.00002, provider: 'vercel', zdr: true, split: false },
+        { at: '2026-10-27T20:00:00Z', bot: 'router', sessionId: 's', key: 'k', preview: 'Any email from clients?', route: 'gmail-connector', guess: null, confidence: 0.9, source: 'jev', reason: '', ms: 300, cost: 0.00002, provider: 'vercel', zdr: true, split: false, blocked: false },
       ],
     };
     const rest = makeRest({ routerStatus: vi.fn().mockResolvedValue(on) });
@@ -121,7 +122,7 @@ describe('RouterCard', () => {
       keyConfigured: true,
       provider: 'Vercel AI Gateway',
       decisions: [
-        { at: '2026-10-27T21:10:00Z', bot: 'router', sessionId: 's', key: 'c', preview: 'hmm', route: null, guess: 'manager', confidence: 0.4, source: 'router', reason: 'Jev was not sure', ms: 210, cost: 0.00001, provider: 'vercel', zdr: null, split: false },
+        { at: '2026-10-27T21:10:00Z', bot: 'router', sessionId: 's', key: 'c', preview: 'hmm', route: null, guess: 'manager', confidence: 0.4, source: 'router', reason: 'Jev was not sure', ms: 210, cost: 0.00001, provider: 'vercel', zdr: null, split: false, blocked: false },
       ],
     };
     render(<RouterCard rest={makeRest({ routerStatus: vi.fn().mockResolvedValue(answered) })} bots={[...PROFILES.map((p) => p.name), 'router']} onMapChanged={vi.fn()} />);
@@ -155,6 +156,85 @@ describe('RouterCard', () => {
     );
   });
 
+  it("names the bots Router can't hand work to and adds one to its routes through Hermes", async () => {
+    const blocked: RouterStatus = {
+      ...OFF,
+      settings: { ...OFF.settings, enabled: true },
+      keyConfigured: true,
+      provider: 'Vercel AI Gateway',
+      unreachable: [{ name: 'claude-cowork-driver', suggestion: 'Connect to claude cowork and claude code' }],
+      decisions: [
+        { at: '2026-10-27T22:15:03Z', bot: 'router', sessionId: 's', key: 'd', preview: 'How are the Claude projects doing?', route: 'claude-cowork-driver', guess: null, confidence: 0.84, source: 'jev', reason: '', ms: 600, cost: 0.00002, provider: 'vercel', zdr: false, split: false, blocked: true },
+      ],
+    };
+    const reached: RouterStatus = { ...blocked, unreachable: [] };
+    const routerStatus = vi.fn().mockResolvedValueOnce(blocked).mockResolvedValue(reached);
+    const profileRoutes = vi.fn().mockResolvedValue({
+      backend: 'profile_routes',
+      profiles: [{ name: 'default', description: 'General work.' }, { name: 'gmail-connector', description: 'Reads email.' }],
+      default: 'default',
+    });
+    const saveProfileRoutes = vi.fn(async (_bot: string, routes: unknown) => routes);
+    render(
+      <RouterCard
+        rest={makeRest({ routerStatus, profileRoutes, saveProfileRoutes })}
+        bots={[...PROFILES.map((p) => p.name), 'router', 'claude-cowork-driver']}
+        onMapChanged={vi.fn()}
+      />,
+    );
+    const card = await screen.findByRole('button', { name: 'Router settings' });
+    expect(card).toHaveTextContent("On, but Router can't hand work to Claude Cowork Driver yet.");
+    fireEvent.click(card);
+    const sheet = await screen.findByRole('dialog', { name: 'Router' });
+    const note = within(sheet).getByTestId('router-reach');
+    expect(note).toHaveTextContent("Router can't hand work to Claude Cowork Driver");
+    expect(within(sheet).getByTestId('router-decision')).toHaveTextContent("For Claude Cowork Driver, which Router can't reach yet · Jev 84% sure");
+    const line = within(note).getByRole('textbox', { name: 'What Claude Cowork Driver does' });
+    // Its SOUL.md mission, as a first draft to edit.
+    expect(line).toHaveValue('Connect to claude cowork and claude code');
+    fireEvent.change(line, { target: { value: 'Drives Claude Cowork and Claude Code on the Mac: checks on running Claude projects.' } });
+    fireEvent.click(within(note).getByRole('button', { name: 'Add' }));
+    await waitFor(() => expect(saveProfileRoutes).toHaveBeenCalled());
+    expect(profileRoutes).toHaveBeenCalledWith('router');
+    expect(saveProfileRoutes).toHaveBeenCalledWith('router', {
+      backend: 'profile_routes',
+      profiles: [
+        { name: 'default', description: 'General work.' },
+        { name: 'gmail-connector', description: 'Reads email.' },
+        { name: 'claude-cowork-driver', description: 'Drives Claude Cowork and Claude Code on the Mac: checks on running Claude projects.' },
+      ],
+      default: 'default',
+    });
+    expect(await within(sheet).findByTestId('router-reach-added')).toHaveTextContent(
+      'Added Claude Cowork Driver. Start a new chat with Router to use it.',
+    );
+    expect(within(sheet).queryByTestId('router-reach-bot')).toBeNull();
+  });
+
+  it('adds no route when the router bot does not hand work on by profile routes, and says why', async () => {
+    const blocked: RouterStatus = { ...OFF, settings: { ...OFF.settings, enabled: true }, unreachable: [{ name: 'claude-cowork-driver', suggestion: '' }] };
+    const saveProfileRoutes = vi.fn();
+    render(
+      <RouterCard
+        rest={makeRest({
+          routerStatus: vi.fn().mockResolvedValue(blocked),
+          profileRoutes: vi.fn().mockResolvedValue({ backend: 'default', profiles: [], default: null }),
+          saveProfileRoutes,
+        })}
+        bots={[...PROFILES.map((p) => p.name), 'router']}
+        onMapChanged={vi.fn()}
+      />,
+    );
+    fireEvent.click(await screen.findByRole('button', { name: 'Router settings' }));
+    const note = within(await screen.findByRole('dialog', { name: 'Router' })).getByTestId('router-reach');
+    const add = within(note).getByRole('button', { name: 'Add' });
+    expect(add).toBeDisabled(); // no line yet
+    fireEvent.change(within(note).getByRole('textbox', { name: 'What Claude Cowork Driver does' }), { target: { value: 'Drives Claude Cowork.' } });
+    fireEvent.click(add);
+    expect(await within(note).findByRole('alert')).toHaveTextContent('Router does not hand work on by profile routes, so a route would not be used.');
+    expect(saveProfileRoutes).not.toHaveBeenCalled();
+  });
+
   it('shows no update notice when every copy matches', async () => {
     render(<RouterCard rest={makeRest()} bots={PROFILES.map((p) => p.name)} onMapChanged={vi.fn()} />);
     await screen.findByRole('button', { name: 'Router settings' });
@@ -168,8 +248,8 @@ describe('RouterCard', () => {
       keyConfigured: true,
       provider: 'Vercel AI Gateway',
       decisions: [
-        { at: '2026-10-27T21:05:00Z', bot: 'router', sessionId: 's', key: 'a', preview: 'Out of credits?', route: null, guess: null, confidence: null, source: 'router', reason: 'Vercel AI Gateway is out of credits', ms: 120, cost: null, provider: 'vercel', zdr: null, split: false },
-        { at: '2026-10-27T21:00:00Z', bot: 'router', sessionId: 's', key: 'b', preview: 'hi', route: 'answer', guess: null, confidence: 0.97, source: 'jev', reason: '', ms: 200, cost: 0.00001, provider: 'vercel', zdr: false, split: false },
+        { at: '2026-10-27T21:05:00Z', bot: 'router', sessionId: 's', key: 'a', preview: 'Out of credits?', route: null, guess: null, confidence: null, source: 'router', reason: 'Vercel AI Gateway is out of credits', ms: 120, cost: null, provider: 'vercel', zdr: null, split: false, blocked: false },
+        { at: '2026-10-27T21:00:00Z', bot: 'router', sessionId: 's', key: 'b', preview: 'hi', route: 'answer', guess: null, confidence: 0.97, source: 'jev', reason: '', ms: 200, cost: 0.00001, provider: 'vercel', zdr: false, split: false, blocked: false },
       ],
     };
     render(<RouterCard rest={makeRest({ routerStatus: vi.fn().mockResolvedValue(connected) })} bots={[...PROFILES.map((p) => p.name), 'router']} onMapChanged={vi.fn()} />);

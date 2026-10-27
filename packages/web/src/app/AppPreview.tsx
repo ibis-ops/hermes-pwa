@@ -13,7 +13,7 @@ import {
   useChatStore,
   useProjectsStore,
 } from '@hermes-pwa/core';
-import type { RpcClient, RestClient, Approval, Session, RouterStatus } from '@hermes-pwa/core';
+import type { RpcClient, RestClient, Approval, Session, ProfileRoutes, RouterStatus } from '@hermes-pwa/core';
 import type {
   Board,
   BoardDetail,
@@ -213,10 +213,22 @@ let previewRouter: RouterStatus = {
   keyName: 'HERMES_PWA_JEV_API_KEY',
   staleBots: ['manager', 'gmail-connector'],
   updateCommand: 'for bot in manager gmail-connector; do hermes -p "$bot" plugins update hermes-pwa; done',
+  // On the team map, but not in the router's delegation routes: the sheet offers adding it.
+  unreachable: [{ name: 'research', suggestion: 'Deep research, keeps things reversible' }],
   decisions: [
-    { at: new Date(Date.now() - 600_000).toISOString(), bot: 'router', sessionId: 'p-1', key: '0', preview: 'Any email from the Kahunas clients today?', route: 'gmail-connector', guess: null, confidence: 0.91, source: 'jev', reason: '', ms: 240, cost: 0.00002, provider: 'vercel', zdr: true, split: false },
-    { at: new Date(Date.now() - 900_000).toISOString(), bot: 'router', sessionId: 'p-1', key: '1', preview: 'What is 15% of 2,340?', route: 'answer', guess: null, confidence: 0.97, source: 'jev', reason: '', ms: 180, cost: 0.00001, provider: 'vercel', zdr: true, split: false },
+    { at: new Date(Date.now() - 300_000).toISOString(), bot: 'router', sessionId: 'p-1', key: '2', preview: 'How is the market research going?', route: 'research', guess: null, confidence: 0.88, source: 'jev', reason: '', ms: 260, cost: 0.00002, provider: 'vercel', zdr: true, split: false, blocked: true },
+    { at: new Date(Date.now() - 600_000).toISOString(), bot: 'router', sessionId: 'p-1', key: '0', preview: 'Any email from the Kahunas clients today?', route: 'gmail-connector', guess: null, confidence: 0.91, source: 'jev', reason: '', ms: 240, cost: 0.00002, provider: 'vercel', zdr: true, split: false, blocked: false },
+    { at: new Date(Date.now() - 900_000).toISOString(), bot: 'router', sessionId: 'p-1', key: '1', preview: 'What is 15% of 2,340?', route: 'answer', guess: null, confidence: 0.97, source: 'jev', reason: '', ms: 180, cost: 0.00001, provider: 'vercel', zdr: true, split: false, blocked: false },
   ],
+};
+
+let previewRoutes: ProfileRoutes = {
+  backend: 'profile_routes',
+  profiles: [
+    { name: 'default', description: 'General work as the main agent.' },
+    { name: 'ops', description: 'Infra, deploys and incident response.' },
+  ],
+  default: 'default',
 };
 
 const noopRest: RestClient = {
@@ -394,9 +406,18 @@ const noopRest: RestClient = {
   routerTry:           (message) =>
     Promise.resolve(
       /calendar|meeting|event/i.test(message)
-        ? { route: 'google-calander', guess: null, confidence: 0.99, source: 'jev', reason: '', split: false, team: [], ms: 230, cost: 0.00003 }
-        : { route: 'answer', guess: null, confidence: 0.97, source: 'jev', reason: '', split: false, team: [], ms: 210, cost: 0.00003 },
+        ? { route: 'google-calander', guess: null, confidence: 0.99, source: 'jev', reason: '', split: false, team: [], blocked: false, ms: 230, cost: 0.00003 }
+        : /research/i.test(message) && previewRouter.unreachable.length > 0
+          ? { route: 'research', guess: null, confidence: 0.9, source: 'jev', reason: '', split: false, team: [], blocked: true, ms: 240, cost: 0.00003 }
+          : { route: 'answer', guess: null, confidence: 0.97, source: 'jev', reason: '', split: false, team: [], blocked: false, ms: 210, cost: 0.00003 },
     ),
+  profileRoutes:       () => Promise.resolve(previewRoutes),
+  saveProfileRoutes:   (_bot, routes) => {
+    previewRoutes = routes;
+    const listed = new Set(routes.profiles.map((route) => route.name));
+    previewRouter = { ...previewRouter, unreachable: previewRouter.unreachable.filter((bot) => !listed.has(bot.name)) };
+    return Promise.resolve(previewRoutes);
+  },
   obsidianNote:        () => Promise.resolve({ vault: 'General', phoneVault: 'Vault 1', path: 'Clients/Ann Lee/Ann Lee.md', name: 'Ann Lee', text: '---\ntype: note\ntags: [client]\n---\n\n# Ann Lee\n\nCheck-in prep for Friday.', size: 80, modifiedAt: Date.now() - 3_600_000 }),
   messagingPlatforms:  () => Promise.resolve({
     gatewayRunning: true,

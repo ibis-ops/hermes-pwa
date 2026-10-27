@@ -21,6 +21,7 @@ function restWith(saved: TeamMap | undefined, save: (map: TeamMap) => Promise<Te
       keyConfigured: false,
       staleBots: [],
       updateCommand: '',
+      unreachable: [],
       decisions: [],
     }),
   } as unknown as RestClient;
