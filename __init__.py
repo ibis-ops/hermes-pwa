@@ -7,6 +7,7 @@ import threading
 from typing import Any, Callable
 
 from .bot_graph import hook_context as team_map_context
+from .pwa_router import hook_context as router_context
 from .push_common import (
     approval_push_payload,
     claim_push_dedupe,
@@ -210,16 +211,28 @@ def _on_post_llm_call(**kwargs: Any) -> None:
 
 
 def _on_pre_llm_call(**kwargs: Any) -> dict[str, str] | None:
-    """Tell a bot its place on Sean's team map: once per chat, and again after the map changes."""
+    """Tell a bot its place on Sean's team map (once per chat, and again after the map changes),
+    and tell the router bot who Jev picked to take this message."""
+    session_id = str(kwargs.get("session_id") or "")
+    parent_session_id = str(kwargs.get("parent_session_id") or "")
+    parts: list[str] = []
     try:
-        text = team_map_context(
-            str(kwargs.get("session_id") or ""),
-            parent_session_id=str(kwargs.get("parent_session_id") or ""),
-        )
+        team = team_map_context(session_id, parent_session_id=parent_session_id)
+        if team:
+            parts.append(team)
     except Exception as exc:  # pragma: no cover - defensive: the turn goes ahead without the map
         logger.debug("Hermes PWA team map hook ignored error: %s", exc)
-        return None
-    return {"context": text} if text else None
+    try:
+        route = router_context(
+            session_id,
+            str(kwargs.get("user_message") or ""),
+            parent_session_id=parent_session_id,
+        )
+        if route:
+            parts.append(route)
+    except Exception as exc:  # pragma: no cover - defensive: the router decides for itself
+        logger.debug("Hermes PWA router hook ignored error: %s", exc)
+    return {"context": "\n\n".join(parts)} if parts else None
 
 
 def register(ctx: Any) -> None:

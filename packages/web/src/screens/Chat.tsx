@@ -25,6 +25,7 @@ import { DEFAULT_SKILL_EVENT, applyDefaultSkill, readDefaultSkill } from '../lib
 import { dataUrlToObjectUrl, silentAudioUrl } from '../lib/audioBlob';
 import { readAloud } from '../lib/readAloud';
 import { useReadAloud } from '../hooks/useReadAloud';
+import { useRouteNotes } from '../hooks/useRouter';
 
 interface ChatProps {
   rpc: RpcClient;
@@ -81,6 +82,8 @@ export function Chat({ rpc, rest }: ChatProps) {
   const activeName = useProfilesStore((s) => s.activeName);
   const currentName = useProfilesStore((s) => s.currentName);
   const reading = useReadAloud();
+  // In the router bot's chat, who Jev sent each message to.
+  const routeNotes = useRouteNotes(rest, activeName ?? currentName, messages, streaming);
   // Stable, so a bubble only re-renders when its own reading state changes.
   const handleReadAloud = useCallback((messageId: string, text: string) => readAloud.toggle(messageId, text), []);
   const listRef = useRef<HTMLDivElement>(null);
@@ -457,6 +460,7 @@ export function Chat({ rpc, rest }: ChatProps) {
                   readAloudStatus={reading.messageId === m.id ? reading.status : 'idle'}
                   readAloudError={reading.messageId === m.id ? reading.error : undefined}
                   onReadAloud={m.role === 'assistant' ? handleReadAloud : undefined}
+                  routeNote={routeNotes.get(m.id)}
                 />
               </div>
             );

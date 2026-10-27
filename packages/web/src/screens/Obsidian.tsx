@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
+  HermesHttpError,
   groupNotesByDay,
   resolveLinkVault,
   type ObsidianActivity,
@@ -169,6 +170,13 @@ function NoteRow({ note, onOpen }: { note: ObsidianNote; onOpen: (note: Obsidian
   );
 }
 
+interface SyncNote {
+  tone: 'ok' | 'error';
+  text: string;
+  /** Offer to open Obsidian on this phone, which pulls the latest down. */
+  openPhone?: boolean;
+}
+
 /** Notes Hermes wrote in the Obsidian vault, by day; a tap reads the note, with a link into the Obsidian app. */
 export function Obsidian({ rest }: ObsidianProps) {
   const [activity, setActivity] = useState<ObsidianActivity | undefined>(undefined);
@@ -178,6 +186,8 @@ export function Obsidian({ rest }: ObsidianProps) {
   const [sheetOpen, setSheetOpen] = useState(false);
   const [openNote, setOpenNote] = useState<ObsidianNote | undefined>(undefined);
   const [nowMs, setNowMs] = useState(() => Date.now());
+  const [syncing, setSyncing] = useState(false);
+  const [syncNote, setSyncNote] = useState<SyncNote | undefined>(undefined);
 
   const load = useCallback(async () => {
     try {
@@ -219,6 +229,36 @@ export function Obsidian({ rest }: ObsidianProps) {
   const vault = activity?.vaults[0];
   const linkVaultLabel = phoneVault ?? vault?.phoneName ?? vault?.name;
 
+  // Obsidian Sync carries the vault between the Mac and this phone, but only
+  // while Obsidian is open on the Mac: Sync opens it there when it is closed.
+  async function sync() {
+    if (syncing) return;
+    setSyncing(true);
+    setSyncNote(undefined);
+    try {
+      const result = await rest.obsidianSync();
+      await load();
+      if (!result.available) {
+        setSyncNote({ tone: 'error', text: 'Obsidian is not installed on your Mac, so there is nothing to sync from there.' });
+      } else if (!result.running) {
+        setSyncNote({ tone: 'error', text: 'Obsidian did not open on your Mac. Open it there once, then try again.' });
+      } else if (result.started) {
+        setSyncNote({ tone: 'ok', text: 'Opened Obsidian on your Mac so Sync can catch up.', openPhone: true });
+      } else {
+        setSyncNote({ tone: 'ok', text: 'Obsidian is open on your Mac and syncing.', openPhone: true });
+      }
+    } catch (err) {
+      if (err instanceof HermesHttpError && err.status === 404) {
+        await load();
+        setSyncNote({ tone: 'ok', text: 'List refreshed. Restart the Hermes dashboard on your Mac to let Sync open Obsidian there.' });
+      } else {
+        setSyncNote({ tone: 'error', text: err instanceof Error && err.message ? err.message : 'Could not reach your Mac.' });
+      }
+    } finally {
+      setSyncing(false);
+    }
+  }
+
   const pickVault = (value: string | undefined) => {
     setPhoneVault(value);
     writePhoneVault(value);
@@ -238,6 +278,29 @@ export function Obsidian({ rest }: ObsidianProps) {
           ? `Notes your bots wrote in the ${vault.name} vault over the last ${DAYS} days. Tap one to read it or open it in Obsidian.`
           : 'Notes your bots write in Obsidian show here. Tap one to read it or open it in the Obsidian app.'}
       </p>
+
+      <div className="hm-obsidian__sync">
+        <button type="button" className="hm-obsidian__sync-btn" onClick={() => void sync()} disabled={syncing} data-testid="obsidian-sync">
+          <span className="hm-obsidian__sync-icon" data-spinning={syncing ? 'true' : 'false'} aria-hidden="true">
+            <Icon name="refresh" size={16} />
+          </span>
+          <span>{syncing ? 'Syncing…' : 'Sync vault'}</span>
+        </button>
+        {syncNote ? (
+          <p className={`hm-obsidian__sync-note${syncNote.tone === 'error' ? ' hm-obsidian__sync-note--error' : ''}`} role="status">
+            {syncNote.text}
+            {syncNote.openPhone ? (
+              <>
+                {' '}
+                <a className="hm-obsidian__sync-open" href={`obsidian://open${linkVaultLabel ? `?vault=${encodeURIComponent(linkVaultLabel)}` : ''}`}>
+                  Open Obsidian here
+                </a>{' '}
+                to pull the latest.
+              </>
+            ) : null}
+          </p>
+        ) : null}
+      </div>
 
       {error ? <div className="hm-warning-banner hm-warning-banner--error">{error}</div> : null}
       {activity && !activity.available ? (

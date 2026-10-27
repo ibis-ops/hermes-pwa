@@ -1,0 +1,96 @@
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { HermesHttpError, useModelStore, useProfilesStore, type RestClient, type RouterStatus, type TeamMap } from '@hermes-pwa/core';
+import { RouterCard } from './RouterPanel';
+
+const OFF: RouterStatus = {
+  settings: { enabled: false, bot: 'router', jevModel: '~typesafe/jev-latest', minConfidence: 0.6 },
+  keyConfigured: false,
+  decisions: [],
+};
+
+const PROFILES = [
+  { name: 'default', provider: 'anthropic', model: 'claude-sonnet-5', isActive: true },
+  { name: 'manager', provider: 'anthropic', model: 'claude-sonnet-5', isActive: false },
+  { name: 'gmail-connector', provider: 'anthropic', model: 'claude-sonnet-5', isActive: false },
+];
+
+function makeRest(overrides: Record<string, unknown> = {}): RestClient {
+  let profiles = [...PROFILES];
+  return {
+    routerStatus: vi.fn().mockResolvedValue(OFF),
+    saveRouter: vi.fn(async (patch: Partial<RouterStatus['settings']>) => ({ ...OFF, settings: { ...OFF.settings, ...patch } })),
+    modelOptions: vi.fn().mockResolvedValue({
+      provider: 'anthropic',
+      model: 'claude-sonnet-5',
+      providers: [{ name: 'Anthropic', slug: 'anthropic', models: ['claude-sonnet-5', 'claude-opus-5', 'claude-haiku-4-5'], authenticated: true }],
+    }),
+    profileList: vi.fn(async () => profiles),
+    profileActive: vi.fn().mockResolvedValue({ active: 'default', current: 'default' }),
+    profileCreate: vi.fn(async (body: { name: string }) => {
+      profiles = [...profiles, { name: body.name, provider: 'anthropic', model: 'claude-sonnet-5', isActive: false }];
+      return { ok: true, name: body.name };
+    }),
+    profileUpdateModel: vi.fn().mockResolvedValue({ ok: true }),
+    botGraph: vi.fn().mockResolvedValue(undefined),
+    saveBotGraph: vi.fn(async (map: TeamMap) => ({ ...map, version: 1 })),
+    ...overrides,
+  } as unknown as RestClient;
+}
+
+describe('RouterCard', () => {
+  beforeEach(() => {
+    window.localStorage.clear();
+    useProfilesStore.setState({ profiles: PROFILES, activeName: 'default', currentName: 'default', loading: false, error: undefined });
+    useModelStore.setState({ options: undefined, info: undefined, auxiliary: undefined, loading: false, setting: false, error: undefined });
+  });
+
+  it('says the router waits on a dashboard restart when the Mac does not have it yet', async () => {
+    render(<RouterCard rest={makeRest({ routerStatus: vi.fn().mockRejectedValue(new HermesHttpError(404, 'Not Found', 'nope')) })} bots={['default']} onMapChanged={vi.fn()} />);
+    expect(await screen.findByTestId('router-card')).toHaveTextContent('Turns on once the Hermes dashboard on your Mac restarts.');
+  });
+
+  it('sets Router up in one tap: a fast model, on top of the map, routing on', async () => {
+    const rest = makeRest();
+    const onMapChanged = vi.fn();
+    render(<RouterCard rest={rest} bots={PROFILES.map((p) => p.name)} onMapChanged={onMapChanged} />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Router settings' }));
+    const sheet = await screen.findByRole('dialog', { name: 'Set up Router' });
+    await waitFor(() => expect(within(sheet).getByRole('combobox', { name: "Router's model" })).toHaveValue('claude-haiku-4-5'));
+    fireEvent.click(within(sheet).getByRole('button', { name: 'Set up Router' }));
+
+    await waitFor(() => expect(rest.saveRouter).toHaveBeenCalledWith({ enabled: true, bot: 'router' }));
+    expect(rest.profileCreate).toHaveBeenCalledWith(expect.objectContaining({ name: 'router', clone_from_default: true }));
+    expect(rest.profileUpdateModel).toHaveBeenCalledWith('router', expect.objectContaining({ provider: 'anthropic', model: 'claude-haiku-4-5', reasoning_effort: 'none' }));
+    const map = (rest.saveBotGraph as ReturnType<typeof vi.fn>).mock.calls[0]![0] as TeamMap;
+    expect(map.nodes.router).toMatchObject({ reportsTo: null, canMessage: ['default', 'gmail-connector', 'manager'] });
+    expect(map.nodes.manager?.reportsTo).toBe('router');
+    expect(onMapChanged).toHaveBeenCalled();
+  });
+
+  it('changes the settings of a router that exists, and explains the missing Jev key', async () => {
+    const on: RouterStatus = {
+      ...OFF,
+      settings: { ...OFF.settings, enabled: true },
+      decisions: [
+        { at: '2026-10-27T20:00:00Z', bot: 'router', sessionId: 's', key: 'k', preview: 'Any email from clients?', route: 'gmail-connector', guess: null, confidence: 0.9, source: 'jev', reason: '', ms: 300, cost: 0.00002 },
+      ],
+    };
+    const rest = makeRest({ routerStatus: vi.fn().mockResolvedValue(on) });
+    const onOpenBot = vi.fn();
+    render(<RouterCard rest={rest} bots={[...PROFILES.map((p) => p.name), 'router']} onMapChanged={vi.fn()} onOpenBot={onOpenBot} />);
+    const card = await screen.findByRole('button', { name: 'Router settings' });
+    expect(card).toHaveTextContent('On, but Jev needs an OpenRouter key');
+    fireEvent.click(card);
+    const sheet = await screen.findByRole('dialog', { name: 'Router' });
+    expect(within(sheet).getByTestId('router-key')).toHaveTextContent('hermes config set OPENROUTER_API_KEY');
+    expect(within(sheet).getByTestId('router-decision')).toHaveTextContent('Sent to Gmail Connector · Jev 90% sure');
+    fireEvent.click(within(sheet).getByRole('switch', { name: 'Route with Jev' }));
+    await waitFor(() => expect(rest.saveRouter).toHaveBeenCalledWith({ enabled: false }));
+    await waitFor(() => expect(within(sheet).getByRole('radio', { name: 'Strict 75%' })).not.toBeDisabled());
+    fireEvent.click(within(sheet).getByRole('radio', { name: 'Strict 75%' }));
+    await waitFor(() => expect(rest.saveRouter).toHaveBeenCalledWith({ minConfidence: 0.75 }));
+    fireEvent.click(within(sheet).getByRole('button', { name: 'Message' }));
+    expect(onOpenBot).toHaveBeenCalledWith('router');
+  });
+});

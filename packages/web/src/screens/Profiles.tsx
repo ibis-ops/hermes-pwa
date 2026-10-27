@@ -243,7 +243,14 @@ export function Profiles({ rest, onActivated }: ProfilesProps) {
 
       {view === 'team' ? (
         profiles.length > 0 ? (
-          <TeamMapView rest={rest} bots={names} />
+          <TeamMapView
+            rest={rest}
+            bots={names}
+            onOpenBot={(name) => {
+              const profile = profiles.find((entry) => entry.name === name);
+              if (profile) void openChat(profile);
+            }}
+          />
         ) : loading ? (
           <SkeletonRows rows={4} kind="cards" label="Loading bots" />
         ) : null

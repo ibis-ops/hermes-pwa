@@ -27,6 +27,8 @@ export interface MessageBubbleProps {
   readAloudError?: string | undefined;
   /** Read a reply aloud, or stop it. Stable across renders. */
   onReadAloud?: ((messageId: string, text: string) => void) | undefined;
+  /** In the router bot's chat: who Jev sent the message this reply answers to. */
+  routeNote?: string | undefined;
 }
 
 export function areMessageBubblePropsEqual(prev: MessageBubbleProps, next: MessageBubbleProps): boolean {
@@ -44,7 +46,8 @@ export function areMessageBubblePropsEqual(prev: MessageBubbleProps, next: Messa
     prev.stopped === next.stopped &&
     prev.readAloudStatus === next.readAloudStatus &&
     prev.readAloudError === next.readAloudError &&
-    prev.onReadAloud === next.onReadAloud
+    prev.onReadAloud === next.onReadAloud &&
+    prev.routeNote === next.routeNote
   );
 }
 

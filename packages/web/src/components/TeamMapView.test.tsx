@@ -13,7 +13,15 @@ const SAVED: TeamMap = {
 };
 
 function restWith(saved: TeamMap | undefined, save: (map: TeamMap) => Promise<TeamMap> = async (map) => ({ ...map, version: 5 })): RestClient {
-  return { botGraph: vi.fn().mockResolvedValue(saved), saveBotGraph: save } as unknown as RestClient;
+  return {
+    botGraph: vi.fn().mockResolvedValue(saved),
+    saveBotGraph: save,
+    routerStatus: vi.fn().mockResolvedValue({
+      settings: { enabled: false, bot: 'router', jevModel: '~typesafe/jev-latest', minConfidence: 0.6 },
+      keyConfigured: false,
+      decisions: [],
+    }),
+  } as unknown as RestClient;
 }
 
 const BOTS = ['manager', 'gmail-connector', 'signal-connector'];

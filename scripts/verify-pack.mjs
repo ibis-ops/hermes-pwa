@@ -40,6 +40,8 @@ const required = [
   'obsidian_activity.py',
   'pwa_speech.py',
   'bot_graph.py',
+  'pwa_router.py',
+  'obsidian_sync.py',
   'dashboard/manifest.json',
   'dashboard/plugin_api.py',
   'dashboard/dist/index.js',

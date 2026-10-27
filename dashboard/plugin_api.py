@@ -39,9 +39,12 @@ from local_files import (  # noqa: E402
 from agent_history import cached_history as agent_cached_history  # noqa: E402
 import pwa_speech  # noqa: E402
 import bot_graph  # noqa: E402
+import pwa_router  # noqa: E402
+import obsidian_sync  # noqa: E402
 from obsidian_activity import (  # noqa: E402
     NoteAccessError,
     cached_activity as obsidian_cached_activity,
+    clear_cache as obsidian_clear_cache,
     read_note as obsidian_read_note,
 )
 from push_common import (  # noqa: E402
@@ -1057,6 +1060,15 @@ def agents_history(days: int = 30, limit: int = 200) -> JSONResponse:
     return _data_response(payload)
 
 
+@router.post("/obsidian/sync", dependencies=[Depends(_require_dashboard_auth)])
+async def obsidian_sync_now() -> JSONResponse:
+    """Make sure Obsidian is open on the Mac, so Obsidian Sync moves the vault both ways, and
+    rescan the notes the bots wrote. Opens the app in the background; never touches a note."""
+    result = await run_in_threadpool(obsidian_sync.ensure_open)
+    obsidian_clear_cache()
+    return _data_response(result)
+
+
 @router.get("/obsidian/note", dependencies=[Depends(_require_dashboard_auth)])
 def obsidian_note(vault: str = "", path: str = "") -> JSONResponse:
     """One note's text for the in-app viewer; only files inside a known vault."""
@@ -1082,6 +1094,29 @@ async def save_bots_graph(request: Request) -> JSONResponse:
     except bot_graph.GraphError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return _data_response({"graph": record})
+
+
+@router.get("/router", dependencies=[Depends(_require_dashboard_auth)])
+def router_status() -> JSONResponse:
+    """The router bot's settings, whether Jev has an OpenRouter key, and its newest decisions."""
+    return _data_response({**pwa_router.status(), "decisions": pwa_router.recent(limit=20)})
+
+
+@router.put("/router", dependencies=[Depends(_require_dashboard_auth)])
+async def save_router(request: Request) -> JSONResponse:
+    """Turn Jev routing on or off, pick the router bot, or change how sure Jev must be."""
+    body = await _json_body(request)
+    try:
+        pwa_router.save_settings(body)
+    except pwa_router.RouterSettingsError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return _data_response({**pwa_router.status(), "decisions": pwa_router.recent(limit=20)})
+
+
+@router.get("/router/decisions", dependencies=[Depends(_require_dashboard_auth)])
+def router_decisions(session_id: str = "", limit: int = 50) -> JSONResponse:
+    """Jev's newest routing decisions, for one chat when ``session_id`` is given."""
+    return _data_response({"decisions": pwa_router.recent(session_id=session_id[:256], limit=limit)})
 
 
 @router.get("/speech/voices", dependencies=[Depends(_require_dashboard_auth)])

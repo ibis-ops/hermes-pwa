@@ -17,6 +17,7 @@ import {
 import { BottomSheet } from './BottomSheet';
 import { BotAvatar } from './BotAvatar';
 import { Icon } from './Icon';
+import { RouterCard } from './RouterPanel';
 import { SkeletonRows } from './Skeleton';
 
 function messagesLine(names: string[], boss: string | null): string {
@@ -188,6 +189,8 @@ interface TeamMapViewProps {
   rest: RestClient;
   /** The bots there are, by profile name. */
   bots: string[];
+  /** Open a bot's chat (the router card's Message button). */
+  onOpenBot?: ((name: string) => void) | undefined;
 }
 
 /**
@@ -195,13 +198,15 @@ interface TeamMapViewProps {
  * Sean down. Tapping a bot edits its place. The plugin tells each bot its
  * place on its next turn; nothing is blocked.
  */
-export function TeamMapView({ rest, bots }: TeamMapViewProps) {
+export function TeamMapView({ rest, bots, onOpenBot }: TeamMapViewProps) {
   const [saved, setSaved] = useState<TeamMap | undefined>(undefined);
   const [loaded, setLoaded] = useState(false);
   const [loadError, setLoadError] = useState<string | undefined>();
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | undefined>();
   const [editing, setEditing] = useState<string | undefined>();
+  // Bumped when something else saved the map (the router setup), so it loads again.
+  const [reloadTick, setReloadTick] = useState(0);
 
   useEffect(() => {
     let alive = true;
@@ -220,7 +225,7 @@ export function TeamMapView({ rest, bots }: TeamMapViewProps) {
     return () => {
       alive = false;
     };
-  }, [rest]);
+  }, [rest, reloadTick]);
 
   const map = useMemo(() => withBots(saved ?? defaultTeamMap(bots), bots), [saved, bots]);
   const tree = useMemo(() => teamTree(map, bots), [map, bots]);
@@ -245,6 +250,7 @@ export function TeamMapView({ rest, bots }: TeamMapViewProps) {
 
   return (
     <div className="hm-team">
+      <RouterCard rest={rest} bots={bots} onMapChanged={() => setReloadTick((tick) => tick + 1)} onOpenBot={onOpenBot} />
       {loadError ? <div className="hm-warning-banner hm-warning-banner--error">{loadError}</div> : null}
       {starting && top ? (
         <div className="hm-team__banner" data-testid="team-starting">

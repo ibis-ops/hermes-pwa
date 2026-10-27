@@ -13,7 +13,7 @@ import {
   useChatStore,
   useProjectsStore,
 } from '@hermes-pwa/core';
-import type { RpcClient, RestClient, Approval, Session } from '@hermes-pwa/core';
+import type { RpcClient, RestClient, Approval, Session, RouterStatus } from '@hermes-pwa/core';
 import type {
   Board,
   BoardDetail,
@@ -205,6 +205,15 @@ const previewColumns: Column[] = PREVIEW_STATUSES
   .map((status) => ({ status, tasks: previewTasks.filter((t) => t.status === status) }))
   .filter((col) => col.tasks.length > 0 || col.status !== 'blocked');
 
+let previewRouter: RouterStatus = {
+  settings: { enabled: false, bot: 'router', jevModel: '~typesafe/jev-latest', minConfidence: 0.6 },
+  keyConfigured: false,
+  decisions: [
+    { at: new Date(Date.now() - 600_000).toISOString(), bot: 'router', sessionId: 'p-1', key: '0', preview: 'Any email from the Kahunas clients today?', route: 'gmail-connector', guess: null, confidence: 0.91, source: 'jev', reason: '', ms: 240, cost: 0.00002 },
+    { at: new Date(Date.now() - 900_000).toISOString(), bot: 'router', sessionId: 'p-1', key: '1', preview: 'What is 15% of 2,340?', route: 'answer', guess: null, confidence: 0.97, source: 'jev', reason: '', ms: 180, cost: 0.00001 },
+  ],
+};
+
 const noopRest: RestClient = {
   status:              () => Promise.resolve({ authRequired: false, authProviders: [] }),
   providers:           () => Promise.resolve([]),
@@ -303,7 +312,14 @@ const noopRest: RestClient = {
   ] as EnvVar[]),
   config:              () => Promise.resolve({}),
   setConfig:           () => Promise.resolve({ ok: true }),
-  modelOptions:        () => Promise.resolve({ providers: [] }),
+  modelOptions:        () => Promise.resolve({
+    provider: 'anthropic',
+    model: 'claude-sonnet-5',
+    providers: [
+      { name: 'Anthropic', slug: 'anthropic', models: ['claude-sonnet-5', 'claude-opus-5', 'claude-haiku-4-5'], authenticated: true },
+      { name: 'OpenAI Codex', slug: 'openai-codex', models: ['gpt-5.5', 'gpt-5.5-mini'], authenticated: true },
+    ],
+  }),
   modelInfo:           () => Promise.resolve({ model: 'gpt-5.5', provider: 'openai-codex', capabilities: {} }),
   modelAuxiliary:      () => Promise.resolve({ main: { provider: '', model: '' }, tasks: [] }),
   modelSet:            () => Promise.resolve({ ok: true }),
@@ -362,6 +378,14 @@ const noopRest: RestClient = {
     scannedAt: Date.now(),
     error: undefined,
   }),
+  obsidianSync:        () => Promise.resolve({ available: true, running: true, started: false }),
+  // Routing on, with a router bot the preview does not have yet: the Team view offers the setup.
+  routerStatus:        () => Promise.resolve(previewRouter),
+  saveRouter:          (patch) => {
+    previewRouter = { ...previewRouter, settings: { ...previewRouter.settings, ...patch } };
+    return Promise.resolve(previewRouter);
+  },
+  routerDecisions:     () => Promise.resolve(previewRouter.decisions),
   obsidianNote:        () => Promise.resolve({ vault: 'General', phoneVault: 'Vault 1', path: 'Clients/Ann Lee/Ann Lee.md', name: 'Ann Lee', text: '---\ntype: note\ntags: [client]\n---\n\n# Ann Lee\n\nCheck-in prep for Friday.', size: 80, modifiedAt: Date.now() - 3_600_000 }),
   messagingPlatforms:  () => Promise.resolve({
     gatewayRunning: true,

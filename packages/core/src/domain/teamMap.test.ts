@@ -11,6 +11,7 @@ import {
   toTeamMap,
   updateNode,
   withBots,
+  withRouterOnTop,
 } from './teamMap';
 
 const BOTS = ['default', 'gmail-connector', 'manager', 'signal-connector'];
@@ -94,5 +95,14 @@ describe('team map', () => {
     expect(toTeamMap(null)).toBeUndefined();
     expect(sameTeamMap(defaultTeamMap(BOTS), { version: 9, nodes: defaultTeamMap(BOTS).nodes })).toBe(true);
     expect(sameTeamMap(defaultTeamMap(BOTS), defaultTeamMap(['manager']))).toBe(false);
+  });
+
+  it('puts the router on top: it reaches every bot and the old top bot reports to it', () => {
+    const map = withRouterOnTop(defaultTeamMap(['manager', 'gmail-connector', 'router']), 'router', '  Front   door. ');
+    expect(map.nodes.router).toEqual({ reportsTo: null, canMessage: ['gmail-connector', 'manager'], role: 'Front door.' });
+    expect(map.nodes.manager).toMatchObject({ reportsTo: 'router' });
+    expect(map.nodes.manager!.canMessage).toContain('router');
+    expect(map.nodes['gmail-connector']).toEqual({ reportsTo: 'manager', canMessage: ['manager'], role: '' });
+    expect(teamTree(map, ['manager', 'gmail-connector', 'router']).roots.map((root) => root.name)).toEqual(['router']);
   });
 });

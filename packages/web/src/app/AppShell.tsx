@@ -163,10 +163,11 @@ const DRAWER_ITEMS: { key: Screen; label: string; icon: IconName }[] = [
   { key: 'settings', label: 'Settings', icon: 'settings' },
 ];
 
-/** The tab bar: the four places a thumb goes most, and More for the rest. */
+/** The tab bar: the places a thumb goes most, and More for the rest. */
 const TAB_ITEMS: { key: Screen | 'more'; label: string; icon: IconName }[] = [
   { key: 'chat', label: 'Chat', icon: 'chat' },
   { key: 'profiles', label: 'Bots', icon: 'profiles' },
+  { key: 'obsidian', label: 'Obsidian', icon: 'note' },
   { key: 'approvals', label: 'Approvals', icon: 'shield' },
   { key: 'sessions', label: 'Sessions', icon: 'sessions' },
   { key: 'more', label: 'More', icon: 'menu' },

@@ -45,6 +45,8 @@
     "obsidian_activity.py",
     "pwa_speech.py",
     "bot_graph.py",
+    "pwa_router.py",
+    "obsidian_sync.py",
     "scripts/install-plugin.mjs",
     "scripts/verify-pack.mjs",
     "scripts/check-version-consistency.mjs",

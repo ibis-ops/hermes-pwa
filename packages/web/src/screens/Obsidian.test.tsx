@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { ObsidianActivity, RestClient } from '@hermes-pwa/core';
+import { HermesHttpError, type ObsidianActivity, type RestClient } from '@hermes-pwa/core';
 import { Obsidian } from './Obsidian';
 
 const NOW = new Date(2026, 9, 24, 12, 30).getTime();
@@ -123,5 +123,29 @@ describe('Obsidian', () => {
     const rest = { obsidianActivity: vi.fn().mockRejectedValue(new Error('Gateway offline')) } as unknown as RestClient;
     render(<Obsidian rest={rest} />);
     await waitFor(() => expect(screen.getByText('Gateway offline')).toBeInTheDocument());
+  });
+
+  it('syncs the vault: opens Obsidian on the Mac when needed, rescans, and offers Obsidian here', async () => {
+    const rest = makeRest();
+    const obsidianSync = vi.fn().mockResolvedValue({ available: true, running: true, started: true });
+    (rest as unknown as { obsidianSync: typeof obsidianSync }).obsidianSync = obsidianSync;
+    render(<Obsidian rest={rest} />);
+    await waitFor(() => expect(screen.getAllByTestId('obsidian-day')).toHaveLength(2));
+    fireEvent.click(screen.getByTestId('obsidian-sync'));
+    const note = await screen.findByRole('status');
+    expect(note).toHaveTextContent('Opened Obsidian on your Mac so Sync can catch up.');
+    expect(within(note).getByRole('link', { name: 'Open Obsidian here' })).toHaveAttribute('href', 'obsidian://open?vault=Vault%201');
+    expect(obsidianSync).toHaveBeenCalledTimes(1);
+    expect(rest.obsidianActivity).toHaveBeenCalledTimes(2);
+  });
+
+  it('still refreshes the list when the Mac runs an older dashboard', async () => {
+    const rest = makeRest();
+    (rest as unknown as { obsidianSync: () => Promise<never> }).obsidianSync = () => Promise.reject(new HermesHttpError(404, 'Not Found', 'no route'));
+    render(<Obsidian rest={rest} />);
+    await waitFor(() => expect(screen.getAllByTestId('obsidian-day')).toHaveLength(2));
+    fireEvent.click(screen.getByTestId('obsidian-sync'));
+    expect(await screen.findByRole('status')).toHaveTextContent('Restart the Hermes dashboard on your Mac');
+    expect(rest.obsidianActivity).toHaveBeenCalledTimes(2);
   });
 });

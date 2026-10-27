@@ -62,6 +62,10 @@ const restMock = {
   botGraph: vi.fn().mockResolvedValue(undefined),
   saveBotGraph: vi.fn(async (map: unknown) => map),
   speechAudio: vi.fn().mockRejectedValue(new Error('not in tests')),
+  obsidianActivity: vi.fn().mockResolvedValue({ available: true, vaults: [], notes: [], scannedAt: undefined, days: 60, total: 0, error: undefined }),
+  obsidianSync: vi.fn().mockResolvedValue({ available: true, running: true, started: false }),
+  routerStatus: vi.fn().mockResolvedValue({ settings: { enabled: false, bot: 'router', jevModel: '~typesafe/jev-latest', minConfidence: 0.6 }, keyConfigured: false, decisions: [] }),
+  routerDecisions: vi.fn().mockResolvedValue([]),
 } as unknown as import('@hermes-pwa/core').RestClient;
 
 describe('AppShell', () => {
@@ -136,10 +140,17 @@ describe('AppShell', () => {
   it('keeps Bots in the tab bar, second after Chat', async () => {
     render(<AppShell connectionState="connected" rpc={rpcMock} rest={restMock} />);
     const tabs = screen.getByTestId('tab-bar');
-    expect(within(tabs).getAllByRole('button').map((tab) => tab.textContent)).toEqual(['Chat', 'Bots', 'Approvals', 'Sessions', 'More']);
+    expect(within(tabs).getAllByRole('button').map((tab) => tab.textContent)).toEqual(['Chat', 'Bots', 'Obsidian', 'Approvals', 'Sessions', 'More']);
     fireEvent.click(within(tabs).getByRole('button', { name: 'Bots' }));
     await waitFor(() => expect(screen.getByRole('heading', { name: 'Bots' })).toBeInTheDocument());
     expect(window.history.state?.screen).toBe('profiles');
+  });
+
+  it('opens Obsidian from the tab bar', async () => {
+    render(<AppShell connectionState="connected" rpc={rpcMock} rest={restMock} />);
+    fireEvent.click(within(screen.getByTestId('tab-bar')).getByRole('button', { name: 'Obsidian' }));
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'Obsidian' })).toBeInTheDocument());
+    expect(window.history.state?.screen).toBe('obsidian');
   });
 
   it('pushes a history entry for in-app navigation and steps back on popstate', async () => {

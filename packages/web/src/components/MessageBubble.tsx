@@ -88,6 +88,7 @@ function MessageBubbleView({
   readAloudStatus = 'idle',
   readAloudError,
   onReadAloud,
+  routeNote,
 }: MessageBubbleProps) {
   // Tapping a bubble reveals its time stamp, as a swipe does in Messages.
   const [revealed, setRevealed] = useState(false);
@@ -178,6 +179,11 @@ function MessageBubbleView({
       ) : null}
 
       {!active && <FileCards refs={extractFileRefs(message.text)} rest={rest} tone="assistant" />}
+      {routeNote ? (
+        <p className="hm-message__route" data-testid="route-note">
+          {routeNote}
+        </p>
+      ) : null}
       {/* Older bubbles keep their time, Copy and Listen in the page, out of
           sight until tapped or reached with the keyboard (screen readers
           always hear it). A reply being read keeps its Stop in view. */}

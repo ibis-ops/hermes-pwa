@@ -177,6 +177,27 @@ export function removeFromMap(map: TeamMap, name: string): TeamMap {
   return { ...map, nodes };
 }
 
+/**
+ * The router bot on top: it reports to Sean and can reach every bot on the map,
+ * and the bots that were on top (the manager) now report to it. Everything else
+ * stays as it was.
+ */
+export function withRouterOnTop(map: TeamMap, router: string, role: string): TeamMap {
+  const others = Object.keys(map.nodes).filter((name) => name !== router);
+  const nodes: Record<string, TeamNode> = {};
+  for (const name of others) {
+    const node = map.nodes[name]!;
+    const wasOnTop = !node.reportsTo || node.reportsTo === router;
+    nodes[name] = wasOnTop ? { ...node, reportsTo: router, canMessage: [...new Set([...node.canMessage, router])].sort() } : node;
+  }
+  nodes[router] = {
+    reportsTo: null,
+    canMessage: [...others].sort(),
+    role: role.replace(/\s+/g, ' ').trim().slice(0, TEAM_ROLE_MAX_CHARS),
+  };
+  return { ...map, nodes };
+}
+
 /** Whether two maps say the same thing (versions aside). */
 export function sameTeamMap(a: TeamMap | undefined, b: TeamMap | undefined): boolean {
   if (!a || !b) return a === b;

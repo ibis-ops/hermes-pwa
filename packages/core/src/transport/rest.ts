@@ -25,6 +25,7 @@ import { toEnvVar } from '../domain/env';
 import type { MessagingOverview } from '../domain/messaging';
 import { toMessagingOverview } from '../domain/messaging';
 import { toObsidianActivity, toObsidianNoteContent, type ObsidianActivity, type ObsidianNoteContent } from '../domain/obsidian';
+import { toRouterDecision, toRouterStatus, type RouterDecision, type RouterSettings, type RouterStatus } from '../domain/router';
 import { toAgentHistory, type AgentHistory } from '../domain/agent-history';
 import type {
   AuxiliaryModels,
@@ -229,6 +230,15 @@ export interface SpeechVoices {
   defaultVoice: string | undefined;
 }
 
+export interface VaultSyncResult {
+  /** Obsidian is installed on the Mac. */
+  available: boolean;
+  /** Obsidian is running on the Mac now, so Sync is on. */
+  running: boolean;
+  /** This sync had to open Obsidian. */
+  started: boolean;
+}
+
 export interface SpeechAudio {
   /** Base64 audio. */
   audio: string;
@@ -365,6 +375,14 @@ export interface RestClient {
   obsidianActivity(days?: number): Promise<ObsidianActivity>;
   /** One note's text, read from the vault on the Mac. */
   obsidianNote(vault: string, path: string): Promise<ObsidianNoteContent>;
+  /** Open Obsidian on the Mac if it is closed, so Obsidian Sync moves the vault both ways. */
+  obsidianSync(): Promise<VaultSyncResult>;
+  /** The router bot's settings, whether Jev has a key on the Mac, and its newest decisions. */
+  routerStatus(): Promise<RouterStatus>;
+  /** Change the router settings; returns the new status. */
+  saveRouter(patch: Partial<Omit<RouterSettings, 'updatedAt'>>): Promise<RouterStatus>;
+  /** Jev's newest routing decisions, for one Hermes session when given. */
+  routerDecisions(sessionId?: string, limit?: number): Promise<RouterDecision[]>;
   /** Every delegated agent run across profiles, newest first. */
   agentHistory(days?: number): Promise<AgentHistory>;
 }
@@ -965,6 +983,37 @@ export function makeRestClient(http: Http): RestClient {
           `/api/plugins/hermes-pwa/obsidian/note?vault=${encodeURIComponent(vault)}&path=${encodeURIComponent(path)}`,
         ),
       );
+    },
+
+    async obsidianSync(): Promise<VaultSyncResult> {
+      const raw = await http<Record<string, unknown>>('/api/plugins/hermes-pwa/obsidian/sync', {
+        method: 'POST',
+        body: '{}',
+        skipProfile: true,
+        timeoutMs: 30_000,
+      });
+      return { available: raw?.available === true, running: raw?.running === true, started: raw?.started === true };
+    },
+
+    async routerStatus(): Promise<RouterStatus> {
+      return toRouterStatus(await http<unknown>('/api/plugins/hermes-pwa/router', { skipProfile: true }));
+    },
+
+    async saveRouter(patch: Partial<Omit<RouterSettings, 'updatedAt'>>): Promise<RouterStatus> {
+      return toRouterStatus(
+        await http<unknown>('/api/plugins/hermes-pwa/router', { method: 'PUT', body: JSON.stringify(patch), skipProfile: true }),
+      );
+    },
+
+    async routerDecisions(sessionId?: string, limit = 50): Promise<RouterDecision[]> {
+      const params = new URLSearchParams({ limit: String(limit) });
+      if (sessionId) params.set('session_id', sessionId);
+      const raw = await http<Record<string, unknown>>(`/api/plugins/hermes-pwa/router/decisions?${params.toString()}`, { skipProfile: true });
+      const decisions = Array.isArray(raw?.decisions) ? raw.decisions : [];
+      return decisions.flatMap((entry) => {
+        const decision = toRouterDecision(entry);
+        return decision ? [decision] : [];
+      });
     },
   };
 }

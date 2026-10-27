@@ -5713,3 +5713,339 @@ html.hm-keyboard-open .hm-skill-popover {
 .hm-team-node__save {
   width: 100%;
 }
+
+/* ------------------------------------------------------------------ */
+/* Pass 15: the router card and sheet, route notes, vault sync         */
+/* ------------------------------------------------------------------ */
+
+/* Under a router reply: who Jev sent the message to. */
+.hm-message__route {
+  margin: 2px 0 0 12px;
+  color: var(--hm-color-text-faint);
+  font-size: var(--hm-fs-label);
+  line-height: 1.3;
+}
+
+.hm-router-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 64px;
+  padding: 12px 12px 12px 14px;
+  border: 0;
+  border-radius: 12px;
+  background: var(--hm-color-surface);
+  color: inherit;
+  font: inherit;
+  text-align: left;
+}
+
+button.hm-router-card:active {
+  background: var(--hm-color-fill);
+}
+
+.hm-router-card__icon {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: var(--hm-color-info-bg);
+  color: var(--hm-color-accent-text);
+}
+
+.hm-router-card__body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.hm-router-card__title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--hm-color-text);
+  font-size: var(--hm-fs-body);
+  font-weight: var(--hm-fw-semibold);
+}
+
+.hm-router-card__state {
+  padding: 1px 7px;
+  border-radius: 6px;
+  background: var(--hm-color-fill);
+  color: var(--hm-color-text-muted);
+  font-size: 0.6875rem;
+  font-weight: var(--hm-fw-semibold);
+}
+
+.hm-router-card__state--on {
+  background: var(--hm-color-success-bg);
+  color: var(--hm-color-success-strong);
+}
+
+.hm-router-card__text {
+  font-size: var(--hm-fs-small);
+  line-height: 1.35;
+}
+
+.hm-router-card__chevron {
+  flex: none;
+  color: var(--hm-color-text-faint);
+}
+
+.hm-router-sheet {
+  overflow-y: auto;
+}
+
+.hm-router {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-bottom: 4px;
+}
+
+.hm-router__lead {
+  margin: 0;
+  color: var(--hm-color-text);
+  font-size: var(--hm-fs-small);
+  line-height: 1.45;
+}
+
+.hm-router__steps {
+  margin: 0;
+  padding: 10px 14px 10px 30px;
+  border-radius: 12px;
+  background: var(--hm-color-surface-2);
+  color: var(--hm-color-text-muted);
+  font-size: var(--hm-fs-small);
+  line-height: 1.5;
+}
+
+.hm-router__field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.hm-router__heading {
+  margin: 8px 4px 0;
+  color: var(--hm-color-text-muted);
+  font-size: var(--hm-fs-label);
+  font-weight: var(--hm-fw-regular);
+}
+
+.hm-router__note {
+  margin: 0 4px;
+  font-size: var(--hm-fs-label);
+  line-height: 1.4;
+}
+
+.hm-router__note--error {
+  color: var(--hm-color-danger-text);
+}
+
+.hm-router__primary {
+  width: 100%;
+  margin-top: 4px;
+}
+
+.hm-router__hero {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 0 4px;
+}
+
+.hm-router__name {
+  color: var(--hm-color-text);
+  font-size: var(--hm-fs-heading);
+  font-weight: var(--hm-fw-semibold);
+}
+
+.hm-router__group {
+  border-radius: 12px;
+  background: var(--hm-color-surface-2);
+  overflow: hidden;
+}
+
+.hm-router__row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 52px;
+  padding: 10px 14px;
+}
+
+.hm-router__row + .hm-router__row::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  right: 0;
+  left: 14px;
+  height: 0.5px;
+  background: var(--hm-color-border);
+}
+
+.hm-router__row-body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.hm-router__row-label {
+  color: var(--hm-color-text);
+  font-size: var(--hm-fs-body);
+}
+
+.hm-router__row-sub {
+  font-size: var(--hm-fs-label);
+  line-height: 1.4;
+}
+
+.hm-router__command {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--hm-color-fill);
+  color: var(--hm-color-text);
+  font: inherit;
+  text-align: left;
+}
+
+.hm-router__command code {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-family: var(--hm-font-mono);
+  font-size: var(--hm-fs-mono);
+}
+
+.hm-router__command-copy {
+  flex: none;
+  color: var(--hm-color-accent-text);
+  font-size: var(--hm-fs-label);
+  font-weight: var(--hm-fw-semibold);
+}
+
+.hm-router__dot {
+  flex: none;
+  align-self: flex-start;
+  width: 9px;
+  height: 9px;
+  margin-top: 6px;
+  border-radius: 50%;
+  background: var(--hm-color-text-faint);
+}
+
+.hm-router__dot--on {
+  background: var(--hm-color-success);
+}
+
+.hm-router__decisions {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border-radius: 12px;
+  background: var(--hm-color-surface-2);
+  overflow: hidden;
+}
+
+.hm-router__decision {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 14px;
+}
+
+.hm-router__decision + .hm-router__decision::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  right: 0;
+  left: 14px;
+  height: 0.5px;
+  background: var(--hm-color-border);
+}
+
+.hm-router__decision-text {
+  overflow: hidden;
+  color: var(--hm-color-text);
+  font-size: var(--hm-fs-small);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hm-router__decision-route {
+  font-size: var(--hm-fs-label);
+}
+
+/* Obsidian: Sync vault, and what it did. */
+.hm-obsidian__sync {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: -4px 0 16px;
+}
+
+.hm-obsidian__sync-btn {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 36px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 18px;
+  background: var(--hm-color-primary-tint);
+  color: var(--hm-color-accent-text);
+  font: inherit;
+  font-size: var(--hm-fs-small);
+  font-weight: var(--hm-fw-semibold);
+}
+
+.hm-obsidian__sync-btn:disabled {
+  opacity: 0.75;
+}
+
+.hm-obsidian__sync-icon {
+  display: inline-flex;
+}
+
+.hm-obsidian__sync-icon[data-spinning='true'] {
+  animation: hm-spin 0.9s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hm-obsidian__sync-icon[data-spinning='true'] {
+    animation: none;
+  }
+}
+
+.hm-obsidian__sync-note {
+  margin: 0;
+  color: var(--hm-color-text-muted);
+  font-size: var(--hm-fs-small);
+  line-height: 1.4;
+}
+
+.hm-obsidian__sync-note--error {
+  color: var(--hm-color-danger-text);
+}
+
+.hm-obsidian__sync-open {
+  color: var(--hm-color-accent-text);
+  font-weight: var(--hm-fw-semibold);
+}

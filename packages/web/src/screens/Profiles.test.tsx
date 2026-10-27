@@ -32,6 +32,11 @@ const makeRest = (overrides = {}) =>
     ),
     botGraph: vi.fn().mockResolvedValue(undefined),
     saveBotGraph: vi.fn(async (map: { nodes: unknown }) => ({ ...map, version: 1 })),
+    routerStatus: vi.fn().mockResolvedValue({
+      settings: { enabled: false, bot: 'router', jevModel: '~typesafe/jev-latest', minConfidence: 0.6 },
+      keyConfigured: false,
+      decisions: [],
+    }),
     ...overrides,
   }) as unknown as import('@hermes-pwa/core').RestClient;
 
