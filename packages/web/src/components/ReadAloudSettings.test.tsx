@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { RestClient, SpeechVoices } from '@hermes-pwa/core';
+import { HermesHttpError } from '@hermes-pwa/core';
 import { ReadAloudSettings } from './ReadAloudSettings';
 import { readAloud } from '../lib/readAloud';
 import { readReadAloudSettings } from '../lib/readAloudSettings';
@@ -68,8 +69,15 @@ describe('ReadAloudSettings', () => {
     expect(screen.getByRole('button', { name: 'Read aloud voice' })).toBeDisabled();
   });
 
-  it('copes with an older plugin that has no voices route', async () => {
-    render(<ReadAloudSettings rest={restWith(new Error('404'))} />);
+  it('says the Mac voices wait on a dashboard restart when the route is missing', async () => {
+    render(<ReadAloudSettings rest={restWith(new HermesHttpError(404, 'Not Found', 'no such route'))} />);
     await waitFor(() => expect(screen.getByTestId('read-aloud-voice')).toHaveTextContent('This phone'));
+    expect(screen.getByRole('button', { name: 'Read aloud voice' })).toHaveTextContent('once the Hermes dashboard restarts');
+  });
+
+  it('says so when the Mac cannot be reached', async () => {
+    render(<ReadAloudSettings rest={restWith(new Error('offline'))} />);
+    await waitFor(() => expect(screen.getByTestId('read-aloud-voice')).toHaveTextContent('This phone'));
+    expect(screen.getByRole('button', { name: 'Read aloud voice' })).toHaveTextContent('Could not reach your Mac');
   });
 });

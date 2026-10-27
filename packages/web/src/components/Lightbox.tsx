@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { Icon } from './Icon';
+import { Portal } from './Portal';
 import { shareOrOpenFile } from '../pwa/share';
 
 interface LightboxProps {
@@ -32,24 +33,26 @@ export function Lightbox({ src, name, onClose }: LightboxProps) {
   }, [onClose]);
 
   return (
-    <div className="hm-lightbox" role="dialog" aria-modal="true" aria-label={name} data-testid="lightbox">
-      <div className="hm-lightbox__bar">
-        <button ref={closeRef} type="button" className="hm-lightbox__button" onClick={onClose} aria-label="Close image">
-          <Icon name="close" size={18} />
-        </button>
-        <span className="hm-lightbox__name">{name}</span>
-        <button
-          type="button"
-          className="hm-lightbox__button"
-          onClick={() => void shareOrOpenFile(src, name)}
-          aria-label="Save or share image"
-        >
-          <Icon name="download" size={18} />
-        </button>
+    <Portal>
+      <div className="hm-lightbox" role="dialog" aria-modal="true" aria-label={name} data-testid="lightbox">
+        <div className="hm-lightbox__bar">
+          <button ref={closeRef} type="button" className="hm-lightbox__button" onClick={onClose} aria-label="Close image">
+            <Icon name="close" size={18} />
+          </button>
+          <span className="hm-lightbox__name">{name}</span>
+          <button
+            type="button"
+            className="hm-lightbox__button"
+            onClick={() => void shareOrOpenFile(src, name)}
+            aria-label="Save or share image"
+          >
+            <Icon name="download" size={18} />
+          </button>
+        </div>
+        <div className="hm-lightbox__stage" onClick={onClose}>
+          <img className="hm-lightbox__img" src={src} alt={name} onClick={(event) => event.stopPropagation()} />
+        </div>
       </div>
-      <div className="hm-lightbox__stage" onClick={onClose}>
-        <img className="hm-lightbox__img" src={src} alt={name} onClick={(event) => event.stopPropagation()} />
-      </div>
-    </div>
+    </Portal>
   );
 }

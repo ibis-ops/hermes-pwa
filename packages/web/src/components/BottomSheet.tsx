@@ -1,4 +1,5 @@
 import { type KeyboardEvent, type PointerEvent as ReactPointerEvent, type ReactNode, useEffect, useId, useRef, useState } from 'react';
+import { Portal } from './Portal';
 
 const FOCUSABLE_SELECTOR = [
   'a[href]',
@@ -227,50 +228,52 @@ export function BottomSheet({
   };
 
   return (
-    <div
-      ref={dialogRef}
-      className={className ? `hm-sheet ${className}` : 'hm-sheet'}
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby={titleId}
-      tabIndex={-1}
-      onKeyDown={handleKeyDown}
-    >
-      <div className="hm-sheet__overlay" onClick={closeDisabled ? undefined : requestClose} aria-hidden="true" />
+    <Portal>
       <div
-        ref={contentRef}
-        className={contentClassName ? `hm-sheet__content ${contentClassName}` : 'hm-sheet__content'}
-        data-dragging={dragging ? 'true' : 'false'}
-        style={dragOffset > 0 || dragging ? { transform: `translateY(${dragOffset}px)` } : undefined}
+        ref={dialogRef}
+        className={className ? `hm-sheet ${className}` : 'hm-sheet'}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        tabIndex={-1}
+        onKeyDown={handleKeyDown}
       >
+        <div className="hm-sheet__overlay" onClick={closeDisabled ? undefined : requestClose} aria-hidden="true" />
         <div
-          className="hm-sheet__handle"
-          onPointerDown={onDragStart}
-          onPointerMove={onDragMove}
-          onPointerUp={onDragEnd}
-          onPointerCancel={onDragEnd}
+          ref={contentRef}
+          className={contentClassName ? `hm-sheet__content ${contentClassName}` : 'hm-sheet__content'}
+          data-dragging={dragging ? 'true' : 'false'}
+          style={dragOffset > 0 || dragging ? { transform: `translateY(${dragOffset}px)` } : undefined}
         >
-          <span className="hm-sheet__grabber" aria-hidden="true" />
-          <div className="hm-sheet__bar">
-            <span className="hm-sheet__bar-spacer" aria-hidden="true" />
-            <h3 id={titleId} className="hm-sheet__title">
-              {title}
-            </h3>
-            <button
-              type="button"
-              className="hm-sheet__done"
-              onClick={requestClose}
-              disabled={closeDisabled}
-              aria-label={closeLabel === 'Done' ? 'Done, close this sheet' : closeLabel}
-            >
-              {closeLabel}
-            </button>
+          <div
+            className="hm-sheet__handle"
+            onPointerDown={onDragStart}
+            onPointerMove={onDragMove}
+            onPointerUp={onDragEnd}
+            onPointerCancel={onDragEnd}
+          >
+            <span className="hm-sheet__grabber" aria-hidden="true" />
+            <div className="hm-sheet__bar">
+              <span className="hm-sheet__bar-spacer" aria-hidden="true" />
+              <h3 id={titleId} className="hm-sheet__title">
+                {title}
+              </h3>
+              <button
+                type="button"
+                className="hm-sheet__done"
+                onClick={requestClose}
+                disabled={closeDisabled}
+                aria-label={closeLabel === 'Done' ? 'Done, close this sheet' : closeLabel}
+              >
+                {closeLabel}
+              </button>
+            </div>
           </div>
+          {meta}
+          <div className="hm-sheet__body">{children}</div>
+          {footer}
         </div>
-        {meta}
-        <div className="hm-sheet__body">{children}</div>
-        {footer}
       </div>
-    </div>
+    </Portal>
   );
 }

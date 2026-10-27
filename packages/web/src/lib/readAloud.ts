@@ -11,7 +11,9 @@ import { speakableText, speechChunks } from './speechText';
  * iPhone web apps only get Apple's compact voices, so the Mac's installed
  * voices (Premium ones included) sound far better, and the text stays on the
  * Mac. When the Mac cannot read (a plugin backend from before read-aloud, or
- * Hermes not on a Mac), the phone's own voice takes over.
+ * Hermes not on a Mac), the phone's own voice takes over. Whether the Mac can
+ * read is asked ahead of the first tap: iPhone only lets its own voice start
+ * inside the tap itself, not after a round trip to the Mac.
  */
 
 export type ReadAloudStatus = 'idle' | 'loading' | 'playing';
@@ -28,11 +30,18 @@ export interface ReadAloudSource {
     text: string,
     options: { voice?: string | undefined; rate: number; signal: AbortSignal },
   ): Promise<{ audio: string; mimeType: string }>;
+  /** Whether the Mac can read at all: true, false, or a rejection when that is unknown (offline). */
+  check?: () => Promise<boolean>;
 }
 
 const IDLE: ReadAloudSnapshot = { messageId: undefined, status: 'idle', error: undefined };
 const ERROR_SHOWN_MS = 4000;
 const READ_FAILED = 'Could not read this aloud.';
+const DEVICE_DID_NOT_START = 'Tap Listen again to hear it on this phone.';
+/** The phone's voice reports its start within this long, or it was not allowed to start. */
+const DEVICE_START_TIMEOUT_MS = 3000;
+/** While the Mac cannot read, ask again this often: a dashboard restart turns its voice on. */
+const MAC_RECHECK_MS = 60_000;
 
 // Sound effects, character voices and the robotic Eloquence set.
 const NOVELTY_VOICES = new Set([
@@ -70,7 +79,7 @@ function deviceSpeech(): SpeechSynthesis | undefined {
 }
 
 /** 404: a plugin backend from before read-aloud (dashboard not restarted). 501: no macOS speech on the host. */
-function macCannotRead(err: unknown): boolean {
+export function macCannotRead(err: unknown): boolean {
   return err instanceof HermesHttpError && (err.status === 404 || err.status === 501);
 }
 
@@ -86,7 +95,10 @@ export class ReadAloudController {
   private source: ReadAloudSource | undefined;
   private macUnavailable = false;
   private macConfirmed = false;
+  private macCheckedAt = 0;
+  private macChecking = false;
   private deviceUnlocked = false;
+  private deviceWatchdog: ReturnType<typeof setTimeout> | undefined;
   private abort: AbortController | undefined;
   private cancelPlayback: (() => void) | undefined;
   private readonly urls = new Set<string>();
@@ -111,6 +123,30 @@ export class ReadAloudController {
     this.source = source;
     this.macUnavailable = false;
     this.macConfirmed = false;
+    this.macCheckedAt = 0;
+    this.recheckMac();
+  }
+
+  /** Ask the Mac whether it can read, in the background, so a tap knows where to go. */
+  private recheckMac(): void {
+    const source = this.source;
+    if (!source?.check || this.macChecking) return;
+    this.macChecking = true;
+    this.macCheckedAt = Date.now();
+    source
+      .check()
+      .then(
+        (canRead) => {
+          if (this.source !== source) return;
+          this.macUnavailable = !canRead;
+        },
+        () => {
+          // Unknown (offline, a slow Mac): the next tap tries the Mac first.
+        },
+      )
+      .finally(() => {
+        this.macChecking = false;
+      });
   }
 
   /** Read a reply aloud, or stop it when it is the one reading. Call it from the tap itself. */
@@ -134,6 +170,7 @@ export class ReadAloudController {
     const generation = this.generation;
     const settings = readReadAloudSettings();
     this.set({ messageId, status: 'loading', error: undefined });
+    if (this.macUnavailable && Date.now() - this.macCheckedAt > MAC_RECHECK_MS) this.recheckMac();
     if (this.source && !this.macUnavailable) {
       const audio = this.unlockAudio();
       if (audio) {
@@ -164,6 +201,7 @@ export class ReadAloudController {
     const synth = deviceSpeech();
     if (synth && (synth.speaking || synth.pending)) synth.cancel();
     this.utterance = undefined;
+    this.clearDeviceWatchdog();
     this.releaseAll();
     if (this.errorTimer !== undefined) {
       clearTimeout(this.errorTimer);
@@ -312,10 +350,12 @@ export class ReadAloudController {
     this.set({ messageId, status: 'playing', error: undefined });
     const next = (): void => {
       if (generation !== this.generation) return;
+      this.clearDeviceWatchdog();
       if (index >= chunks.length) {
         this.finish(generation);
         return;
       }
+      const first = index === 0;
       const utterance = new SpeechSynthesisUtterance(chunks[index]);
       index += 1;
       if (voice) {
@@ -325,16 +365,36 @@ export class ReadAloudController {
         utterance.lang = 'en-US';
       }
       utterance.rate = settings.rate;
+      utterance.onstart = () => {
+        if (this.utterance === utterance) this.clearDeviceWatchdog();
+      };
       utterance.onend = () => next();
       utterance.onerror = (event) => {
         if (generation !== this.generation) return;
         if (event.error === 'interrupted' || event.error === 'canceled') return;
-        this.fail(generation, messageId);
+        this.fail(generation, messageId, event.error === 'not-allowed' ? DEVICE_DID_NOT_START : READ_FAILED);
       };
       this.utterance = utterance;
+      if (synth.paused) synth.resume();
       synth.speak(utterance);
+      if (first) {
+        // iPhone drops speech that did not start inside a tap, without any event:
+        // say so instead of showing Stop over silence. The next tap speaks at once.
+        this.deviceWatchdog = setTimeout(() => {
+          this.deviceWatchdog = undefined;
+          if (generation !== this.generation || this.utterance !== utterance) return;
+          synth.cancel();
+          this.fail(generation, messageId, DEVICE_DID_NOT_START);
+        }, DEVICE_START_TIMEOUT_MS);
+      }
     };
     next();
+  }
+
+  private clearDeviceWatchdog(): void {
+    if (this.deviceWatchdog === undefined) return;
+    clearTimeout(this.deviceWatchdog);
+    this.deviceWatchdog = undefined;
   }
 
   private release(url: string): void {
@@ -352,6 +412,7 @@ export class ReadAloudController {
 
   private finish(generation: number): void {
     if (generation !== this.generation) return;
+    this.clearDeviceWatchdog();
     this.abort = undefined;
     this.releaseAll();
     this.updateMediaSession(false);

@@ -81,17 +81,32 @@ describe('BottomSheet', () => {
 
   it('closes after a long downward drag on the handle', () => {
     const onClose = vi.fn();
-    const { container } = render(
+    // The sheet renders at the end of the body, outside the render container.
+    const { baseElement } = render(
       <BottomSheet title="Drag me" onClose={onClose}>
         <p>Body</p>
       </BottomSheet>,
     );
-    const handle = container.querySelector('.hm-sheet__handle')!;
-    const content = container.querySelector('.hm-sheet__content') as HTMLElement;
+    const handle = baseElement.querySelector('.hm-sheet__handle')!;
+    const content = baseElement.querySelector('.hm-sheet__content') as HTMLElement;
     content.getBoundingClientRect = () => ({ height: 400, width: 390, top: 0, left: 0, right: 390, bottom: 400, x: 0, y: 0, toJSON: () => ({}) });
     fireEvent.pointerDown(handle, { clientY: 100, pointerId: 1, pointerType: 'touch' });
     fireEvent.pointerMove(handle, { clientY: 260, pointerId: 1 });
     fireEvent.pointerUp(handle, { clientY: 260, pointerId: 1 });
     expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('renders at the end of the page body, outside the screen that opened it', () => {
+    const { container } = render(
+      <div className="hm-command hm-scroll">
+        <BottomSheet title="Restart the gateway?" onClose={() => undefined}>
+          <button type="button">Restart gateway</button>
+        </BottomSheet>
+      </div>,
+    );
+    const sheet = screen.getByRole('dialog', { name: 'Restart the gateway?' });
+    expect(container.contains(sheet)).toBe(false);
+    expect(sheet.parentElement).toBe(document.body);
+    expect(screen.getByRole('button', { name: 'Restart gateway' })).toBeInTheDocument();
   });
 });

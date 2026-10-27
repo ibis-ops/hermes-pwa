@@ -1,6 +1,6 @@
 import { useEffect, useRef, useSyncExternalStore } from 'react';
 import type { RestClient } from '@hermes-pwa/core';
-import { readAloud, type ReadAloudSnapshot } from '../lib/readAloud';
+import { macCannotRead, readAloud, type ReadAloudSnapshot } from '../lib/readAloud';
 
 /** Which reply is being read aloud, and how far along. */
 export function useReadAloud(): ReadAloudSnapshot {
@@ -14,7 +14,17 @@ export function useReadAloud(): ReadAloudSnapshot {
  */
 export function useReadAloudSource(rest: RestClient, activeBot: string | undefined): void {
   useEffect(() => {
-    readAloud.setSource({ synthesize: (text, options) => rest.speechAudio(text, options) });
+    readAloud.setSource({
+      synthesize: (text, options) => rest.speechAudio(text, options),
+      check: () =>
+        rest.speechVoices().then(
+          (voices) => voices.available,
+          (err: unknown) => {
+            if (macCannotRead(err)) return false;
+            throw err;
+          },
+        ),
+    });
     return () => {
       readAloud.stop();
       readAloud.setSource(undefined);

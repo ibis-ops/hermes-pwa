@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import type { RestClient, SpeechVoice, SpeechVoices } from '@hermes-pwa/core';
+import { HermesHttpError, type RestClient, type SpeechVoice, type SpeechVoices } from '@hermes-pwa/core';
 import { BottomSheet } from './BottomSheet';
 import { Icon } from './Icon';
 import { useReadAloud } from '../hooks/useReadAloud';
@@ -80,7 +80,8 @@ function VoicePicker({ voices, automatic, selected, onPick, onClose }: VoicePick
 export function ReadAloudSettings({ rest }: { rest: RestClient }) {
   const [settings, setSettings] = useState<Settings>(() => readReadAloudSettings());
   const [voices, setVoices] = useState<SpeechVoices | undefined>(undefined);
-  const [failed, setFailed] = useState(false);
+  // Why the Mac's voices are missing: an old dashboard still running, or no Mac speech at all.
+  const [failed, setFailed] = useState<'restart' | 'unreachable' | undefined>(undefined);
   const [pickerOpen, setPickerOpen] = useState(false);
   const reading = useReadAloud();
 
@@ -91,8 +92,8 @@ export function ReadAloudSettings({ rest }: { rest: RestClient }) {
       .then((result) => {
         if (alive) setVoices(result);
       })
-      .catch(() => {
-        if (alive) setFailed(true);
+      .catch((err: unknown) => {
+        if (alive) setFailed(err instanceof HermesHttpError && err.status === 404 ? 'restart' : 'unreachable');
       });
     return () => {
       alive = false;
@@ -110,7 +111,7 @@ export function ReadAloudSettings({ rest }: { rest: RestClient }) {
   const chosen = settings.voice ? macVoices.find((voice) => voice.id === settings.voice) : undefined;
   const hasNaturalVoice = macVoices.some((voice) => voice.quality !== 'standard');
   const sampling = reading.messageId === SAMPLE_ID && reading.status !== 'idle';
-  const checking = voices === undefined && !failed;
+  const checking = voices === undefined && failed === undefined;
   const voiceValue = checking ? 'Checking…' : onMac ? (chosen?.name ?? `Automatic (${automatic?.name ?? 'best'})`) : 'This phone';
 
   return (
@@ -129,7 +130,11 @@ export function ReadAloudSettings({ rest }: { rest: RestClient }) {
               ? 'Looking for the voices on your Mac.'
               : onMac
                 ? 'Spoken on your Mac, so reply text stays there.'
-                : 'Hermes cannot speak on its computer, so this phone reads instead.'}
+                : failed === 'restart'
+                  ? "Your Mac's voices turn on once the Hermes dashboard restarts. Until then this phone reads."
+                  : failed === 'unreachable'
+                    ? 'Could not reach your Mac just now, so this phone reads.'
+                    : 'Hermes cannot speak on its computer, so this phone reads instead.'}
           </span>
         </span>
         <span className="hm-settings-row__value hm-muted" data-testid="read-aloud-voice">

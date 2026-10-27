@@ -33,6 +33,7 @@ class FakeUtterance {
   lang = '';
   rate = 1;
   volume = 1;
+  onstart: (() => void) | null = null;
   onend: (() => void) | null = null;
   onerror: ((event: { error: string }) => void) | null = null;
   constructor(text: string) {
@@ -163,6 +164,74 @@ describe('ReadAloudController', () => {
 
     // Known now: the next reply goes straight to the phone's voice.
     controller.start('m-2', 'Short.');
+    expect(synthesize).toHaveBeenCalledTimes(1);
+  });
+
+  it('asks the Mac ahead of time and, when it cannot read, speaks on the phone within the tap', async () => {
+    const synthesize = vi.fn(async () => ({ audio: 'QUFD', mimeType: 'audio/mp4' }));
+    const check = vi.fn(async () => false);
+    const controller = new ReadAloudController();
+    controller.setSource({ synthesize, check });
+    await flush();
+    expect(check).toHaveBeenCalledTimes(1);
+
+    controller.start('m-1', 'Read this on the phone.');
+    // Spoken synchronously, inside the tap: iPhone ignores speech started later.
+    expect(spoken.filter((u) => u.text.trim()).map((u) => u.text)).toEqual(['Read this on the phone.']);
+    expect(synthesize).not.toHaveBeenCalled();
+    expect(FakeAudio.instances).toHaveLength(0);
+  });
+
+  it('still tries the Mac when asking ahead failed, since that only means unknown', async () => {
+    const synthesize = vi.fn(async () => ({ audio: 'QUFD', mimeType: 'audio/mp4' }));
+    const controller = new ReadAloudController();
+    controller.setSource({ synthesize, check: async () => Promise.reject(new Error('offline')) });
+    await flush();
+    controller.start('m-1', 'Hello there.');
+    expect(synthesize).toHaveBeenCalledTimes(1);
+  });
+
+  it("says so when the phone's voice never starts, and the next tap speaks at once", async () => {
+    vi.useFakeTimers();
+    const synthesize = vi.fn(async () => {
+      throw new HermesHttpError(404, 'Not Found', 'no such route');
+    });
+    const controller = new ReadAloudController();
+    controller.setSource({ synthesize });
+
+    controller.start('m-1', 'Hello there.');
+    await flush();
+    expect(controller.getSnapshot().status).toBe('playing');
+    vi.advanceTimersByTime(3000);
+    expect(controller.getSnapshot()).toEqual({ messageId: 'm-1', status: 'idle', error: 'Tap Listen again to hear it on this phone.' });
+
+    spoken.length = 0;
+    controller.start('m-1', 'Hello there.');
+    expect(spoken.filter((u) => u.text.trim())).toHaveLength(1);
+    spoken.at(-1)!.onstart?.();
+    vi.advanceTimersByTime(5000);
+    expect(controller.getSnapshot()).toEqual({ messageId: 'm-1', status: 'playing', error: undefined });
+  });
+
+  it('asks the Mac again after a while, so a dashboard restart turns its voice back on', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    const synthesize = vi.fn(async () => ({ audio: 'QUFD', mimeType: 'audio/mp4' }));
+    const check = vi.fn<[], Promise<boolean>>().mockResolvedValueOnce(false).mockResolvedValue(true);
+    const controller = new ReadAloudController();
+    controller.setSource({ synthesize, check });
+    await flush();
+
+    controller.start('m-1', 'Phone voice.');
+    expect(synthesize).not.toHaveBeenCalled();
+    spoken.at(-1)!.onend?.();
+
+    vi.setSystemTime(Date.now() + 61_000);
+    controller.start('m-2', 'Still the phone for this tap.');
+    expect(check).toHaveBeenCalledTimes(2);
+    await flush();
+    spoken.at(-1)!.onend?.();
+
+    controller.start('m-3', 'Now the Mac reads.');
     expect(synthesize).toHaveBeenCalledTimes(1);
   });
 
