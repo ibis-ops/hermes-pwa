@@ -121,6 +121,31 @@ class LocalFilePolicyTests(unittest.TestCase):
             self.assertTrue(headers["Content-Disposition"].startswith("attachment;"), name)
             self.assertEqual(headers["X-Content-Type-Options"], "nosniff")
             self.assertIn("sandbox", headers["Content-Security-Policy"])
+            self.assertIn("frame-ancestors 'none'", headers["Content-Security-Policy"])
+            self.assertEqual(headers["Cross-Origin-Resource-Policy"], "same-origin")
+
+    def test_open_served_file_hands_back_the_vetted_descriptor(self):
+        served, handle = local_files.open_served_file(str(self.desktop / "shot.png"))
+        try:
+            self.assertEqual(served.size, 9)
+            self.assertEqual(handle.read(), b"\x89PNG fake")
+            # The descriptor, not the path, is what gets read: replacing the
+            # file afterwards does not change what this handle serves.
+            (self.desktop / "shot.png").unlink()
+            (self.desktop / "shot.png").write_bytes(b"other bytes entirely")
+            handle.seek(0)
+            self.assertEqual(handle.read(), b"\x89PNG fake")
+        finally:
+            handle.close()
+
+    def test_iter_file_stops_at_the_promised_size_and_closes(self):
+        served, handle = local_files.open_served_file(str(self.desktop / "shot.png"))
+        chunks = list(local_files.iter_file(handle, 4, chunk_size=3))
+        self.assertEqual(b"".join(chunks), b"\x89PNG")
+        self.assertTrue(handle.closed)
+        served, handle = local_files.open_served_file(str(self.desktop / "shot.png"))
+        self.assertEqual(b"".join(local_files.iter_file(handle, served.size + 100)), b"\x89PNG fake")
+        self.assertTrue(handle.closed)
 
     def test_text_files_are_plain_text_inline(self):
         served = self._resolve(str(self.desktop / "notes.md"))
@@ -182,13 +207,28 @@ class LocalFileRouteTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.content, b"\x89PNG route")
         self.assertEqual(response.headers["content-type"], "image/png")
+        self.assertEqual(response.headers["content-length"], "10")
         self.assertEqual(response.headers["x-content-type-options"], "nosniff")
+        self.assertEqual(response.headers["cross-origin-resource-policy"], "same-origin")
+        self.assertIn("frame-ancestors 'none'", response.headers["content-security-policy"])
         self.assertTrue(response.headers["content-disposition"].startswith("inline;"))
         self.assertEqual(response.headers["cache-control"], "private, no-store")
         head = self.client.head("/file", params={"path": path})
         self.assertEqual(head.status_code, 200)
         self.assertEqual(head.headers["content-length"], "10")
+        self.assertEqual(head.headers["content-type"], "image/png")
+        self.assertEqual(head.headers["cross-origin-resource-policy"], "same-origin")
         self.assertEqual(head.content, b"")
+
+    def test_get_streams_a_large_file_in_full(self):
+        big = self.desktop / "big.bin"
+        payload = bytes(range(256)) * 2048  # 512 KiB, several stream chunks
+        big.write_bytes(payload)
+        response = self.client.get("/file", params={"path": str(big)})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.headers["content-length"], str(len(payload)))
+        self.assertEqual(response.content, payload)
+        self.assertEqual(response.headers["content-type"], "application/octet-stream")
 
     def test_html_is_downloaded_as_octet_stream(self):
         response = self.client.get("/file", params={"path": str(self.desktop / "page.html")})

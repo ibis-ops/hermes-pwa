@@ -1,9 +1,11 @@
 """Which Obsidian notes the agent made or changed, from Hermes' own tool-call log.
 
 The phone app has an Obsidian tab listing the notes Hermes wrote, newest first,
-each one a deep link into the Obsidian app on the phone. Nothing here reads a
-note's text: the module only resolves file paths the agent passed to its file
-tools, checks that they live inside a known vault, and reports names and times.
+each one a deep link into the Obsidian app on the phone. The activity scan
+never reads a note's text: it only resolves file paths the agent passed to its
+file tools, checks that they live inside a known vault, and reports names and
+times. ``read_note`` is the one place note text is read, for the in-app viewer,
+and only for a note file inside a known vault (see its docstring).
 
 Sources, all read-only:
 
@@ -25,10 +27,12 @@ import os
 import re
 import shlex
 import sqlite3
+import stat as stat_module
+import threading
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Iterable
+from typing import Callable, Iterable
 from urllib.parse import unquote
 
 NOTE_SUFFIXES = frozenset({".md", ".canvas", ".base"})
@@ -515,44 +519,113 @@ def read_note(vault_name: str, relative_path: str, *, home: Path | None = None) 
     full = os.path.realpath(os.path.join(root, relative))
     if full != root and not full.startswith(root + os.sep):
         raise NoteAccessError(403, "outside the vault")
+    # Open without following a final symlink, then check and read the same
+    # descriptor: the path is not consulted again once it has been vetted.
+    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_CLOEXEC", 0)
     try:
-        stat = os.stat(full)
+        fd = os.open(full, flags)
     except FileNotFoundError:
         raise NoteAccessError(404, "note not found") from None
     except OSError as exc:
         raise NoteAccessError(500, "could not read the note") from exc
-    if not os.path.isfile(full):
-        raise NoteAccessError(404, "note not found")
-    if stat.st_size > MAX_NOTE_BYTES:
-        raise NoteAccessError(413, "note too large")
     try:
-        text = Path(full).read_text(encoding="utf-8", errors="replace")
+        stat = os.fstat(fd)
+        if not stat_module.S_ISREG(stat.st_mode):
+            raise NoteAccessError(404, "note not found")
+        if stat.st_size > MAX_NOTE_BYTES:
+            raise NoteAccessError(413, "note too large")
+        handle = os.fdopen(fd, "rb")
+    except NoteAccessError:
+        os.close(fd)
+        raise
+    except OSError as exc:
+        os.close(fd)
+        raise NoteAccessError(500, "could not read the note") from exc
+    try:
+        with handle:
+            data = handle.read(MAX_NOTE_BYTES + 1)
     except OSError as exc:
         raise NoteAccessError(500, "could not read the note") from exc
+    if len(data) > MAX_NOTE_BYTES:
+        raise NoteAccessError(413, "note too large")
     return {
         "vault": vault.name,
         "phone_vault": vault.phone_name,
         "path": relative,
         "name": Path(relative).stem,
-        "text": text,
+        "text": data.decode("utf-8", errors="replace"),
         "size": stat.st_size,
         "modified_at": stat.st_mtime,
     }
 
 
-_CACHE: dict[tuple[str, int, int], tuple[float, dict[str, object]]] = {}
-_CACHE_TTL_S = 20.0
+# The phone asks for one of these windows; anything else is rounded up to the
+# next one so the cache holds a handful of scans, not one per odd request.
+DAY_BUCKETS = (7, 30, 60, 365, 3650)
+MAX_LIMIT = 2000
+_CACHE_MAX_ENTRIES = 4
+
+
+def snap_days(days: int, buckets: tuple[int, ...] = DAY_BUCKETS) -> int:
+    """The smallest bucket that covers ``days`` (the largest when none does)."""
+    wanted = max(1, int(days))
+    return next((bucket for bucket in buckets if wanted <= bucket), buckets[-1])
+
+
+class BoundedCache:
+    """A few recent results keyed by (home, days bucket), oldest evicted first.
+
+    ``get`` builds through ``build(days, now)`` on a miss or a stale hit and
+    stores the full-size result, so every ``limit`` the phone asks for is
+    served from the same entry.
+    """
+
+    def __init__(self, ttl_seconds: float, max_entries: int = _CACHE_MAX_ENTRIES) -> None:
+        self.ttl_seconds = ttl_seconds
+        self.max_entries = max_entries
+        self._entries: dict[tuple[str, int], tuple[float, dict[str, object]]] = {}
+        self._lock = threading.Lock()
+
+    def get(self, key: tuple[str, int], build: Callable[[], dict[str, object]]) -> dict[str, object]:
+        now = time.time()
+        with self._lock:
+            hit = self._entries.get(key)
+            if hit and now - hit[0] < self.ttl_seconds:
+                return hit[1]
+        result = build()
+        with self._lock:
+            self._entries[key] = (now, result)
+            while len(self._entries) > self.max_entries:
+                oldest = min(self._entries, key=lambda item: self._entries[item][0])
+                del self._entries[oldest]
+        return result
+
+    def __len__(self) -> int:
+        with self._lock:
+            return len(self._entries)
+
+    def clear(self) -> None:
+        with self._lock:
+            self._entries.clear()
+
+
+_CACHE = BoundedCache(ttl_seconds=20.0)
 
 
 def cached_activity(days: int = 60, limit: int = 300) -> dict[str, object]:
-    """``build_activity`` with a short cache: the phone polls, the scan reads every profile's history."""
-    key = (str(hermes_home()), int(days), int(limit))
-    now = time.time()
-    hit = _CACHE.get(key)
-    if hit and now - hit[0] < _CACHE_TTL_S:
-        return hit[1]
-    result = build_activity(days=days, limit=limit, now=now)
-    _CACHE[key] = (now, result)
+    """``build_activity`` with a short, bounded cache: the phone polls, the scan reads every profile's history.
+
+    ``days`` is rounded up to a ``DAY_BUCKETS`` window (reported back as
+    ``days``) and the scan keeps ``MAX_LIMIT`` rows; ``limit`` is applied to
+    the cached copy on the way out.
+    """
+    bucket = snap_days(days)
+    wanted = max(1, min(int(limit), MAX_LIMIT))
+    key = (str(hermes_home()), bucket)
+    result = _CACHE.get(key, lambda: build_activity(days=bucket, limit=MAX_LIMIT, now=time.time()))
+    notes = result.get("notes")
+    if isinstance(notes, list) and len(notes) > wanted:
+        return {**result, "notes": notes[:wanted]}
     return result
 
 

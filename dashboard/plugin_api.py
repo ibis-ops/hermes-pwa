@@ -6,6 +6,8 @@ import logging
 import os
 import sqlite3
 import sys
+import threading
+import time
 from datetime import datetime, timezone
 from html import escape
 from pathlib import Path
@@ -13,7 +15,7 @@ from urllib.parse import quote, urlsplit
 from urllib.request import Request as UrlRequest, urlopen
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Response
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Response, StreamingResponse
 
 router = APIRouter()
 _file_log = logging.getLogger("hermes_pwa.files")
@@ -27,6 +29,8 @@ if str(_PLUGIN_ROOT) not in sys.path:
 from local_files import (  # noqa: E402
     FileAccessError,
     describe as describe_local_file,
+    iter_file as iter_local_file,
+    open_served_file,
     resolve_served_file,
     response_headers as local_file_headers,
 )
@@ -40,10 +44,13 @@ from push_common import (  # noqa: E402
     load_pending_approvals,
     load_push_subscriptions,
     push_sender_availability,
+    push_subscriptions_path,
     safe_subscription_record,
     sanitize_error_text,
     save_push_subscriptions,
     send_web_push_record,
+    state_file_lock,
+    update_push_subscription_records,
     upsert_push_subscription,
 )
 
@@ -63,6 +70,24 @@ _INSTALL_MARKER_NAMES = (
 )
 
 _BACKUP_ARCHIVE_SUFFIXES = (".zip", ".tgz", ".tar.gz")
+
+# Request bodies on the JSON routes are tiny (a push subscription, an id); a
+# body over this is refused before it is parsed.
+MAX_JSON_BODY_BYTES = 64 * 1024
+
+# Every JSON data route answers with these: the body is private to this
+# origin, must not be framed, embedded by another origin, sniffed, or cached.
+_DATA_HEADERS = {
+    "Content-Security-Policy": "default-src 'none'; frame-ancestors 'none'",
+    "Cross-Origin-Resource-Policy": "same-origin",
+    "X-Content-Type-Options": "nosniff",
+    "Cache-Control": "private, no-store",
+}
+
+
+def _data_response(payload: object, status_code: int = 200) -> JSONResponse:
+    """A JSON response for data the dashboard session may read (see ``_DATA_HEADERS``)."""
+    return JSONResponse(payload, status_code=status_code, headers=dict(_DATA_HEADERS))
 
 
 _SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
@@ -453,6 +478,36 @@ def _build_update_check_response(fetch_latest=None) -> dict[str, object]:
     }
 
 
+# The dashboard asks on every connect; the registry is asked at most once per
+# window. A failed check is retried sooner so an outage does not hide a
+# release for six hours.
+UPDATE_CHECK_CACHE_SECONDS = 6 * 60 * 60
+UPDATE_CHECK_FAILURE_CACHE_SECONDS = 10 * 60
+_update_check_cache: tuple[float, dict[str, object]] | None = None
+_update_check_lock = threading.Lock()
+
+
+def _cached_update_check(fetch_latest=None, now: float | None = None) -> dict[str, object]:
+    """``_build_update_check_response`` reused for a while; ``cached`` says which it was."""
+    global _update_check_cache
+    now = time.monotonic() if now is None else now
+    with _update_check_lock:
+        hit = _update_check_cache
+        if hit is not None:
+            ttl = UPDATE_CHECK_CACHE_SECONDS if hit[1].get("ok") else UPDATE_CHECK_FAILURE_CACHE_SECONDS
+            if now - hit[0] < ttl:
+                return {**hit[1], "cached": True}
+        body = _build_update_check_response(fetch_latest)
+        _update_check_cache = (now, body)
+        return {**body, "cached": False}
+
+
+def _clear_update_check_cache() -> None:
+    global _update_check_cache
+    with _update_check_lock:
+        _update_check_cache = None
+
+
 def _is_localhost(host: str) -> bool:
     return host in ("localhost", "127.0.0.1", "::1")
 
@@ -573,12 +628,7 @@ def _is_backup_archive(path: Path) -> bool:
     return any(name.endswith(suffix) for suffix in _BACKUP_ARCHIVE_SUFFIXES)
 
 
-def _safe_tree_size(path: Path) -> int:
-    if path.is_file():
-        try:
-            return path.stat().st_size
-        except OSError:
-            return 0
+def _walk_tree_size(path: Path) -> int:
     total = 0
     try:
         iterator = path.rglob("*")
@@ -594,6 +644,39 @@ def _safe_tree_size(path: Path) -> int:
     return total
 
 
+# A backup directory can hold thousands of files; its size is walked at most
+# once per minute per (path, mtime) instead of on every request.
+TREE_SIZE_CACHE_SECONDS = 60.0
+_TREE_SIZE_CACHE_MAX_ENTRIES = 256
+_tree_size_cache: dict[tuple[str, float], tuple[float, int]] = {}
+_tree_size_lock = threading.Lock()
+
+
+def _safe_tree_size(path: Path, stat: os.stat_result | None = None) -> int:
+    try:
+        stat = stat or path.stat()
+    except OSError:
+        return 0
+    if not path.is_dir():
+        return stat.st_size
+    key = (str(path), stat.st_mtime)
+    now = time.monotonic()
+    with _tree_size_lock:
+        hit = _tree_size_cache.get(key)
+        if hit and now - hit[0] < TREE_SIZE_CACHE_SECONDS:
+            return hit[1]
+    total = _walk_tree_size(path)
+    with _tree_size_lock:
+        if len(_tree_size_cache) >= _TREE_SIZE_CACHE_MAX_ENTRIES:
+            stale = [k for k, v in _tree_size_cache.items() if now - v[0] >= TREE_SIZE_CACHE_SECONDS]
+            for k in stale:
+                del _tree_size_cache[k]
+            if len(_tree_size_cache) >= _TREE_SIZE_CACHE_MAX_ENTRIES:
+                _tree_size_cache.clear()
+        _tree_size_cache[key] = (now, total)
+    return total
+
+
 def _backup_entry(path: Path, kind: str) -> dict[str, object] | None:
     try:
         stat = path.stat()
@@ -604,7 +687,7 @@ def _backup_entry(path: Path, kind: str) -> dict[str, object] | None:
         "name": path.name,
         "kind": kind,
         "created_at": stat.st_mtime,
-        "bytes": _safe_tree_size(path),
+        "bytes": _safe_tree_size(path, stat),
     }
 
 
@@ -657,7 +740,7 @@ def _backup_entries(limit: int = 20) -> list[dict[str, object]]:
 @router.get("/backups", dependencies=[Depends(_require_dashboard_auth)])
 def backups() -> JSONResponse:
     rows = _backup_entries()
-    return JSONResponse({"backups": rows, "total": len(rows)})
+    return _data_response({"backups": rows, "total": len(rows)})
 
 
 def _messaging_binding_sessions(profile: str | None = None) -> list[dict[str, object]]:
@@ -730,7 +813,7 @@ def _messaging_binding_sessions(profile: str | None = None) -> list[dict[str, ob
 @router.get("/sessions/messaging-bindings", dependencies=[Depends(_require_dashboard_auth)])
 def messaging_bindings(profile: str = "default") -> JSONResponse:
     rows = _messaging_binding_sessions(profile)
-    return JSONResponse({"sessions": rows, "total": len(rows)})
+    return _data_response({"sessions": rows, "total": len(rows)})
 
 
 def _push_availability() -> tuple[bool, str | None]:
@@ -755,8 +838,16 @@ def _find_push_record(record_id: str) -> tuple[list[dict[str, object]], dict[str
 
 
 def _mark_push_record(records: list[dict[str, object]], record: dict[str, object], **updates: object) -> None:
+    """Persist ``updates`` on one subscription.
+
+    Merged into a fresh read under the file lock rather than written from
+    ``records``: that snapshot predates the push send and could otherwise
+    overwrite a subscription registered meanwhile.
+    """
     record.update(updates)
-    save_push_subscriptions(records)
+    record_id = str(record.get("id") or "")
+    if record_id:
+        update_push_subscription_records({record_id: dict(updates)})
 
 
 def _send_push_record(record: dict[str, object], payload: dict[str, object]) -> None:
@@ -765,8 +856,14 @@ def _send_push_record(record: dict[str, object], payload: dict[str, object]) -> 
 
 @router.get("/actions/pending", dependencies=[Depends(_require_dashboard_auth)])
 def pending_actions(profile: str = "default") -> JSONResponse:
+    """Approvals the gateway is waiting on, newest first.
+
+    Each item carries ``request_id`` (the gateway's own id for the request,
+    when the hook supplied one) so the phone can answer by request rather
+    than by session.
+    """
     approvals = load_pending_approvals(profile=profile)
-    return JSONResponse({"items": approvals, "total": len(approvals)})
+    return _data_response({"items": approvals, "total": len(approvals)})
 
 
 @router.get("/push/status", dependencies=[Depends(_require_dashboard_auth)])
@@ -787,7 +884,7 @@ def push_status(profile: str = "default") -> JSONResponse:
     public_key = os.environ.get("HERMES_PWA_VAPID_PUBLIC_KEY")
     if public_key:
         body["vapid_public_key"] = public_key
-    return JSONResponse(body)
+    return _data_response(body)
 
 
 @router.post("/push/subscribe", dependencies=[Depends(_require_dashboard_auth)])
@@ -805,12 +902,19 @@ async def push_subscribe(request: Request, profile: str = "default") -> JSONResp
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    return JSONResponse({"ok": True, "subscription": safe, "id": safe["id"]})
+    return _data_response({"ok": True, "subscription": safe, "id": safe["id"]})
 
 
 async def _json_body(request: Request) -> object:
+    """The parsed JSON body, refused with 413 past ``MAX_JSON_BODY_BYTES`` and 400 when malformed."""
+    declared = request.headers.get("content-length", "").strip()
+    if declared.isdigit() and int(declared) > MAX_JSON_BODY_BYTES:
+        raise HTTPException(status_code=413, detail="request body too large")
+    raw = await request.body()
+    if len(raw) > MAX_JSON_BODY_BYTES:
+        raise HTTPException(status_code=413, detail="request body too large")
     try:
-        return await request.json()
+        return json.loads(raw)
     except (ValueError, UnicodeDecodeError) as exc:
         raise HTTPException(status_code=400, detail="invalid JSON body") from exc
 
@@ -820,18 +924,20 @@ async def push_unsubscribe(request: Request, profile: str = "default") -> JSONRe
     body = await _json_body(request)
     target_id = str(body.get("id") or "") if isinstance(body, dict) else ""
     endpoint = str(body.get("endpoint") or "") if isinstance(body, dict) else ""
-    records = load_push_subscriptions()
-    changed = False
-    for record in records:
-        if (target_id and record.get("id") == target_id) or (endpoint and record.get("endpoint") == endpoint):
-            if not _profile_matches(record, profile):
-                raise HTTPException(status_code=404, detail="subscription not found")
-            record["enabled"] = False
-            record["updated_at"] = datetime.now(timezone.utc).timestamp()
-            changed = True
-    if changed:
-        save_push_subscriptions(records)
-    return JSONResponse({"ok": True})
+    path = push_subscriptions_path()
+    with state_file_lock(path):
+        records = load_push_subscriptions(path)
+        changed = False
+        for record in records:
+            if (target_id and record.get("id") == target_id) or (endpoint and record.get("endpoint") == endpoint):
+                if not _profile_matches(record, profile):
+                    raise HTTPException(status_code=404, detail="subscription not found")
+                record["enabled"] = False
+                record["updated_at"] = datetime.now(timezone.utc).timestamp()
+                changed = True
+        if changed:
+            save_push_subscriptions(records, path)
+    return _data_response({"ok": True})
 
 
 @router.post("/push/test", dependencies=[Depends(_require_dashboard_auth)])
@@ -880,28 +986,35 @@ async def push_test(request: Request, profile: str = "default") -> JSONResponse:
         last_error=None,
         updated_at=datetime.now(timezone.utc).timestamp(),
     )
-    return JSONResponse({"ok": True})
+    return _data_response({"ok": True})
 
 
 @router.get("/update/check", dependencies=[Depends(_require_dashboard_auth)])
 def update_check() -> JSONResponse:
-    return JSONResponse(_build_update_check_response())
+    return _data_response(_cached_update_check())
 
 
 @router.api_route("/file", methods=["GET", "HEAD"], dependencies=[Depends(_require_dashboard_auth)])
-def local_file(path: str = "") -> Response:
+def local_file(request: Request, path: str = "") -> Response:
     """Serve one file from the host for the phone client (inline image/PDF or download).
 
     Access is limited to the allowlisted roots in ``local_files`` and every
-    response is sandboxed; see that module for the full policy.
+    response is sandboxed; see that module for the full policy. The bytes are
+    streamed from the descriptor that passed the checks, so the path is never
+    reopened. HEAD answers with the same headers and no body.
     """
     try:
-        served = resolve_served_file(path)
+        served, handle = open_served_file(path)
     except FileAccessError as exc:
         _file_log.info("local-file refused status=%s reason=%s", exc.status, exc.detail)
         raise HTTPException(status_code=exc.status, detail=exc.detail) from None
+    headers = local_file_headers(served)
+    headers["Content-Length"] = str(served.size)
+    if request.method == "HEAD":
+        handle.close()
+        return Response(status_code=200, media_type=served.media_type, headers=headers)
     _file_log.info("local-file served path=%s bytes=%s inline=%s", served.path, served.size, served.inline)
-    return FileResponse(served.path, media_type=served.media_type, headers=local_file_headers(served))
+    return StreamingResponse(iter_local_file(handle, served.size), media_type=served.media_type, headers=headers)
 
 
 @router.get("/file/info", dependencies=[Depends(_require_dashboard_auth)])
@@ -911,7 +1024,7 @@ def local_file_info(path: str = "") -> JSONResponse:
         served = resolve_served_file(path)
     except FileAccessError as exc:
         raise HTTPException(status_code=exc.status, detail=exc.detail) from None
-    return JSONResponse(describe_local_file(served), headers={"Cache-Control": "private, no-store"})
+    return _data_response(describe_local_file(served))
 
 
 @router.get("/obsidian/activity", dependencies=[Depends(_require_dashboard_auth)])
@@ -926,7 +1039,7 @@ def obsidian_activity(days: int = 60, limit: int = 300) -> JSONResponse:
     except Exception as exc:  # pragma: no cover - defensive: a corrupt DB must not 500 the tab
         _file_log.warning("obsidian activity scan failed: %s", sanitize_error_text(str(exc)))
         payload = {"available": False, "vaults": [], "profiles": [], "notes": [], "total": 0, "error": "scan failed"}
-    return JSONResponse(payload, headers={"Cache-Control": "private, no-store"})
+    return _data_response(payload)
 
 
 @router.get("/agents/history", dependencies=[Depends(_require_dashboard_auth)])
@@ -937,7 +1050,7 @@ def agents_history(days: int = 30, limit: int = 200) -> JSONResponse:
     except Exception as exc:  # pragma: no cover - defensive: a corrupt DB must not 500 the tab
         _file_log.warning("agent history scan failed: %s", sanitize_error_text(str(exc)))
         payload = {"profiles": [], "runs": [], "total": 0, "error": "scan failed"}
-    return JSONResponse(payload, headers={"Cache-Control": "private, no-store"})
+    return _data_response(payload)
 
 
 @router.get("/obsidian/note", dependencies=[Depends(_require_dashboard_auth)])
@@ -947,7 +1060,7 @@ def obsidian_note(vault: str = "", path: str = "") -> JSONResponse:
         payload = obsidian_read_note(vault, path)
     except NoteAccessError as exc:
         raise HTTPException(status_code=exc.status, detail=exc.detail) from None
-    return JSONResponse(payload, headers={"Cache-Control": "private, no-store"})
+    return _data_response(payload)
 
 
 @router.get("/health")
@@ -966,7 +1079,7 @@ def health() -> JSONResponse:
 @router.get("/install-info", dependencies=[Depends(_require_dashboard_auth)])
 def install_info(request: Request) -> JSONResponse:
     app_url = _app_url(request)
-    return JSONResponse(
+    return _data_response(
         {
             "app_url": app_url,
             "manifest_url": _manifest_url(request),
@@ -984,7 +1097,7 @@ def diagnostics(request: Request) -> JSONResponse:
     scheme = request.url.scheme
     host = request.url.hostname or ""
 
-    return JSONResponse(
+    return _data_response(
         {
             "origin": origin,
             "https": scheme == "https",

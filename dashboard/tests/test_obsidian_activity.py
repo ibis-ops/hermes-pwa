@@ -231,6 +231,60 @@ class ObsidianActivityTests(unittest.TestCase):
         with self.assertRaises(obsidian_activity.NoteAccessError) as ctx:
             obsidian_activity.read_note("General", "Clients/Link.md", home=self.home)
         self.assertEqual(ctx.exception.status, 403)
+        # A directory with a note's name opens fine as a descriptor but is not a note.
+        (self.vault / "Clients" / "Folder.md").mkdir()
+        with self.assertRaises(obsidian_activity.NoteAccessError) as ctx:
+            obsidian_activity.read_note("General", "Clients/Folder.md", home=self.home)
+        self.assertEqual(ctx.exception.status, 404)
+
+    def test_read_note_reads_the_descriptor_it_checked(self):
+        self._write_note("Inbox/Big.md", "x" * 10)
+        with patch.object(obsidian_activity, "MAX_NOTE_BYTES", 8):
+            with self.assertRaises(obsidian_activity.NoteAccessError) as ctx:
+                obsidian_activity.read_note("General", "Inbox/Big.md", home=self.home)
+            self.assertEqual(ctx.exception.status, 413)
+        real_open = os.open
+        swapped = []
+
+        def open_then_swap(path, flags, *args):
+            fd = real_open(path, flags, *args)
+            if str(path).endswith("Big.md") and not swapped:
+                # Replace the path after it has been opened: the text must be the opened file's.
+                Path(path).unlink()
+                Path(path).write_text("replaced", encoding="utf-8")
+                swapped.append(path)
+            return fd
+
+        with patch.object(obsidian_activity.os, "open", open_then_swap):
+            payload = obsidian_activity.read_note("General", "Inbox/Big.md", home=self.home)
+        self.assertEqual(payload["text"], "x" * 10)
+        self.assertEqual(payload["size"], 10)
+
+    def test_cached_activity_is_bounded_and_snaps_days(self):
+        self.assertEqual([obsidian_activity.snap_days(d) for d in (0, 1, 7, 8, 30, 45, 60, 61, 365, 366, 3650, 99999)], [7, 7, 7, 30, 30, 60, 60, 365, 365, 3650, 3650, 3650])
+        built = []
+
+        def fake_build(*, days, limit, now):
+            built.append((days, limit))
+            return {"available": True, "days": days, "notes": [{"path": f"n{i}.md"} for i in range(5)], "total": 5}
+
+        with patch.object(obsidian_activity, "build_activity", fake_build):
+            first = obsidian_activity.cached_activity(days=45, limit=2)
+            self.assertEqual(first["days"], 60)
+            self.assertEqual(len(first["notes"]), 2)
+            self.assertEqual(first["total"], 5)
+            # Same bucket, other limit: served from the one cached scan.
+            second = obsidian_activity.cached_activity(days=60, limit=300)
+            self.assertEqual(len(second["notes"]), 5)
+            self.assertEqual(built, [(60, obsidian_activity.MAX_LIMIT)])
+            for days in (7, 30, 365, 3650, 1):
+                obsidian_activity.cached_activity(days=days, limit=10)
+            self.assertEqual(built, [(60, obsidian_activity.MAX_LIMIT), (7, obsidian_activity.MAX_LIMIT), (30, obsidian_activity.MAX_LIMIT), (365, obsidian_activity.MAX_LIMIT), (3650, obsidian_activity.MAX_LIMIT)])
+            self.assertLessEqual(len(obsidian_activity._CACHE), obsidian_activity._CACHE_MAX_ENTRIES)
+            # The oldest entry (60) was evicted and is rebuilt on the next ask.
+            obsidian_activity.cached_activity(days=60, limit=10)
+            self.assertEqual(built[-1], (60, obsidian_activity.MAX_LIMIT))
+            self.assertEqual(len(built), 6)
 
     def test_shell_write_targets(self):
         targets = obsidian_activity.shell_write_targets(

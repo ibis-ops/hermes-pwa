@@ -126,6 +126,29 @@ class AgentHistoryTests(unittest.TestCase):
         result = agent_history.build_history(hermes_root=self.hermes / "nope", days=30, now=1.0)
         self.assertEqual(result, {"profiles": [], "days": 30, "scanned_at": 1.0, "total": 0, "runs": []})
 
+    def test_cached_history_is_bounded_snaps_days_and_applies_the_limit(self):
+        built = []
+
+        def fake_build(*, days, limit, now):
+            built.append((days, limit))
+            return {"profiles": [], "days": days, "runs": [{"id": f"r{i}"} for i in range(4)], "total": 4}
+
+        with patch.object(agent_history, "build_history", fake_build):
+            first = agent_history.cached_history(days=10, limit=2)
+            self.assertEqual(first["days"], 30)
+            self.assertEqual([run["id"] for run in first["runs"]], ["r0", "r1"])
+            self.assertEqual(first["total"], 4)
+            second = agent_history.cached_history(days=30, limit=99999)
+            self.assertEqual(len(second["runs"]), 4)
+            self.assertEqual(built, [(30, agent_history.MAX_LIMIT)])
+            for days in (7, 60, 365, 3650):
+                agent_history.cached_history(days=days, limit=200)
+            self.assertEqual(len(built), 5)
+            self.assertLessEqual(len(agent_history._CACHE), 4)
+            agent_history.cached_history(days=30, limit=200)
+            self.assertEqual(len(built), 6)
+            self.assertEqual(built[-1], (30, agent_history.MAX_LIMIT))
+
 
 class AgentHistoryRouteTests(unittest.TestCase):
     def setUp(self):

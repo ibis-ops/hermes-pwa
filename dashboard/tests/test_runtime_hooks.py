@@ -1,6 +1,9 @@
 import importlib.util
+import json
 import sys
 import tempfile
+import threading
+import time
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -57,13 +60,53 @@ class RuntimeHookTests(unittest.TestCase):
                         "description": "Dangerous command approval required",
                         "pattern_key": "rm-rf",
                         "surface": "gateway",
+                        "request_id": "req-7",
                     }
                     runtime._on_pre_approval_request(**kwargs)
                     runtime._on_pre_approval_request(**kwargs)
+                    self.assertTrue(runtime._push_worker.flush())
+
+                pending_path = Path(tmp) / "plugins" / "hermes-pwa" / "pending_approvals.json"
+                records = json.loads(pending_path.read_text(encoding="utf-8"))
 
         self.assertEqual(send.call_count, 1)
         payload = send.call_args.args[0]
         self.assertEqual(payload["type"], "approval.request")
+        self.assertEqual([record["request_id"] for record in records], ["req-7"])
+
+    def test_approval_hook_returns_before_the_push_is_sent(self):
+        runtime = _load_runtime_module()
+        release = threading.Event()
+        started = threading.Event()
+
+        def slow_send(payload, profile=None):
+            started.set()
+            release.wait(timeout=10)
+            return 1
+
+        with tempfile.TemporaryDirectory() as tmp:
+            with patch.dict("os.environ", {"HERMES_HOME": tmp}, clear=False):
+                with patch.object(runtime, "send_web_push_to_enabled", side_effect=slow_send) as send:
+                    before = time.monotonic()
+                    runtime._on_pre_approval_request(
+                        session_key="gateway-session-2",
+                        command="rm -rf /tmp/example",
+                        description="Dangerous command approval required",
+                        pattern_key="rm-rf",
+                        surface="gateway",
+                    )
+                    elapsed = time.monotonic() - before
+                    # The record and the dedupe claim are written before the hook returns.
+                    pending_path = Path(tmp) / "plugins" / "hermes-pwa" / "pending_approvals.json"
+                    self.assertTrue(pending_path.exists())
+                    self.assertTrue(started.wait(timeout=5))
+                    self.assertFalse(runtime._push_worker.flush(timeout=0.2))
+                    release.set()
+                    self.assertTrue(runtime._push_worker.flush())
+
+        self.assertLess(elapsed, 2.0)
+        self.assertEqual(send.call_count, 1)
+        self.assertTrue(runtime._push_worker._thread.daemon)
 
     def test_approval_hook_ignores_cli_surface(self):
         runtime = _load_runtime_module()
@@ -77,6 +120,7 @@ class RuntimeHookTests(unittest.TestCase):
                         pattern_key="rm-rf",
                         surface="cli",
                     )
+                    self.assertTrue(runtime._push_worker.flush())
 
                 pending_path = Path(tmp) / "plugins" / "hermes-pwa" / "pending_approvals.json"
                 self.assertFalse(pending_path.exists())
@@ -103,6 +147,7 @@ class RuntimeHookTests(unittest.TestCase):
                         pattern_key="rm-rf",
                         surface="gateway",
                     )
+                    self.assertTrue(runtime._push_worker.flush())
 
                 pending_path = Path(tmp) / "plugins" / "hermes-pwa" / "pending_approvals.json"
                 self.assertFalse(pending_path.exists())
@@ -144,6 +189,7 @@ class RuntimeHookTests(unittest.TestCase):
                         turn_id="turn-3",
                         assistant_response="",
                     )
+                    self.assertTrue(runtime._push_worker.flush())
 
         self.assertEqual(send.call_count, 1)
         payload = send.call_args.args[0]

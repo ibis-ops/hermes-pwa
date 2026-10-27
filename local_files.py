@@ -16,22 +16,32 @@ Security boundaries (all enforced here, tests in dashboard/tests):
   the Hermes home (that is how Hermes names phone uploads), and still has to
   land inside a root. Dot-files and dot-directories *inside*
   a root are refused (``~/.hermes`` itself is a root; its own name is fine).
-* Only regular files are served, up to ``MAX_FILE_BYTES``.
+* Only regular files are served, up to ``MAX_FILE_BYTES``. The bytes come from
+  the descriptor that was vetted (opened without following a final symlink
+  and matched to the checked inode), never from reopening the path.
+* Roots that hold credentials are refused even when configured: the home
+  directory, filesystem roots, ``~/Library``, ``~/.ssh``, ``~/.aws``,
+  ``~/.gnupg``, ``~/.config``, ``~/.docker``, ``~/.kube``, the Hermes home
+  itself and its ``profiles`` tree (the Hermes attachment and cache folders
+  under it stay allowed).
 * The response media type comes from the file extension, never from content
   sniffing, and only a short allowlist (images, PDF, audio, video, plain text)
   is sent for inline display. Everything else, including HTML and SVG which can
   run script on the dashboard origin, is sent as ``attachment`` with the generic
   ``application/octet-stream`` type.
-* Every response carries ``X-Content-Type-Options: nosniff`` and a sandboxing
-  ``Content-Security-Policy`` so a served document cannot act on the origin.
+* Every response carries ``X-Content-Type-Options: nosniff``, a sandboxing
+  ``Content-Security-Policy`` that also forbids framing, and
+  ``Cross-Origin-Resource-Policy: same-origin`` so a served document cannot act
+  on the origin or be embedded by another one.
 """
 
 from __future__ import annotations
 
 import os
+import stat as stat_module
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable
+from typing import BinaryIO, Iterable
 
 MAX_FILE_BYTES = 100 * 1024 * 1024
 
@@ -49,9 +59,24 @@ _DEFAULT_ROOT_SUFFIXES = (
 )
 
 # Roots that would expose credential stores or whole accounts are refused even
-# when configured: the home directory itself, filesystem roots, and ~/Library
-# (Keychains, Messages, Safari and Mail databases live there).
-_FORBIDDEN_ROOT_SUFFIXES = (("Library",),)
+# when configured: the home directory itself, filesystem roots, ~/Library
+# (Keychains, Messages, Safari and Mail databases live there) and the usual
+# credential folders. A configured root equal to or inside one of these is
+# skipped.
+_FORBIDDEN_ROOT_SUFFIXES = (
+    ("Library",),
+    (".ssh",),
+    (".aws",),
+    (".gnupg",),
+    (".config",),
+    (".docker",),
+    (".kube",),
+)
+
+# The Hermes home (config.yaml, .env, state.db) is refused as a root, as is its
+# profiles tree; its attachment and cache folders are the default roots and
+# stay allowed, so only these exact paths and subtrees are forbidden.
+_FORBIDDEN_HERMES_SUBTREES = (("profiles",),)
 
 # Package bundles are directories macOS shows as one item; their internals are
 # regular files (Photos.sqlite, originals/*.jpeg) and never something Hermes
@@ -107,8 +132,14 @@ IMAGE_EXTENSIONS = frozenset(ext for ext, mime in _INLINE_TYPES.items() if mime.
 
 SAFE_HEADERS = {
     "X-Content-Type-Options": "nosniff",
-    # No script, no forms, no top-level navigation from a served document.
-    "Content-Security-Policy": "sandbox; default-src 'none'; img-src 'self' data:; media-src 'self'; style-src 'unsafe-inline'",
+    # No script, no forms, no top-level navigation from a served document, and
+    # no framing of it by any page.
+    "Content-Security-Policy": (
+        "sandbox; default-src 'none'; img-src 'self' data:; media-src 'self'; "
+        "style-src 'unsafe-inline'; frame-ancestors 'none'"
+    ),
+    # Only this origin may load the bytes as a subresource.
+    "Cross-Origin-Resource-Policy": "same-origin",
     "Cache-Control": "private, no-store",
     "Referrer-Policy": "no-referrer",
 }
@@ -150,6 +181,14 @@ def _forbidden_root(real: Path) -> bool:
         forbidden = home.joinpath(*parts)
         if real == forbidden or real.is_relative_to(forbidden):
             return True
+    hermes_homes = {home / ".hermes", Path(os.path.realpath(_hermes_home()))}
+    for hermes in hermes_homes:
+        if real == hermes:
+            return True
+        for parts in _FORBIDDEN_HERMES_SUBTREES:
+            forbidden = hermes.joinpath(*parts)
+            if real == forbidden or real.is_relative_to(forbidden):
+                return True
     return False
 
 
@@ -185,12 +224,14 @@ def _inside_bundle(relative: Path) -> bool:
     return any(part.lower().endswith(_BUNDLE_SUFFIXES) for part in relative.parts[:-1])
 
 
-def _verify_same_file(real: Path, expected: os.stat_result) -> None:
+def _verify_same_file(real: Path, expected: os.stat_result) -> tuple[int, os.stat_result]:
     """Open without following a final symlink and check it is the file we vetted.
 
-    Narrows the window between the checks above and the response reading the
-    path again. The remaining race is only open to a local process running as
-    the same user, which can already read the file directly.
+    Returns the open descriptor and its ``fstat``. The descriptor is what gets
+    served: the path is never opened a second time, so nothing swapped in after
+    the checks can be read. The caller owns the descriptor. The remaining race
+    is only open to a local process running as the same user, which can
+    already read the file directly.
     """
     flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_CLOEXEC", 0)
     try:
@@ -199,14 +240,23 @@ def _verify_same_file(real: Path, expected: os.stat_result) -> None:
         raise FileAccessError(403, f"cannot read file: {exc.strerror or exc}") from None
     try:
         current = os.fstat(fd)
-    finally:
+        if (current.st_dev, current.st_ino) != (expected.st_dev, expected.st_ino):
+            raise FileAccessError(409, "file changed while being checked")
+        if not stat_module.S_ISREG(current.st_mode):
+            raise FileAccessError(404, "not a regular file")
+    except BaseException:
         os.close(fd)
-    if (current.st_dev, current.st_ino) != (expected.st_dev, expected.st_ino):
-        raise FileAccessError(409, "file changed while being checked")
+        raise
+    return fd, current
 
 
-def resolve_served_file(raw_path: str) -> ServedFile:
-    """Validate ``raw_path`` against the allowlist and describe how to serve it."""
+def open_served_file(raw_path: str) -> tuple[ServedFile, BinaryIO]:
+    """Validate ``raw_path`` and return its description plus the vetted, open file.
+
+    The file object reads from the descriptor whose inode matched the checks,
+    so the response streams exactly the file that was vetted. The caller closes
+    it (``iter_file`` does so when the stream ends).
+    """
     text = (raw_path or "").strip()
     if not text:
         raise FileAccessError(400, "path is required")
@@ -243,20 +293,55 @@ def resolve_served_file(raw_path: str) -> ServedFile:
         raise FileAccessError(404, "not a regular file")
     if stat.st_size > MAX_FILE_BYTES:
         raise FileAccessError(413, "file is too large to send")
-    _verify_same_file(real, stat)
+    fd, current = _verify_same_file(real, stat)
+    if current.st_size > MAX_FILE_BYTES:
+        os.close(fd)
+        raise FileAccessError(413, "file is too large to send")
+    try:
+        handle = os.fdopen(fd, "rb")
+    except OSError:
+        os.close(fd)
+        raise FileAccessError(403, "cannot read file") from None
 
     inline_type = _INLINE_TYPES.get(real.suffix.lower())
-    return ServedFile(
+    served = ServedFile(
         path=real,
-        size=stat.st_size,
+        size=current.st_size,
         media_type=inline_type or "application/octet-stream",
         inline=inline_type is not None,
         download_name=real.name,
     )
+    return served, handle
+
+
+def resolve_served_file(raw_path: str) -> ServedFile:
+    """Validate ``raw_path`` against the allowlist and describe how to serve it."""
+    served, handle = open_served_file(raw_path)
+    handle.close()
+    return served
+
+
+def iter_file(handle: BinaryIO, size: int, chunk_size: int = 64 * 1024) -> Iterable[bytes]:
+    """Yield exactly ``size`` bytes from ``handle`` and close it afterwards.
+
+    ``size`` is what the response promised in Content-Length; a file that grew
+    meanwhile is cut there and one that shrank ends the stream early, which the
+    server reports as a broken response rather than a misframed one.
+    """
+    remaining = size
+    try:
+        while remaining > 0:
+            chunk = handle.read(min(chunk_size, remaining))
+            if not chunk:
+                break
+            remaining -= len(chunk)
+            yield chunk
+    finally:
+        handle.close()
 
 
 def response_headers(served: ServedFile) -> dict[str, str]:
-    """Headers for the FileResponse, including a safe Content-Disposition."""
+    """Headers for the file response, including a safe Content-Disposition."""
     # RFC 6266: ASCII fallback plus UTF-8 encoded filename*.
     import re
     from urllib.parse import quote

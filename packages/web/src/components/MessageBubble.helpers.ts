@@ -46,15 +46,20 @@ export const REHYPE_PLUGINS: PluggableList = [rehypeCodeHighlight];
 /**
  * Model output may contain `![](https://...)`. Loading that would let injected
  * instructions exfiltrate transcript text through the image URL with no
- * approval step, so only same-origin sources render as pictures; anything
- * else shows as its alt text.
+ * approval step, so only the plugin's own file route (a file Hermes wrote on
+ * the Mac) and inline data render as pictures; anything else shows as its alt
+ * text. Other same-origin paths are refused too: an image tag is an
+ * authenticated GET, and a path like the dashboard's logout must not be one
+ * a reply can trigger.
  */
-function isSameOriginImage(src: string | undefined): boolean {
+const PLUGIN_FILE_ROUTE = /^(?:\.{0,2}\/)*api\/plugins\/hermes-pwa\/file\?/i;
+
+function isAllowedImageSource(src: string | undefined): boolean {
   if (!src) return false;
   const value = src.trim();
   if (value.startsWith('//')) return false;
-  if (value.startsWith('/') || value.startsWith('./') || value.startsWith('../')) return true;
-  return /^(blob:|data:image\/)/i.test(value);
+  if (PLUGIN_FILE_ROUTE.test(value)) return true;
+  return /^(blob:|data:image\/(?:png|jpe?g|gif|webp|avif);)/i.test(value);
 }
 
 export const MARKDOWN_COMPONENTS = {
@@ -62,7 +67,7 @@ export const MARKDOWN_COMPONENTS = {
   img: ({ src, alt, ...rest }: ImgHTMLAttributes<HTMLImageElement> & { node?: unknown }) => {
     const { node: _hast, ...props } = rest;
     void _hast;
-    return isSameOriginImage(typeof src === 'string' ? src : undefined)
+    return isAllowedImageSource(typeof src === 'string' ? src : undefined)
       ? createElement('img', { ...props, src, alt: alt ?? '', loading: 'lazy' })
       : createElement('span', { className: 'hm-message__blocked-image', title: 'External images are not loaded' }, alt || 'image');
   },

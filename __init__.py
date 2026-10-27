@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import logging
 import os
-from typing import Any
+import queue
+import threading
+from typing import Any, Callable
 
 from .push_common import (
     approval_push_payload,
@@ -19,6 +21,70 @@ _PWA_TURN_COMPLETE_PLATFORMS = {"tui", "pwa", "desktop", "web"}
 _APPROVAL_PUSH_TTL_SECONDS = 10 * 60
 _TURN_COMPLETE_TTL_SECONDS = 6 * 60 * 60
 _TURN_COMPLETE_SESSION_COOLDOWN_SECONDS = 90
+
+
+class _PushWorker:
+    """One daemon thread that sends pushes so the hooks return at once.
+
+    A send can wait on the push service for seconds per device, and Hermes
+    calls the approval hook on the thread that is waiting for the answer. The
+    hook only claims the dedupe key and writes the pending record (both fast,
+    both local), then hands the network work here. Daemon, so a slow push
+    service never holds up a gateway restart; started lazily so a process that
+    forks after import gets its own thread.
+    """
+
+    def __init__(self) -> None:
+        self._jobs: "queue.SimpleQueue[Callable[[], None]]" = queue.SimpleQueue()
+        self._state = threading.Condition()
+        self._pending = 0
+        self._thread: threading.Thread | None = None
+
+    def submit(self, job: Callable[[], None]) -> None:
+        with self._state:
+            self._pending += 1
+            if self._thread is None or not self._thread.is_alive():
+                self._thread = threading.Thread(target=self._run, name="hermes-pwa-push", daemon=True)
+                self._thread.start()
+        self._jobs.put(job)
+
+    def _run(self) -> None:
+        while True:
+            job = self._jobs.get()
+            try:
+                job()
+            except Exception as exc:  # pragma: no cover - defensive: a failed push is logged, never raised
+                logger.debug("Hermes PWA push worker ignored error: %s", exc)
+            finally:
+                with self._state:
+                    self._pending -= 1
+                    self._state.notify_all()
+
+    def flush(self, timeout: float = 10.0) -> bool:
+        """Wait until every submitted job has run; True when the queue drained in time."""
+        with self._state:
+            return self._state.wait_for(lambda: self._pending == 0, timeout=timeout)
+
+
+_push_worker = _PushWorker()
+
+
+def _send_in_background(payload: dict[str, Any], profile: str, kind: str) -> None:
+    def job() -> None:
+        try:
+            sent = send_web_push_to_enabled(payload, profile=profile)
+        except Exception as exc:
+            logger.debug("Hermes PWA %s push not sent: %s", kind, exc)
+            return
+        logger.debug(
+            "Hermes PWA %s push sent: tag=%s profile=%s devices=%s",
+            kind,
+            payload.get("tag"),
+            payload.get("profile"),
+            sent,
+        )
+
+    _push_worker.submit(job)
 
 
 def _approval_surface(kwargs: dict[str, Any]) -> str:
@@ -67,8 +133,9 @@ def _should_surface_pwa_approval(kwargs: dict[str, Any]) -> bool:
 def _on_pre_approval_request(**kwargs: Any) -> None:
     """Observe Hermes approval requests.
 
-    Phase 0/Phase A only builds the safe payload contract. Phase B/G will attach
-    the Web Push sender. This hook must never block or break approval flow.
+    Claims the dedupe key and writes the pending record synchronously (the
+    phone may open the card before the push lands), then sends the push from
+    the background worker. This hook must never block or break approval flow.
     """
     try:
         if not _is_gateway_approval(kwargs):
@@ -95,13 +162,7 @@ def _on_pre_approval_request(**kwargs: Any) -> None:
             )
             return
         record_pending_approval(**kwargs)
-        sent = send_web_push_to_enabled(payload, profile=profile)
-        logger.debug(
-            "Hermes PWA approval push sent: tag=%s profile=%s devices=%s",
-            payload.get("tag"),
-            payload.get("profile"),
-            sent,
-        )
+        _send_in_background(payload, profile, "approval")
     except Exception as exc:  # pragma: no cover - defensive observer hook
         logger.debug("Hermes PWA approval hook ignored error: %s", exc)
 
@@ -142,14 +203,7 @@ def _on_post_llm_call(**kwargs: Any) -> None:
                 profile,
             )
             return
-        sent = send_web_push_to_enabled(payload, profile=profile)
-        logger.debug(
-            "Hermes PWA turn-complete push sent: tag=%s dedupe=%s profile=%s devices=%s",
-            payload.get("tag"),
-            dedupe_key,
-            payload.get("profile"),
-            sent,
-        )
+        _send_in_background(payload, profile, "turn-complete")
     except Exception as exc:  # pragma: no cover - defensive observer hook
         logger.debug("Hermes PWA turn-complete hook ignored error: %s", exc)
 

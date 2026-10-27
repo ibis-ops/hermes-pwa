@@ -16,7 +16,7 @@ import sqlite3
 import time
 from pathlib import Path
 
-from obsidian_activity import hermes_home, state_databases
+from obsidian_activity import BoundedCache, hermes_home, snap_days, state_databases
 
 SUBAGENT_SOURCES = ("subagent", "delegate", "delegation", "spawn")
 TITLE_PREFIXES = ("Subagent: ", "Subagent:", "Delegate: ", "Delegation: ")
@@ -177,18 +177,23 @@ def build_history(*, hermes_root: Path | None = None, days: int = 30, limit: int
     }
 
 
-_CACHE: dict[tuple[str, int, int], tuple[float, dict[str, object]]] = {}
-_CACHE_TTL_S = 10.0
+MAX_LIMIT = 1000
+_CACHE = BoundedCache(ttl_seconds=10.0)
 
 
 def cached_history(days: int = 30, limit: int = 200) -> dict[str, object]:
-    key = (str(hermes_home()), int(days), int(limit))
-    now = time.time()
-    hit = _CACHE.get(key)
-    if hit and now - hit[0] < _CACHE_TTL_S:
-        return hit[1]
-    result = build_history(days=days, limit=limit, now=now)
-    _CACHE[key] = (now, result)
+    """``build_history`` behind a short, bounded cache keyed by (home, days bucket).
+
+    ``days`` is rounded up to one of ``obsidian_activity.DAY_BUCKETS`` and the
+    scan keeps ``MAX_LIMIT`` runs; ``limit`` is applied to the cached copy.
+    """
+    bucket = snap_days(days)
+    wanted = max(1, min(int(limit), MAX_LIMIT))
+    key = (str(hermes_home()), bucket)
+    result = _CACHE.get(key, lambda: build_history(days=bucket, limit=MAX_LIMIT, now=time.time()))
+    runs = result.get("runs")
+    if isinstance(runs, list) and len(runs) > wanted:
+        return {**result, "runs": runs[:wanted]}
     return result
 
 
@@ -196,4 +201,4 @@ def clear_cache() -> None:
     _CACHE.clear()
 
 
-__all__ = ["build_history", "cached_history", "clear_cache", "collect_runs", "SUBAGENT_SOURCES"]
+__all__ = ["build_history", "cached_history", "clear_cache", "collect_runs", "MAX_LIMIT", "SUBAGENT_SOURCES"]

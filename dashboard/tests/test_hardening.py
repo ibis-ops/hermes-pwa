@@ -147,6 +147,42 @@ class FileBridgeHardeningTests(unittest.TestCase):
             with patch.dict(os.environ, {"HERMES_PWA_FILE_ROOTS": root}):
                 self.assertEqual(local_files.allowed_roots(), [], root)
 
+    def test_credential_folders_and_the_hermes_home_are_refused_as_roots(self):
+        for name in (".ssh", ".aws", ".gnupg", ".config", ".docker", ".kube"):
+            (self.home / name / "sub").mkdir(parents=True)
+        (self.home / ".hermes" / "profiles" / "work" / "attachments").mkdir(parents=True)
+        (self.home / ".hermes" / "attachments").mkdir(parents=True)
+        (self.home / ".hermes" / "cache").mkdir(parents=True)
+        refused = [
+            str(self.home / ".ssh"),
+            str(self.home / ".aws" / "sub"),
+            str(self.home / ".gnupg"),
+            str(self.home / ".config"),
+            str(self.home / ".docker"),
+            str(self.home / ".kube" / "sub"),
+            str(self.home / ".hermes"),
+            str(self.home / ".hermes" / "profiles"),
+            str(self.home / ".hermes" / "profiles" / "work" / "attachments"),
+        ]
+        for root in refused:
+            with patch.dict(os.environ, {"HERMES_PWA_FILE_ROOTS": root}):
+                self.assertEqual(local_files.allowed_roots(), [], root)
+        # The Hermes attachment and cache folders are the default roots and stay allowed.
+        with patch.dict(os.environ, {"HERMES_PWA_FILE_ROOTS": os.pathsep.join([str(self.home / ".hermes" / "attachments"), str(self.home / ".hermes" / "cache")])}):
+            self.assertEqual({r.name for r in local_files.allowed_roots()}, {"attachments", "cache"})
+        with patch.dict(os.environ, {"HERMES_PWA_FILE_ROOTS": ""}):
+            self.assertEqual({r.name for r in local_files.allowed_roots()}, {"attachments", "cache", "Desktop"})
+        # A relocated Hermes home is refused the same way.
+        elsewhere = Path(self.tmp.name) / "hermes-elsewhere"
+        (elsewhere / "profiles" / "p").mkdir(parents=True)
+        (elsewhere / "attachments").mkdir()
+        with patch.dict(os.environ, {"HERMES_HOME": str(elsewhere)}):
+            for root in (str(elsewhere), str(elsewhere / "profiles" / "p")):
+                with patch.dict(os.environ, {"HERMES_PWA_FILE_ROOTS": root}):
+                    self.assertEqual(local_files.allowed_roots(), [], root)
+            with patch.dict(os.environ, {"HERMES_PWA_FILE_ROOTS": str(elsewhere / "attachments")}):
+                self.assertEqual([r.name for r in local_files.allowed_roots()], ["attachments"])
+
     def test_bundle_internals_are_refused_even_inside_a_configured_root(self):
         with patch.dict(os.environ, {"HERMES_PWA_FILE_ROOTS": str(self.home / "Pictures")}):
             with self.assertRaises(local_files.FileAccessError) as ctx:

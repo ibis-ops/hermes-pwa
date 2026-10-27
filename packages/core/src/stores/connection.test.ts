@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { useConnectionStore } from './connection';
 import { useChatStore } from './chat';
+import { useActivityStore } from './activity';
 import type { RestClient } from '../transport/rest';
 import type { WsConnection } from '../transport/ws';
 import type { RpcClient } from '../transport/jsonrpc';
@@ -281,6 +282,7 @@ describe('useConnectionStore', () => {
     expect(window.localStorage.getItem('hermes-pwa.activeSession.v4:default')).toBeNull();
     expect(window.localStorage.getItem('hermes-pwa.draft.v1:default')).toBeNull();
     expect(window.localStorage.getItem('hermes-pwa.defaultSkill.v1:default')).toBeNull();
+    expect(useActivityStore.getState().items).toEqual([]);
     expect(window.localStorage.getItem('hermes-pwa.authUser.v1')).toBe('basic:u-2');
     expect(useChatStore.getState().messages).toEqual([]);
     expect(useConnectionStore.getState().user?.displayName).toBe('Bob');
@@ -329,6 +331,7 @@ describe('useConnectionStore', () => {
     window.localStorage.setItem('hermes-pwa.draft.v1:default', '{"text":"alice draft","attachments":[]}');
     window.localStorage.setItem('hermes-pwa.defaultSkill.v1:default', 'triage');
     window.localStorage.setItem('unrelated-setting', 'keep');
+    useActivityStore.setState({ items: [{ id: 'alice-approval', kind: 'approval', status: 'needs_you', title: 'rm -rf alice', createdAt: 1 }] });
     useChatStore.setState({
       sessionId: 'alice-live',
       storedSessionId: 'alice-stored',

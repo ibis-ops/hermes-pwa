@@ -6,6 +6,8 @@ import type { AuthProvider, HermesUser } from '../domain/auth';
 import type { GatewayStatus } from '../domain/status';
 import { explainConnectionError } from '../diagnostics';
 import { useChatStore } from './chat';
+import { useActivityStore } from './activity';
+import { useSpawnStore } from './spawnStore';
 
 export type ConnectionState =
   | 'init'
@@ -68,6 +70,9 @@ function isLocalPrivateCacheKey(key: string): boolean {
 
 function purgeLocalPrivateCache(): void {
   useChatStore.getState().clear();
+  // Approval cards (commands, paths) and subagent output belong to the account too.
+  useActivityStore.getState().clear();
+  useSpawnStore.getState().clear();
   if (typeof window === 'undefined') return;
   try {
     for (let i = window.localStorage.length - 1; i >= 0; i -= 1) {

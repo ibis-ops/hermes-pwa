@@ -4,16 +4,29 @@ import hashlib
 import json
 import os
 import re
+import threading
 import time
+from contextlib import contextmanager
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterator
+
+try:
+    import fcntl
+except ImportError:  # pragma: no cover - Windows has no flock; the thread lock below still applies
+    fcntl = None  # type: ignore[assignment]
 
 _CONTROL_CHARS = re.compile(r"[\x00-\x1f\x7f]+")
+# ``key=value`` / ``key: value`` secrets, plus the HTTP form ``Bearer <token>``
+# (header value with no separator, or after ``Authorization:``).
 _SECRET_LIKE = re.compile(
-    r"(?i)(api[_-]?key|token|secret|password|passwd|authorization|bearer)\s*[:=]\s*\S+"
+    r"(?:api[_-]?key|token|secret|password|passwd|authorization|bearer)\s*[:=]\s*(?:bearer\s+)?\S+"
+    r"|\bbearer\s+\S+",
+    re.IGNORECASE,
 )
 _URL_LIKE = re.compile(r"https?://\S+")
 _BARE_SECRET_LIKE = re.compile(r"(?<![A-Za-z0-9_-])(?:[a-fA-F0-9]{32,}|[A-Za-z0-9_-]{40,})(?![A-Za-z0-9_-])")
+
+APPROVAL_PUSH_BODY = "Security approval required. Open Hermes Mobile to review it."
 
 
 def hermes_home() -> Path:
@@ -66,12 +79,78 @@ def _write_json_list(path: Path, records: list[dict[str, Any]]) -> None:
         pass
 
 
+_FALLBACK_LOCKS: dict[str, threading.Lock] = {}
+_FALLBACK_LOCKS_GUARD = threading.Lock()
+
+
+def _fallback_lock(lock_path: Path) -> threading.Lock:
+    with _FALLBACK_LOCKS_GUARD:
+        lock = _FALLBACK_LOCKS.get(str(lock_path))
+        if lock is None:
+            lock = _FALLBACK_LOCKS[str(lock_path)] = threading.Lock()
+        return lock
+
+
+@contextmanager
+def state_file_lock(path: Path) -> Iterator[None]:
+    """Hold ``<path>.lock`` for one read-modify-write of a plugin state file.
+
+    The gateway process (hooks) and the dashboard process (API) both rewrite
+    these JSON files, and within a process the push worker thread and request
+    threads do too. ``flock`` on a sidecar file serialises all of them; the
+    write itself stays atomic (temp file plus rename). Not re-entrant: callers
+    read and write inside one ``with`` and never nest two.
+    """
+    lock_path = path.with_suffix(path.suffix + ".lock")
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    if fcntl is None:  # pragma: no cover - platform without flock
+        with _fallback_lock(lock_path):
+            yield
+        return
+    fd = os.open(lock_path, os.O_RDWR | os.O_CREAT | getattr(os, "O_CLOEXEC", 0), 0o600)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(fd, fcntl.LOCK_UN)
+    finally:
+        os.close(fd)
+
+
 def load_push_subscriptions(path: Path | None = None) -> list[dict[str, Any]]:
     return _read_json_list(path or push_subscriptions_path())
 
 
 def save_push_subscriptions(records: list[dict[str, Any]], path: Path | None = None) -> None:
     _write_json_list(path or push_subscriptions_path(), records)
+
+
+def update_push_subscription_records(updates: dict[str, dict[str, Any]], *, path: Path | None = None) -> int:
+    """Merge per-record field updates into the stored subscriptions, under the file lock.
+
+    ``updates`` maps a subscription id to the fields to set on it. The file is
+    re-read inside the lock so a device that subscribed while a push was in
+    flight is kept, and only the named records change. Returns how many
+    records were updated.
+    """
+    if not updates:
+        return 0
+    target = path or push_subscriptions_path()
+    with state_file_lock(target):
+        records = load_push_subscriptions(target)
+        changed = 0
+        for record in records:
+            endpoint = str(record.get("endpoint") or "")
+            record_id = str(record.get("id") or "") or (endpoint_hash(endpoint) if endpoint else "")
+            fields = updates.get(record_id) if record_id else None
+            if fields is None:
+                continue
+            record.update(fields)
+            changed += 1
+        if changed:
+            save_push_subscriptions(records, target)
+    return changed
 
 
 MAX_PUSH_SUBSCRIPTIONS_PER_PROFILE = 10
@@ -146,60 +225,81 @@ def upsert_push_subscription(
     path: Path | None = None,
 ) -> dict[str, Any]:
     valid = validate_browser_subscription(subscription)
-    records = load_push_subscriptions(path)
+    target = path or push_subscriptions_path()
     sub_id = endpoint_hash(valid["endpoint"])
     ts = now_ts()
     normalized_profile = (profile or "default").strip() or "default"
-    updated: dict[str, Any] | None = None
-    for record in records:
-        if record.get("id") == sub_id or record.get("endpoint") == valid["endpoint"]:
-            record.update(valid)
-            record.update(
-                {
-                    "id": sub_id,
-                    "profile": normalized_profile,
-                    "enabled": True,
-                    "updated_at": ts,
-                }
-            )
-            if label is not None:
-                record["label"] = str(label)[:80]
-            if user_agent_hint is not None:
-                record["user_agent_hint"] = str(user_agent_hint)[:160]
-            updated = record
-            break
-    if updated is None:
-        updated = {
-            "id": sub_id,
-            **valid,
-            "profile": normalized_profile,
-            "label": str(label)[:80] if label else None,
-            "user_agent_hint": str(user_agent_hint)[:160] if user_agent_hint else None,
-            "enabled": True,
-            "created_at": ts,
-            "updated_at": ts,
-            "last_success_at": None,
-            "last_error": None,
-        }
-        records.append(updated)
-    # Cap devices per profile: keep the newest, drop the oldest beyond the limit.
-    same_profile = [r for r in records if _normalized_profile(r.get("profile")) == _normalized_profile(normalized_profile)]
-    if len(same_profile) > MAX_PUSH_SUBSCRIPTIONS_PER_PROFILE:
-        same_profile.sort(key=lambda r: float(r.get("updated_at") or r.get("created_at") or 0))
-        drop_ids = {r.get("id") for r in same_profile[: len(same_profile) - MAX_PUSH_SUBSCRIPTIONS_PER_PROFILE]}
-        records = [r for r in records if r.get("id") not in drop_ids]
-    save_push_subscriptions(records, path)
+    with state_file_lock(target):
+        records = load_push_subscriptions(target)
+        updated: dict[str, Any] | None = None
+        for record in records:
+            if record.get("id") == sub_id or record.get("endpoint") == valid["endpoint"]:
+                record.update(valid)
+                record.update(
+                    {
+                        "id": sub_id,
+                        "profile": normalized_profile,
+                        "enabled": True,
+                        "updated_at": ts,
+                    }
+                )
+                if label is not None:
+                    record["label"] = str(label)[:80]
+                if user_agent_hint is not None:
+                    record["user_agent_hint"] = str(user_agent_hint)[:160]
+                updated = record
+                break
+        if updated is None:
+            updated = {
+                "id": sub_id,
+                **valid,
+                "profile": normalized_profile,
+                "label": str(label)[:80] if label else None,
+                "user_agent_hint": str(user_agent_hint)[:160] if user_agent_hint else None,
+                "enabled": True,
+                "created_at": ts,
+                "updated_at": ts,
+                "last_success_at": None,
+                "last_error": None,
+            }
+            records.append(updated)
+        # Cap devices per profile: keep the newest, drop the oldest beyond the limit.
+        same_profile = [r for r in records if _normalized_profile(r.get("profile")) == _normalized_profile(normalized_profile)]
+        if len(same_profile) > MAX_PUSH_SUBSCRIPTIONS_PER_PROFILE:
+            same_profile.sort(key=lambda r: float(r.get("updated_at") or r.get("created_at") or 0))
+            drop_ids = {r.get("id") for r in same_profile[: len(same_profile) - MAX_PUSH_SUBSCRIPTIONS_PER_PROFILE]}
+            records = [r for r in records if r.get("id") not in drop_ids]
+        save_push_subscriptions(records, target)
     return safe_subscription_record(updated)
 
 
-def sanitize_notification_text(value: Any, *, limit: int) -> str:
+def _clean_text(value: Any, *, limit: int, bare_secrets: bool) -> str:
     text = "" if value is None else str(value)
     text = _CONTROL_CHARS.sub(" ", text)
     text = _SECRET_LIKE.sub("[redacted]", text)
+    if bare_secrets:
+        text = _BARE_SECRET_LIKE.sub("[redacted]", text)
     text = " ".join(text.split())
     if len(text) <= limit:
         return text
     return text[: max(0, limit - 1)].rstrip() + "…"
+
+
+def sanitize_notification_text(value: Any, *, limit: int) -> str:
+    """One line of human-readable text for a notification, list row or summary.
+
+    Control characters go, ``key=value`` and ``Bearer`` secrets go, and so do
+    long opaque runs (hex digests, base64url tokens) that look like a pasted
+    credential. Then collapsed to one line and cut to ``limit``.
+    """
+    return _clean_text(value, limit=limit, bare_secrets=True)
+
+
+def sanitize_identifier(value: Any, *, limit: int) -> str:
+    """Session keys, request ids and profile names: the same cleanup without the
+    bare-token pass, because Hermes' own ids are long opaque strings that must
+    round-trip unchanged for the phone to answer the right request."""
+    return _clean_text(value, limit=limit, bare_secrets=False)
 
 
 def sanitize_error_text(value: Any, *, limit: int = 240) -> str:
@@ -254,25 +354,37 @@ def _pending_approval_match(record: dict[str, Any], *, session_key: str, command
     return True
 
 
+def _prune_pending(records: list[dict[str, Any]], cutoff: float) -> tuple[list[dict[str, Any]], bool]:
+    kept = [
+        record
+        for record in records
+        if isinstance(record.get("created_at"), (int, float)) and float(record["created_at"]) >= cutoff
+    ]
+    return kept, len(kept) != len(records)
+
+
+def _unexpired_pending(target: Path, max_age_seconds: int) -> tuple[list[dict[str, Any]], bool]:
+    """Records still inside the age window, and whether the file holds expired ones."""
+    cutoff = now_ts() - max(60, int(max_age_seconds))
+    return _prune_pending(_read_json_list(target), cutoff)
+
+
 def load_pending_approvals(*, profile: str | None = None, max_age_seconds: int = 330, path: Path | None = None) -> list[dict[str, Any]]:
     target = path or pending_approvals_path()
-    records = _read_json_list(target)
-    cutoff = now_ts() - max(60, int(max_age_seconds))
-    normalized_profile = sanitize_notification_text(profile or "", limit=80)
-    active: list[dict[str, Any]] = []
-    kept: list[dict[str, Any]] = []
-    changed = False
-    for record in records:
-        created_at = record.get("created_at")
-        if not isinstance(created_at, (int, float)) or float(created_at) < cutoff:
-            changed = True
-            continue
-        kept.append(record)
-        if normalized_profile and str(record.get("profile") or "default") != normalized_profile:
-            continue
-        active.append(record)
-    if changed:
-        _write_json_list(target, kept)
+    kept, expired = _unexpired_pending(target, max_age_seconds)
+    if expired:
+        # Prune under the lock, from a fresh read, so a record the gateway is
+        # adding at the same moment is not dropped by this rewrite.
+        with state_file_lock(target):
+            kept, expired = _unexpired_pending(target, max_age_seconds)
+            if expired:
+                _write_json_list(target, kept)
+    normalized_profile = sanitize_identifier(profile or "", limit=80)
+    active = [
+        record
+        for record in kept
+        if not normalized_profile or str(record.get("profile") or "default") == normalized_profile
+    ]
     active.sort(key=lambda item: float(item.get("created_at") or 0), reverse=True)
     return active
 
@@ -291,15 +403,36 @@ def approval_command_text(value: Any, *, limit: int = 20_000) -> str:
     return text
 
 
+def _approval_fields(kwargs: dict[str, Any]) -> dict[str, str]:
+    """The hook's keyword arguments, normalised the same way for the record and the push.
+
+    ``request_id`` is what the gateway wants back in ``approval.respond``;
+    Hermes has called it ``request_id``, ``approval_id`` and ``tool_call_id``
+    across versions, so the first one present wins.
+    """
+    return {
+        "session_key": sanitize_identifier(kwargs.get("session_key") or "global", limit=120),
+        "command": approval_command_text(kwargs.get("command") or ""),
+        "description": sanitize_notification_text(kwargs.get("description") or "Security approval required", limit=240),
+        "pattern_key": sanitize_identifier(kwargs.get("pattern_key") or "", limit=120),
+        "profile": sanitize_identifier(kwargs.get("profile") or "default", limit=80),
+        "request_id": sanitize_identifier(
+            kwargs.get("request_id") or kwargs.get("approval_id") or kwargs.get("tool_call_id") or "", limit=120
+        ),
+        "tool_call_id": sanitize_identifier(kwargs.get("tool_call_id") or "", limit=120),
+        "turn_id": sanitize_identifier(kwargs.get("turn_id") or "", limit=80),
+    }
+
+
 def record_pending_approval(**kwargs: Any) -> dict[str, Any]:
-    session_key = sanitize_notification_text(kwargs.get("session_key") or "global", limit=120)
-    command = approval_command_text(kwargs.get("command") or "")
+    fields = _approval_fields(kwargs)
+    session_key = fields["session_key"]
+    command = fields["command"]
+    description = fields["description"]
+    pattern_key = fields["pattern_key"]
     # `summary` is the redacted, one-line form for lists and notifications;
     # `command` is the full text the card shows before anyone taps Approve.
     short_command = sanitize_notification_text(command, limit=600)
-    description = sanitize_notification_text(kwargs.get("description") or "Security approval required", limit=240)
-    pattern_key = sanitize_notification_text(kwargs.get("pattern_key") or "", limit=120)
-    profile = sanitize_notification_text(kwargs.get("profile") or "default", limit=80)
     record: dict[str, Any] = {
         "id": _approval_record_id(session_key, command, description, pattern_key),
         "kind": "approval",
@@ -308,64 +441,67 @@ def record_pending_approval(**kwargs: Any) -> dict[str, Any]:
         "summary": "\n".join(part for part in (short_command, description) if part),
         "session_id": session_key,
         "session": f"Session {session_key[:8]}",
+        "request_id": fields["request_id"] or None,
+        "tool_call_id": fields["tool_call_id"] or None,
         "command": command,
         "command_complete": not command.endswith("…"),
         "description": description,
         "pattern_key": pattern_key,
         "high_impact": True,
         "visibility": "private",
-        "profile": profile,
+        "profile": fields["profile"],
         "created_at": now_ts(),
     }
     path = pending_approvals_path()
-    records = [
-        item
-        for item in load_pending_approvals(path=path)
-        if str(item.get("id") or "") != record["id"]
-    ]
-    records.append(record)
-    _write_json_list(path, records)
+    with state_file_lock(path):
+        kept, _ = _unexpired_pending(path, 330)
+        records = [item for item in kept if str(item.get("id") or "") != record["id"]]
+        records.append(record)
+        _write_json_list(path, records)
     return record
 
 
 def clear_pending_approval(**kwargs: Any) -> int:
-    session_key = sanitize_notification_text(kwargs.get("session_key") or "global", limit=120)
-    command = approval_command_text(kwargs.get("command") or "")
-    pattern_key = sanitize_notification_text(kwargs.get("pattern_key") or "", limit=120)
+    fields = _approval_fields(kwargs)
     path = pending_approvals_path()
-    records = _read_json_list(path)
-    kept = [
-        record
-        for record in records
-        if not _pending_approval_match(record, session_key=session_key, command=command, pattern_key=pattern_key)
-    ]
-    removed = len(records) - len(kept)
-    if removed:
-        _write_json_list(path, kept)
+    with state_file_lock(path):
+        records = _read_json_list(path)
+        kept = [
+            record
+            for record in records
+            if not _pending_approval_match(
+                record, session_key=fields["session_key"], command=fields["command"], pattern_key=fields["pattern_key"]
+            )
+        ]
+        removed = len(records) - len(kept)
+        if removed:
+            _write_json_list(path, kept)
     return removed
 
 
 def approval_push_payload(**kwargs: Any) -> dict[str, Any]:
-    description = kwargs.get("description") or "Security approval required"
-    session_key = sanitize_notification_text(kwargs.get("session_key") or "global", limit=80)
-    command = sanitize_notification_text(kwargs.get("command") or "", limit=600)
-    pattern_key = sanitize_notification_text(kwargs.get("pattern_key") or "", limit=120)
-    turn_id = sanitize_notification_text(kwargs.get("turn_id") or "", limit=80)
-    tool_call_id = sanitize_notification_text(kwargs.get("tool_call_id") or "", limit=80)
+    """The push for a new approval. The visible text is fixed: a lock screen
+    shows it to anyone, so neither the command nor its description travels in
+    the notification; the phone fetches the card over the authenticated API."""
+    fields = _approval_fields(kwargs)
+    session_key = fields["session_key"]
+    turn_id = fields["turn_id"]
+    tool_call_id = fields["tool_call_id"]
     fallback = endpoint_hash(json.dumps({
         "session_key": session_key,
-        "description": description,
+        "description": fields["description"],
         "pattern_keys": kwargs.get("pattern_keys") or [],
     }, sort_keys=True))[:24]
     dedupe = ":".join(part for part in ("approval", session_key, turn_id, tool_call_id or fallback) if part)
     return {
         "type": "approval.request",
         "title": "Hermes needs approval",
-        "body": sanitize_notification_text(f"Security approval required: {description}", limit=180),
+        "body": APPROVAL_PUSH_BODY,
         "tag": dedupe,
         "url": "./index.html#/approvals",
-        "profile": sanitize_notification_text(kwargs.get("profile") or "default", limit=80),
-        "approval_id": _approval_record_id(session_key, command, sanitize_notification_text(description, limit=240), pattern_key),
+        "profile": fields["profile"],
+        "approval_id": _approval_record_id(session_key, fields["command"], fields["description"], fields["pattern_key"]),
+        "request_id": fields["request_id"] or None,
         "session_id": session_key,
     }
 
@@ -378,8 +514,8 @@ def turn_complete_push_payload(**kwargs: Any) -> dict[str, Any]:
     lets the OS replace older "answer ready" notifications instead of stacking
     one banner per queued turn.
     """
-    session_id = sanitize_notification_text(kwargs.get("session_id") or "session", limit=80)
-    turn_id = sanitize_notification_text(kwargs.get("turn_id") or "", limit=80)
+    session_id = sanitize_identifier(kwargs.get("session_id") or "session", limit=80)
+    turn_id = sanitize_identifier(kwargs.get("turn_id") or "", limit=80)
     dedupe_seed = turn_id or endpoint_hash(json.dumps({
         "session_id": session_id,
         "assistant_response": sanitize_notification_text(kwargs.get("assistant_response") or "", limit=240),
@@ -391,7 +527,7 @@ def turn_complete_push_payload(**kwargs: Any) -> dict[str, Any]:
         "tag": f"hermes-turn:{session_id}",
         "dedupe_key": ":".join(part for part in ("turn", session_id, dedupe_seed) if part),
         "url": "./index.html#/chat",
-        "profile": sanitize_notification_text(kwargs.get("profile") or "default", limit=80),
+        "profile": sanitize_identifier(kwargs.get("profile") or "default", limit=80),
     }
 
 
@@ -427,23 +563,25 @@ def claim_push_dedupe(key: str, *, ttl_seconds: int = 21600, path: Path | None =
     different turns; visible no-spam behavior is handled by a stable notification
     tag in the payload so the OS replaces the previous answer-ready banner.
     """
-    normalized = sanitize_notification_text(key, limit=240)
+    normalized = sanitize_identifier(key, limit=240)
     if not normalized:
         return False
     ts = now_ts()
     cutoff = ts - max(60, int(ttl_seconds))
-    state = _load_delivery_state(path)
-    raw_sent = state.get("sent")
-    sent_source = raw_sent if isinstance(raw_sent, dict) else {}
-    sent = {str(k): float(v) for k, v in sent_source.items() if isinstance(v, (int, float)) and float(v) >= cutoff}
-    if normalized in sent:
-        if sent != sent_source:
-            state["sent"] = sent
-            _save_delivery_state(state, path)
-        return False
-    sent[normalized] = ts
-    state["sent"] = sent
-    _save_delivery_state(state, path)
+    target = path or push_delivery_state_path()
+    with state_file_lock(target):
+        state = _load_delivery_state(target)
+        raw_sent = state.get("sent")
+        sent_source = raw_sent if isinstance(raw_sent, dict) else {}
+        sent = {str(k): float(v) for k, v in sent_source.items() if isinstance(v, (int, float)) and float(v) >= cutoff}
+        if normalized in sent:
+            if sent != sent_source:
+                state["sent"] = sent
+                _save_delivery_state(state, target)
+            return False
+        sent[normalized] = ts
+        state["sent"] = sent
+        _save_delivery_state(state, target)
     return True
 
 
@@ -498,7 +636,10 @@ def send_web_push_to_enabled(payload: dict[str, Any], *, profile: str | None = N
     exact = [record for record in enabled if _normalized_profile(record.get("profile")) == target_profile]
     targets = exact if exact or not fallback_to_any else enabled
     sent = 0
-    changed = False
+    # Status updates are collected while sending (slow, outside any lock) and
+    # merged into a fresh read of the file afterwards, so a device that
+    # subscribed meanwhile is not overwritten by this stale snapshot.
+    updates: dict[str, dict[str, Any]] = {}
     seen_recipients: set[str] = set()
     for record in targets:
         endpoint = str(record.get("endpoint") or "")
@@ -507,18 +648,15 @@ def send_web_push_to_enabled(payload: dict[str, Any], *, profile: str | None = N
             continue
         if recipient_key:
             seen_recipients.add(recipient_key)
+        record_id = str(record.get("id") or recipient_key)
         try:
             send_web_push_record(record, payload)
-            record["last_success_at"] = now_ts()
-            record["last_error"] = None
+            updates[record_id] = {"last_success_at": now_ts(), "last_error": None}
             sent += 1
-            changed = True
         except Exception as exc:
-            status_code = _exception_status_code(exc)
-            if status_code in {404, 410}:
-                record["enabled"] = False
-            record["last_error"] = sanitize_error_text(exc)
-            changed = True
-    if changed:
-        save_push_subscriptions(records)
+            fields: dict[str, Any] = {"last_error": sanitize_error_text(exc)}
+            if _exception_status_code(exc) in {404, 410}:
+                fields["enabled"] = False
+            updates[record_id] = fields
+    update_push_subscription_records(updates)
     return sent

@@ -17,6 +17,10 @@ _SESSION_TOKEN = getattr(_web_server, "_SESSION_TOKEN")
 
 
 class UpdateCheckTests(unittest.TestCase):
+    def setUp(self):
+        plugin_api._clear_update_check_cache()
+        self.addCleanup(plugin_api._clear_update_check_cache)
+
     def test_semver_detects_newer_patch(self):
         self.assertTrue(plugin_api._is_newer_version("0.1.1", "0.1.0"))
         self.assertTrue(plugin_api._is_newer_version("v0.2.0", "0.1.9"))
@@ -106,6 +110,51 @@ class UpdateCheckTests(unittest.TestCase):
         self.assertTrue(body["update_available"])
         self.assertFalse(body["can_apply"])
         self.assertTrue(body["manual_required"])
+        self.assertFalse(body["cached"])
+
+    def test_update_check_is_cached_for_hours_and_failures_for_minutes(self):
+        calls = []
+
+        def fetch():
+            calls.append(1)
+            if len(calls) == 1:
+                raise RuntimeError("registry down")
+            return "99.0.0"
+
+        first = plugin_api._cached_update_check(fetch_latest=fetch, now=1000.0)
+        self.assertFalse(first["ok"])
+        self.assertFalse(first["cached"])
+        # The failure is reused for a while, then retried.
+        second = plugin_api._cached_update_check(fetch_latest=fetch, now=1000.0 + 60)
+        self.assertTrue(second["cached"])
+        self.assertEqual(len(calls), 1)
+        third = plugin_api._cached_update_check(fetch_latest=fetch, now=1000.0 + plugin_api.UPDATE_CHECK_FAILURE_CACHE_SECONDS)
+        self.assertTrue(third["ok"])
+        self.assertFalse(third["cached"])
+        self.assertEqual(len(calls), 2)
+        # A good answer is kept for the long window: no registry call per connect.
+        base = 1000.0 + plugin_api.UPDATE_CHECK_FAILURE_CACHE_SECONDS
+        for offset in (1, 3600, plugin_api.UPDATE_CHECK_CACHE_SECONDS - 1):
+            again = plugin_api._cached_update_check(fetch_latest=fetch, now=base + offset)
+            self.assertTrue(again["cached"], offset)
+            self.assertEqual(again["latest"], "99.0.0")
+        self.assertEqual(len(calls), 2)
+        self.assertFalse(plugin_api._cached_update_check(fetch_latest=fetch, now=base + plugin_api.UPDATE_CHECK_CACHE_SECONDS)["cached"])
+        self.assertEqual(len(calls), 3)
+
+    def test_update_check_route_calls_the_registry_once(self):
+        app = FastAPI()
+        app.include_router(plugin_api.router)
+        client = TestClient(app, headers={_SESSION_HEADER_NAME: _SESSION_TOKEN})
+
+        with patch.object(plugin_api, "_fetch_npm_latest_version", return_value="99.0.0") as fetch:
+            first = client.get("/update/check").json()
+            second = client.get("/update/check").json()
+
+        self.assertEqual(fetch.call_count, 1)
+        self.assertFalse(first["cached"])
+        self.assertTrue(second["cached"])
+        self.assertEqual(second["latest"], "99.0.0")
 
     def test_update_check_route_requires_dashboard_auth(self):
         app = FastAPI()
