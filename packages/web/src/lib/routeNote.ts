@@ -14,6 +14,7 @@ function capitalized(text: string): string {
  */
 export function routeNoteText(decision: RouterDecision, options: { detailed?: boolean } = {}): string {
   if (decision.source === 'jev' && decision.route === ROUTER_SELF) return `Quick answer${sure(decision)}`;
+  if (decision.source === 'jev' && decision.route && decision.split) return `Split across ${botLabel(decision.route)}'s team${sure(decision)}`;
   if (decision.source === 'jev' && decision.route) return `Sent to ${botLabel(decision.route)}${sure(decision)}`;
   if (decision.route === ROUTER_SELF) return 'Answered here';
   if (decision.guess) return 'Router decided · Jev was not sure';

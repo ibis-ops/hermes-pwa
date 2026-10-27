@@ -42,6 +42,8 @@ export interface RouterDecision {
   provider: string | null;
   /** Whether that request asked for zero data retention; null when unknown. */
   zdr: boolean | null;
+  /** The router ran the pick's team itself (bots it hands work to cannot hand it on). */
+  split: boolean;
 }
 
 export interface RouterStatus {
@@ -107,6 +109,7 @@ export function toRouterDecision(raw: unknown): RouterDecision | undefined {
     cost: num(record.cost),
     provider: str(record.provider) || null,
     zdr: typeof record.zdr === 'boolean' ? record.zdr : null,
+    split: record.split === true,
   };
 }
 

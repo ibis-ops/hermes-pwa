@@ -11,8 +11,9 @@ All notable changes are documented here. The format follows
   unless `delegation.max_spawn_depth` is raised, so a job Jev gave Manager reached a Manager that
   could not use its team. When Jev picks a bot that runs a team on the map and delegation is flat,
   the router now gives each piece to the bot that owns it, side by side in one call, and puts the
-  answers together. With deeper delegation it still hands the job to that bot. The router no
-  longer asks for an "orchestrator" role, which Hermes ignores.
+  answers together, and the note under the reply says "Split across Manager's team". With deeper
+  delegation it still hands the job to that bot. The router no longer asks for an "orchestrator"
+  role, which Hermes ignores.
 - **Follow-ups keep their context.** The message before a follow-up comes from the chat history
   Hermes passes the hook and the decision log, so "and Saturday?" still goes where the last
   message went after a gateway restart, and the router is told to put the earlier ask in the

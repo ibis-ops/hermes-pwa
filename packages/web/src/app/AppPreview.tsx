@@ -213,8 +213,8 @@ let previewRouter: RouterStatus = {
   staleBots: ['manager', 'gmail-connector'],
   updateCommand: 'for bot in manager gmail-connector; do hermes -p "$bot" plugins update hermes-pwa; done',
   decisions: [
-    { at: new Date(Date.now() - 600_000).toISOString(), bot: 'router', sessionId: 'p-1', key: '0', preview: 'Any email from the Kahunas clients today?', route: 'gmail-connector', guess: null, confidence: 0.91, source: 'jev', reason: '', ms: 240, cost: 0.00002, provider: 'vercel', zdr: true },
-    { at: new Date(Date.now() - 900_000).toISOString(), bot: 'router', sessionId: 'p-1', key: '1', preview: 'What is 15% of 2,340?', route: 'answer', guess: null, confidence: 0.97, source: 'jev', reason: '', ms: 180, cost: 0.00001, provider: 'vercel', zdr: true },
+    { at: new Date(Date.now() - 600_000).toISOString(), bot: 'router', sessionId: 'p-1', key: '0', preview: 'Any email from the Kahunas clients today?', route: 'gmail-connector', guess: null, confidence: 0.91, source: 'jev', reason: '', ms: 240, cost: 0.00002, provider: 'vercel', zdr: true, split: false },
+    { at: new Date(Date.now() - 900_000).toISOString(), bot: 'router', sessionId: 'p-1', key: '1', preview: 'What is 15% of 2,340?', route: 'answer', guess: null, confidence: 0.97, source: 'jev', reason: '', ms: 180, cost: 0.00001, provider: 'vercel', zdr: true, split: false },
   ],
 };
 

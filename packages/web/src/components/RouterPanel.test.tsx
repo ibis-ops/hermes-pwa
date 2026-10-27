@@ -77,7 +77,7 @@ describe('RouterCard', () => {
       ...OFF,
       settings: { ...OFF.settings, enabled: true },
       decisions: [
-        { at: '2026-10-27T20:00:00Z', bot: 'router', sessionId: 's', key: 'k', preview: 'Any email from clients?', route: 'gmail-connector', guess: null, confidence: 0.9, source: 'jev', reason: '', ms: 300, cost: 0.00002, provider: 'vercel', zdr: true },
+        { at: '2026-10-27T20:00:00Z', bot: 'router', sessionId: 's', key: 'k', preview: 'Any email from clients?', route: 'gmail-connector', guess: null, confidence: 0.9, source: 'jev', reason: '', ms: 300, cost: 0.00002, provider: 'vercel', zdr: true, split: false },
       ],
     };
     const rest = makeRest({ routerStatus: vi.fn().mockResolvedValue(on) });
@@ -121,7 +121,7 @@ describe('RouterCard', () => {
       keyConfigured: true,
       provider: 'Vercel AI Gateway',
       decisions: [
-        { at: '2026-10-27T21:10:00Z', bot: 'router', sessionId: 's', key: 'c', preview: 'hmm', route: null, guess: 'manager', confidence: 0.4, source: 'router', reason: 'Jev was not sure', ms: 210, cost: 0.00001, provider: 'vercel', zdr: null },
+        { at: '2026-10-27T21:10:00Z', bot: 'router', sessionId: 's', key: 'c', preview: 'hmm', route: null, guess: 'manager', confidence: 0.4, source: 'router', reason: 'Jev was not sure', ms: 210, cost: 0.00001, provider: 'vercel', zdr: null, split: false },
       ],
     };
     render(<RouterCard rest={makeRest({ routerStatus: vi.fn().mockResolvedValue(answered) })} bots={[...PROFILES.map((p) => p.name), 'router']} onMapChanged={vi.fn()} />);
@@ -141,8 +141,8 @@ describe('RouterCard', () => {
       keyConfigured: true,
       provider: 'Vercel AI Gateway',
       decisions: [
-        { at: '2026-10-27T21:05:00Z', bot: 'router', sessionId: 's', key: 'a', preview: 'Out of credits?', route: null, guess: null, confidence: null, source: 'router', reason: 'Vercel AI Gateway is out of credits', ms: 120, cost: null, provider: 'vercel', zdr: null },
-        { at: '2026-10-27T21:00:00Z', bot: 'router', sessionId: 's', key: 'b', preview: 'hi', route: 'answer', guess: null, confidence: 0.97, source: 'jev', reason: '', ms: 200, cost: 0.00001, provider: 'vercel', zdr: false },
+        { at: '2026-10-27T21:05:00Z', bot: 'router', sessionId: 's', key: 'a', preview: 'Out of credits?', route: null, guess: null, confidence: null, source: 'router', reason: 'Vercel AI Gateway is out of credits', ms: 120, cost: null, provider: 'vercel', zdr: null, split: false },
+        { at: '2026-10-27T21:00:00Z', bot: 'router', sessionId: 's', key: 'b', preview: 'hi', route: 'answer', guess: null, confidence: 0.97, source: 'jev', reason: '', ms: 200, cost: 0.00001, provider: 'vercel', zdr: false, split: false },
       ],
     };
     render(<RouterCard rest={makeRest({ routerStatus: vi.fn().mockResolvedValue(connected) })} bots={[...PROFILES.map((p) => p.name), 'router']} onMapChanged={vi.fn()} />);

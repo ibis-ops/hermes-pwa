@@ -514,6 +514,17 @@ class HookAndLogTests(TempHome):
         self.hook("hello", session="s-9", post=other, history=[{"role": "user", "content": "hello"}])
         self.assertNotIn("previous_message", other.calls[0]["body"]["state"])
 
+    def test_logs_when_the_router_splits_a_team_job(self):
+        bot_graph.save(ROUTER_ON_TOP)
+        pwa_router.save_settings({"enabled": True})
+        os.environ["AI_GATEWAY_API_KEY"] = "vck_test"
+        self.addCleanup(os.environ.pop, "AI_GATEWAY_API_KEY", None)
+        text = self.hook("Plan my week across email and calendar", post=vercel_answer("manager", 0.96))
+        self.assertIn("a job for Manager's team", text)
+        self.assertEqual((pwa_router.recent()[0]["route"], pwa_router.recent()[0]["split"]), ("manager", True))
+        self.hook("Any new email?", session="s-2", post=vercel_answer("gmail-connector", 0.96))
+        self.assertEqual((pwa_router.recent()[0]["route"], pwa_router.recent()[0]["split"]), ("gmail-connector", False))
+
     def test_earlier_message_reads_the_chat_before_this_turn(self):
         history = [
             {"role": "user", "content": "first"},

@@ -715,6 +715,7 @@ def record(decision: dict[str, Any], *, bot: str, session_id: str, message: str)
         "cost": decision.get("cost"),
         "provider": decision.get("provider"),
         "zdr": decision.get("zdr"),
+        "split": bool(decision.get("split")),
     }
     path = decisions_path()
     try:
@@ -857,6 +858,8 @@ def hook_context(
         post=post,
         previous=previous_turn(session_id, history, text),
     )
+    # The router runs the pick's team itself when bots it hands work to cannot hand it on.
+    decision["split"] = bool(decision.get("team")) and not orchestration
     record(decision, bot=name, session_id=session_id, message=text)
     return directive(name, decision, orchestration)
 

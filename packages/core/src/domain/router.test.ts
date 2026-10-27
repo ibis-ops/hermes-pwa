@@ -34,7 +34,8 @@ describe('router', () => {
       decisions: [{ at: '2026-10-27T21:00:00Z', route: 'answer', source: 'jev', confidence: 0.9, provider: 'vercel', zdr: true }],
     });
     expect(vercel.provider).toBe('Vercel AI Gateway');
-    expect([vercel.decisions[0]!.provider, vercel.decisions[0]!.zdr]).toEqual(['vercel', true]);
+    expect([vercel.decisions[0]!.provider, vercel.decisions[0]!.zdr, vercel.decisions[0]!.split]).toEqual(['vercel', true, false]);
+    expect(toRouterStatus({ decisions: [{ at: '2026-10-27T22:00:00Z', route: 'manager', source: 'jev', split: true }] }).decisions[0]!.split).toBe(true);
     expect(status.decisions[0]!.zdr).toBeNull();
   });
 

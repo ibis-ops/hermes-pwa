@@ -18,6 +18,7 @@ function decision(partial: Partial<RouterDecision>): RouterDecision {
     cost: null,
     provider: null,
     zdr: null,
+    split: false,
     ...partial,
   };
 }
@@ -26,6 +27,7 @@ describe('route notes', () => {
   it('says who took the message and how sure Jev was', () => {
     expect(routeNoteText(decision({ route: 'answer', source: 'jev', confidence: 0.934 }))).toBe('Quick answer · Jev 93% sure');
     expect(routeNoteText(decision({ route: 'gmail-connector', source: 'jev', confidence: 0.88 }))).toBe('Sent to Gmail Connector · Jev 88% sure');
+    expect(routeNoteText(decision({ route: 'manager', source: 'jev', confidence: 0.97, split: true }))).toBe("Split across Manager's team · Jev 97% sure");
     expect(routeNoteText(decision({ route: 'answer', source: 'router' }))).toBe('Answered here');
     expect(routeNoteText(decision({ guess: 'manager', confidence: 0.4 }))).toBe('Router decided · Jev was not sure');
     expect(routeNoteText(decision({ reason: 'no OpenRouter key on the Mac' }))).toBe('Router decided · Jev not set up');
