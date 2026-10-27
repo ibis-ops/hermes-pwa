@@ -299,8 +299,11 @@ export function AppShell({ connectionState, rpc, rest, onRetry }: AppShellProps)
   const [gatewayHealth, setGatewayHealth] = useState<GatewayHealth>('checking');
   const [updateCheck, setUpdateCheck] = useState<UpdateCheck | undefined>();
   const [updateDismissedVersion, setUpdateDismissedVersion] = useState<string | null>(() => {
-    if (typeof localStorage === 'undefined') return null;
-    return localStorage.getItem(UPDATE_DISMISSED_STORAGE_KEY);
+    try {
+      return window.localStorage.getItem(UPDATE_DISMISSED_STORAGE_KEY);
+    } catch {
+      return null;
+    }
   });
   const drawer = usePresence(drawerOpen, 260);
   const activeName = useProfilesStore((s) => s.activeName);
@@ -681,7 +684,11 @@ export function AppShell({ connectionState, rpc, rest, onRetry }: AppShellProps)
   function dismissUpdateNotification() {
     const version = updateCheck?.latest ?? updateCheck?.current;
     if (!version) return;
-    localStorage.setItem(UPDATE_DISMISSED_STORAGE_KEY, version);
+    try {
+      window.localStorage.setItem(UPDATE_DISMISSED_STORAGE_KEY, version);
+    } catch {
+      // Private mode: the dismissal lasts until the next launch.
+    }
     setUpdateDismissedVersion(version);
   }
 

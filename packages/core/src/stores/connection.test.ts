@@ -279,6 +279,8 @@ describe('useConnectionStore', () => {
     await store.init();
 
     expect(window.localStorage.getItem('hermes-pwa.activeSession.v4:default')).toBeNull();
+    expect(window.localStorage.getItem('hermes-pwa.draft.v1:default')).toBeNull();
+    expect(window.localStorage.getItem('hermes-pwa.defaultSkill.v1:default')).toBeNull();
     expect(window.localStorage.getItem('hermes-pwa.authUser.v1')).toBe('basic:u-2');
     expect(useChatStore.getState().messages).toEqual([]);
     expect(useConnectionStore.getState().user?.displayName).toBe('Bob');
@@ -324,6 +326,8 @@ describe('useConnectionStore', () => {
     vi.mocked(restMock.wsTicket).mockResolvedValue({ ticket: 't-1', ttlSeconds: 30 });
     window.localStorage.setItem('hermes-pwa.authUser.v1', 'basic:u-1');
     window.localStorage.setItem('hermes-pwa.activeSession.v4:default', 'alice transcript');
+    window.localStorage.setItem('hermes-pwa.draft.v1:default', '{"text":"alice draft","attachments":[]}');
+    window.localStorage.setItem('hermes-pwa.defaultSkill.v1:default', 'triage');
     window.localStorage.setItem('unrelated-setting', 'keep');
     useChatStore.setState({
       sessionId: 'alice-live',

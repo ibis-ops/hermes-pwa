@@ -54,6 +54,12 @@ const LOCAL_PRIVATE_CACHE_KEYS = new Set([
 const LOCAL_PRIVATE_CACHE_PREFIXES = [
   'hermes-pwa.activeSession.',
   'hermes-pwa.pinnedSessions',
+  // The shell's own per-device choices that describe this account's use:
+  // unsent drafts, the bot in use, each bot's default skill, the vault name.
+  'hermes-pwa.draft.',
+  'hermes-pwa.selectedProfile.',
+  'hermes-pwa.defaultSkill.',
+  'hermes-pwa.obsidian.',
 ];
 
 function isLocalPrivateCacheKey(key: string): boolean {

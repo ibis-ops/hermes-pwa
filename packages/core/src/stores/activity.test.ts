@@ -277,6 +277,45 @@ describe('useActivityStore', () => {
     });
   });
 
+  it('a REST refresh that does not list a live socket question keeps its card', async () => {
+    useActivityStore.setState({
+      items: [
+        {
+          id: 'q-live',
+          kind: 'approval',
+          status: 'needs_you',
+          title: 'Approval required',
+          sessionId: 'live-1',
+          serverRequestId: 'srq-live',
+          command: 'git push',
+          createdAt: Date.now() - 60_000,
+          highImpact: true,
+        } as import('../domain/activity').Approval,
+        { id: 'q-stale', kind: 'approval', status: 'needs_you', title: 'Old', sessionId: 'live-1', createdAt: Date.now() - 60_000 },
+      ],
+    });
+    const restMock = { pendingActions: vi.fn(async () => []) };
+
+    await useActivityStore.getState().load(restMock as never, 'default');
+
+    expect(useActivityStore.getState().items.map((i) => i.id)).toEqual(['q-live']);
+  });
+
+  it('reconcileServerRequests drops the cards of questions the gateway no longer has open', () => {
+    useActivityStore.setState({
+      items: [
+        { id: 'a', kind: 'approval', status: 'needs_you', title: 'A', sessionId: 's-1', serverRequestId: 'srq-a', createdAt: 1 } as import('../domain/activity').Approval,
+        { id: 'b', kind: 'approval', status: 'needs_you', title: 'B', sessionId: 's-1', serverRequestId: 'srq-b', createdAt: 1 } as import('../domain/activity').Approval,
+        { id: 'c', kind: 'approval', status: 'needs_you', title: 'C', sessionId: 's-2', serverRequestId: 'srq-c', createdAt: 1 } as import('../domain/activity').Approval,
+        { id: 'd', kind: 'approval', status: 'needs_you', title: 'D', sessionId: 's-1', createdAt: 1 },
+      ],
+    });
+
+    useActivityStore.getState().reconcileServerRequests('s-1', ['srq-b']);
+
+    expect(useActivityStore.getState().items.map((i) => i.id)).toEqual(['b', 'c', 'd']);
+  });
+
   it('addItem keeps the answer path of the card it replaces', () => {
     useActivityStore.setState({
       items: [

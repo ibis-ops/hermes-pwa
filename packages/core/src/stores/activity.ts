@@ -30,6 +30,12 @@ export interface ActivityStore {
    * all of them; the chat calls this when its turn ends.
    */
   clearRunItems(sessionId?: string): void;
+  /**
+   * The socket came back and the gateway listed the questions it still has
+   * open for a session: cards for that session's other server requests were
+   * resolved while the app was away and go.
+   */
+  reconcileServerRequests(sessionId: string, openRequestIds: string[]): void;
   clear(): void;
 }
 
@@ -119,11 +125,18 @@ function mergeIncomingItems(existing: ActionItem[], incoming: ActionItem[]): Act
     const replacedByIncoming = incoming.some((item) => isEquivalentItem(item, current));
     if (replacedByIncoming) return false;
 
-    // /actions/pending is the backend source of truth for approval cards, but
-    // a websocket approval.request can arrive a moment before the REST recovery
-    // file is visible to the next refresh. Keep very fresh realtime approvals
-    // briefly; after that, if REST doesn't list it, the gateway queue has
-    // resolved/timed out and the local card is stale.
+    // A question the gateway asked on the socket (a server request) is open
+    // until it is answered here, withdrawn by request.cancel, or missing from
+    // the open requests a resync reports; the REST list has no say over it.
+    if ((current.kind === 'approval' || current.kind === 'clarify') && (current as Approval | Clarify).serverRequestId) {
+      return true;
+    }
+
+    // /actions/pending is the backend source of truth for the other approval
+    // cards, but a websocket approval.request can arrive a moment before the
+    // REST recovery file is visible to the next refresh. Keep very fresh
+    // realtime approvals briefly; after that, if REST doesn't list it, the
+    // gateway queue has resolved/timed out and the local card is stale.
     if (current.kind === 'approval') {
       return now - current.createdAt < REALTIME_APPROVAL_REFRESH_GRACE_MS;
     }
@@ -294,6 +307,19 @@ export const useActivityStore = create<ActivityStore>((set, get) => ({
   clearRunItems(sessionId) {
     set((s) => {
       const items = s.items.filter((item) => item.kind !== 'run' || (sessionId !== undefined && item.sessionId !== sessionId));
+      return items.length === s.items.length ? s : { items };
+    });
+  },
+
+  reconcileServerRequests(sessionId, openRequestIds) {
+    const open = new Set(openRequestIds);
+    set((s) => {
+      const items = s.items.filter((item) => {
+        if (item.kind !== 'approval' && item.kind !== 'clarify') return true;
+        const serverRequestId = (item as Approval | Clarify).serverRequestId;
+        if (!serverRequestId || item.sessionId !== sessionId) return true;
+        return open.has(serverRequestId);
+      });
       return items.length === s.items.length ? s : { items };
     });
   },

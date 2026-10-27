@@ -126,6 +126,16 @@ describe('useChatSync', () => {
     resync.mockRestore();
   });
 
+  it('probes the socket when the app comes back to the front', async () => {
+    const check = vi.fn(async () => undefined);
+    core.useConnectionStore.setState({ checkConnectedHealth: check } as never);
+    render(<Harness rpc={rpc} rest={rest} />);
+    act(() => {
+      document.dispatchEvent(new Event('visibilitychange'));
+    });
+    await waitFor(() => expect(check).toHaveBeenCalled());
+  });
+
   it('detaches the events when the shell goes away', () => {
     core.useChatStore.setState({ sessionId: 's-1', streaming: true });
     const { unmount } = render(<Harness rpc={rpc} rest={rest} />);

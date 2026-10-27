@@ -117,6 +117,26 @@ export function useChatSync(
     })();
   }, [activeName, rest, rpc]);
 
+  // Back in front after a while: a socket iOS left half-open looks connected
+  // but delivers nothing. A quick probe finds out and reconnects at once,
+  // instead of waiting for the next send to time out.
+  useEffect(() => {
+    if (connectionState !== 'connected') return undefined;
+    const probe = () => {
+      if (document.visibilityState !== 'visible') return;
+      void useConnectionStore.getState().checkConnectedHealth().catch(() => undefined);
+    };
+    const onPageShow = (event: PageTransitionEvent) => {
+      if (event.persisted) probe();
+    };
+    document.addEventListener('visibilitychange', probe);
+    window.addEventListener('pageshow', onPageShow);
+    return () => {
+      document.removeEventListener('visibilitychange', probe);
+      window.removeEventListener('pageshow', onPageShow);
+    };
+  }, [connectionState]);
+
   // The slow safety net: the transcript from REST every half minute while the
   // app is in front, and on every return to it.
   useEffect(() => {

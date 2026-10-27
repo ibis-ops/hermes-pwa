@@ -1664,10 +1664,16 @@ export const useChatStore = create<ChatStore>((set, get) => ({
     }
     if (get().sessionId !== sessionId) return 'skipped';
     // Questions the gateway asked while the socket was down (an approval it
-    // is still waiting on) come back with the snapshot; hand them to the cards.
-    if (Array.isArray(openRequests) && openRequests.length > 0 && typeof rpc.replayServerRequests === 'function') {
-      rpc.replayServerRequests(openRequests);
+    // is still waiting on) come back with the snapshot; hand them to the cards,
+    // and drop the cards of questions it no longer has open.
+    const openRequestList = Array.isArray(openRequests) ? openRequests : [];
+    if (openRequestList.length > 0 && typeof rpc.replayServerRequests === 'function') {
+      rpc.replayServerRequests(openRequestList);
     }
+    const openRequestIds = openRequestList
+      .map((entry) => (entry && typeof entry === 'object' ? (entry as { id?: unknown }).id : undefined))
+      .filter((id): id is string => typeof id === 'string');
+    useActivityStore.getState().reconcileServerRequests(sessionId, openRequestIds);
     if (running) {
       get().beginAssistant();
     } else if (get().streaming) {
