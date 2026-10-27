@@ -143,7 +143,7 @@ describe('MessageBubble', () => {
     );
 
     expect(screen.getByText('Approval required')).toBeInTheDocument();
-    expect(screen.getByText('Pending tool wants to run')).toBeInTheDocument();
+    expect(screen.getByText(/wants to run/)).toBeInTheDocument();
     expect(screen.getAllByText(/rm -rf \/tmp\/example/).length).toBeGreaterThan(0);
   });
 
@@ -175,7 +175,7 @@ describe('MessageBubble', () => {
       />,
     );
 
-    expect(screen.queryByText('Pending tool wants to run')).not.toBeInTheDocument();
+    expect(screen.queryByText(/wants to run/)).not.toBeInTheDocument();
 
     useActivityStore.setState({ items: [approval], loading: false, error: undefined });
     rerender(
@@ -188,7 +188,7 @@ describe('MessageBubble', () => {
       />,
     );
 
-    expect(screen.getByText('Pending tool wants to run')).toBeInTheDocument();
+    expect(screen.getByText(/wants to run/)).toBeInTheDocument();
     expect(screen.getAllByText(/rm -rf \/tmp\/late/).length).toBeGreaterThan(0);
   });
 
@@ -227,7 +227,7 @@ describe('MessageBubble', () => {
     );
 
     expect(screen.getByText('Approval required')).toBeInTheDocument();
-    expect(screen.getByText('Pending tool wants to run')).toBeInTheDocument();
+    expect(screen.getByText(/wants to run/)).toBeInTheDocument();
     expect(screen.getAllByText(/rm -rf \/tmp\/from-push/).length).toBeGreaterThan(0);
   });
 
@@ -275,7 +275,7 @@ describe('MessageBubble', () => {
       />,
     );
 
-    expect(screen.queryByText('Pending tool wants to run')).not.toBeInTheDocument();
+    expect(screen.queryByText(/wants to run/)).not.toBeInTheDocument();
     expect(screen.queryByText(/rm -rf \/tmp\/one/)).not.toBeInTheDocument();
     expect(screen.queryByText(/rm -rf \/tmp\/two/)).not.toBeInTheDocument();
   });

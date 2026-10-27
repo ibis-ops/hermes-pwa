@@ -869,6 +869,7 @@ export function Chat({ rpc, rest }: ChatProps) {
         onUploadFile={handleUploadFile}
         onLayoutChange={handleComposerLayoutChange}
         rest={rest}
+        draftKey={activeName ?? 'default'}
       />
     </div>
   );

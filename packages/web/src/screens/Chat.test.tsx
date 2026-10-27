@@ -1158,7 +1158,7 @@ describe('Chat', () => {
       error: undefined,
     });
     render(<Chat rpc={rpcMock} rest={restMock} />);
-    const alwaysButton = await screen.findByRole('button', { name: 'Always' });
+    const alwaysButton = await screen.findByRole('button', { name: 'Always allow' });
     await waitFor(() => expect(alwaysButton).not.toBeDisabled());
     fireEvent.click(alwaysButton);
 

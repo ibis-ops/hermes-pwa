@@ -283,7 +283,19 @@ export function useMicRecorder(): { handle: MicRecorderHandle; level: number; re
     resolver?.(null);
   };
 
-  const handle: MicRecorderHandle = { start, stop, cancel };
+  // The handle keeps one identity for the life of the hook (the functions
+  // above close over fresh state every render); consumers can depend on it
+  // without their effects re-running on every render.
+  const latestRef = useRef<MicRecorderHandle>({ start, stop, cancel });
+  latestRef.current = { start, stop, cancel };
+  const handleRef = useRef<MicRecorderHandle | null>(null);
+  if (handleRef.current === null) {
+    handleRef.current = {
+      start: (options) => latestRef.current.start(options),
+      stop: () => latestRef.current.stop(),
+      cancel: () => latestRef.current.cancel(),
+    };
+  }
 
-  return { handle, level, recording };
+  return { handle: handleRef.current, level, recording };
 }

@@ -7,6 +7,9 @@ interface AttachMenuProps {
   onFiles: (files: FileList | null) => void;
   /** Present when skills can be listed: adds "Use a skill". */
   onSkill?: (() => void) | undefined;
+  /** Present when voice conversation is available: adds the toggle. */
+  onVoiceMode?: (() => void) | undefined;
+  voiceModeOn?: boolean | undefined;
 }
 
 /**
@@ -14,7 +17,7 @@ interface AttachMenuProps {
  * `capture`) is the one combination where iOS offers Photo Library, Take Photo
  * and Choose File together, and Android/desktop show their normal picker.
  */
-export function AttachMenu({ open, onClose, onFiles, onSkill }: AttachMenuProps) {
+export function AttachMenu({ open, onClose, onFiles, onSkill, onVoiceMode, voiceModeOn = false }: AttachMenuProps) {
   const filesInputRef = useRef<HTMLInputElement>(null);
 
   if (!open) return null;
@@ -53,6 +56,26 @@ export function AttachMenu({ open, onClose, onFiles, onSkill }: AttachMenuProps)
             <span className="hm-attach-item__body">
               <span className="hm-attach-item__label">Use a skill</span>
               <span className="hm-attach-item__hint">Start this message with one of Hermes's skills</span>
+            </span>
+          </button>
+        ) : null}
+        {onVoiceMode ? (
+          <button
+            type="button"
+            className="hm-attach-item"
+            role="menuitemcheckbox"
+            aria-checked={voiceModeOn}
+            onClick={() => {
+              onClose();
+              onVoiceMode();
+            }}
+          >
+            <span className="hm-attach-item__icon" aria-hidden="true">
+              <Icon name="wave" size={18} />
+            </span>
+            <span className="hm-attach-item__body">
+              <span className="hm-attach-item__label">{voiceModeOn ? 'Turn off voice mode' : 'Turn on voice mode'}</span>
+              <span className="hm-attach-item__hint">Talk with Hermes hands-free; replies are read aloud</span>
             </span>
           </button>
         ) : null}

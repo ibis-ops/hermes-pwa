@@ -125,7 +125,7 @@ describe('Composer', () => {
     expect(input).toHaveValue('/memory ');
   });
 
-  it('primes backend voice audio directly from the wave enable tap', () => {
+  it('primes backend voice audio when voice mode is turned on from the plus menu', () => {
     const onPrimeVoiceAudio = vi.fn();
     const onStopVoiceAudio = vi.fn();
     render(
@@ -141,12 +141,66 @@ describe('Composer', () => {
     onPrimeVoiceAudio.mockClear();
     onStopVoiceAudio.mockClear();
 
-    fireEvent.click(screen.getByRole('button', { name: /Turn on voice mode/i }));
+    fireEvent.click(screen.getByRole('button', { name: /Add attachment/i }));
+    fireEvent.click(screen.getByRole('menuitemcheckbox', { name: /Turn on voice mode/i }));
     expect(onPrimeVoiceAudio).toHaveBeenCalledTimes(1);
     expect(onStopVoiceAudio).not.toHaveBeenCalled();
 
     fireEvent.click(screen.getByRole('button', { name: /Turn off voice mode/i }));
     expect(onStopVoiceAudio).toHaveBeenCalled();
+  });
+
+  it('shows the mic while empty and the send arrow once there is text', () => {
+    render(<Composer onSend={vi.fn()} onStop={vi.fn()} busy={false} onTranscribeAudio={vi.fn(async () => '')} />);
+    expect(screen.getByRole('button', { name: /Record voice/i })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Send message/i })).toBeNull();
+    fireEvent.change(screen.getByLabelText('Message input'), { target: { value: 'hi' } });
+    expect(screen.getByRole('button', { name: /Send message/i })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Record voice/i })).toBeNull();
+    expect(screen.queryByRole('button', { name: /voice mode/i })).toBeNull();
+  });
+
+  it('keeps the draft for the bot across a remount and clears it on send', () => {
+    localStorage.clear();
+    const onSend = vi.fn();
+    const { unmount } = render(<Composer onSend={onSend} onStop={vi.fn()} busy={false} draftKey="research" />);
+    fireEvent.change(screen.getByLabelText('Message input'), { target: { value: 'half typed' } });
+    fireEvent(window, new Event('pagehide'));
+    unmount();
+
+    render(<Composer onSend={onSend} onStop={vi.fn()} busy={false} draftKey="research" />);
+    const input = screen.getByLabelText('Message input');
+    expect(input).toHaveValue('half typed');
+    fireEvent.click(screen.getByRole('button', { name: /Send message/i }));
+    expect(onSend).toHaveBeenCalledWith('half typed');
+    expect(localStorage.getItem('hermes-pwa.draft.v1:research')).toBeNull();
+  });
+
+  it('lets Return insert a line break on a touch keyboard', () => {
+    const original = window.matchMedia;
+    window.matchMedia = ((query: string) => ({
+      matches: query === '(pointer: coarse)',
+      media: query,
+      onchange: null,
+      addListener: () => {},
+      removeListener: () => {},
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      dispatchEvent: () => false,
+    })) as typeof window.matchMedia;
+    try {
+      const onSend = vi.fn();
+      render(<Composer onSend={onSend} onStop={vi.fn()} busy={false} />);
+      const input = screen.getByLabelText('Message input');
+      expect(input).toHaveAttribute('enterkeyhint', 'enter');
+      fireEvent.change(input, { target: { value: 'line one' } });
+      fireEvent.keyDown(input, { key: 'Enter' });
+      expect(onSend).not.toHaveBeenCalled();
+      fireEvent.click(screen.getByRole('button', { name: /Send message/i }));
+      expect(onSend).toHaveBeenCalledWith('line one');
+    } finally {
+      window.matchMedia = original;
+    }
   });
 
   it('shows only the native file picker action in the attachment menu', () => {

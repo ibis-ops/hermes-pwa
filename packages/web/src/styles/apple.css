@@ -4297,3 +4297,363 @@ html.hm-keyboard-open .hm-login {
 .hm-drawer__session-dot[data-live] {
   color: var(--hm-color-primary-text);
 }
+
+/* ════════════════════════════════════════════════════════════════════
+   Pass 8: composer with one trailing control, bottom tab bar, back
+   chevron, sheets with Done and drag, approval cards with Deny first.
+   ════════════════════════════════════════════════════════════════════ */
+
+/* Composer: + on the left, the field, one control on the right. */
+.hm-composer {
+  padding: 6px 10px 8px;
+  border-top: 0;
+  background: var(--hm-color-bg);
+}
+
+.hm-composer__pill {
+  align-items: flex-end;
+  min-height: 40px;
+  padding: 3px 3px 3px 4px;
+  gap: 2px;
+  border: 1px solid var(--hm-color-border);
+  border-radius: 20px;
+  background: var(--hm-color-surface);
+}
+
+.hm-composer__pill:focus-within {
+  border-color: color-mix(in srgb, var(--hm-color-primary) 55%, var(--hm-color-border));
+}
+
+.hm-composer textarea {
+  padding: 7px 6px;
+  min-height: 32px;
+  max-height: min(35vh, 35dvh);
+  font-size: var(--hm-fs-body);
+  line-height: 1.3;
+}
+
+.hm-composer__action,
+.hm-composer__send,
+.hm-composer__stop {
+  width: 32px;
+  height: 32px;
+  min-width: 32px;
+  border-radius: 16px;
+  position: relative;
+}
+
+/* The glyph stays 32px; the hit area is 44px. */
+.hm-composer__action::before,
+.hm-composer__send::before,
+.hm-composer__stop::before {
+  content: '';
+  position: absolute;
+  inset: -6px;
+}
+
+.hm-composer__action--attach {
+  color: var(--hm-color-text-muted);
+}
+
+.hm-composer__action--mic {
+  color: var(--hm-color-text-muted);
+}
+
+.hm-composer__action--recording {
+  background: var(--hm-color-danger);
+  color: var(--hm-color-primary-text);
+  width: auto;
+  padding: 0 10px;
+  gap: 6px;
+}
+
+.hm-composer__send {
+  background: var(--hm-color-primary);
+  color: var(--hm-color-primary-text);
+}
+
+.hm-composer__send:disabled {
+  background: var(--hm-color-fill);
+  color: var(--hm-color-text-faint);
+}
+
+.hm-composer__stop {
+  background: var(--hm-color-fill);
+  color: var(--hm-color-text);
+}
+
+.hm-composer__stop-square {
+  display: block;
+  width: 11px;
+  height: 11px;
+  border-radius: 2px;
+  background: var(--hm-color-danger);
+}
+
+.hm-composer__send:active,
+.hm-composer__stop:active,
+.hm-composer__action:active {
+  opacity: 0.6;
+}
+
+.hm-composer__voice-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.hm-composer__voice-end {
+  margin-left: 0;
+}
+
+/* Bottom tab bar: four items, labels under glyphs, hidden under the keyboard. */
+.hm-tabbar {
+  display: flex;
+  flex: none;
+  align-items: stretch;
+  justify-content: space-around;
+  min-height: 50px;
+  padding: 2px 8px max(6px, env(safe-area-inset-bottom));
+  border-top: 1px solid var(--hm-color-border);
+  background: color-mix(in srgb, var(--hm-color-bg) 90%, transparent);
+  -webkit-backdrop-filter: saturate(180%) blur(20px);
+  backdrop-filter: saturate(180%) blur(20px);
+}
+
+.hm-tabbar__item {
+  display: flex;
+  flex: 1 1 0;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  min-height: 48px;
+  padding: 4px 0;
+  border: 0;
+  background: transparent;
+  color: var(--hm-color-text-muted);
+  font-size: 10px;
+  font-weight: var(--hm-fw-medium);
+  letter-spacing: 0.1px;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.hm-tabbar__item--active {
+  color: var(--hm-color-primary);
+}
+
+.hm-tabbar__item:active {
+  opacity: 0.6;
+}
+
+.hm-tabbar__icon {
+  position: relative;
+  display: inline-flex;
+}
+
+.hm-tabbar__badge {
+  position: absolute;
+  top: -5px;
+  right: -11px;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 9px;
+  background: var(--hm-color-danger);
+  color: var(--hm-color-primary-text);
+  font-size: 11px;
+  font-weight: var(--hm-fw-semibold);
+  line-height: 18px;
+  text-align: center;
+}
+
+html.hm-keyboard-open .hm-tabbar {
+  display: none;
+}
+
+/* With the tab bar the composer no longer needs the safe-area padding itself. */
+.hm-chat .hm-composer {
+  padding-bottom: 6px;
+}
+
+html.hm-keyboard-open .hm-chat .hm-composer {
+  padding-bottom: 8px;
+}
+
+/* Back chevron in the nav bar (points left: the icon is a right chevron). */
+.hm-header__back svg {
+  transform: rotate(180deg);
+}
+
+/* Sheets: a Done control, a drag handle, and a reset spring after a drag. */
+.hm-sheet__content {
+  transition: transform var(--hm-duration-normal) var(--hm-ease-out);
+  padding-top: 0;
+}
+
+.hm-sheet__content[data-dragging='true'] {
+  transition: none;
+}
+
+.hm-sheet__handle {
+  touch-action: none;
+  padding: 8px 0 0;
+  cursor: grab;
+}
+
+.hm-sheet__handle .hm-sheet__grabber {
+  margin: 0 auto 8px;
+}
+
+.hm-sheet__bar {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  min-height: 44px;
+  margin: 0 0 8px;
+}
+
+.hm-sheet__bar .hm-sheet__title {
+  margin: 0;
+  padding: 0 8px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hm-sheet__done {
+  justify-self: end;
+  min-height: 44px;
+  padding: 0 8px;
+  border: 0;
+  background: transparent;
+  color: var(--hm-color-primary);
+  font-size: var(--hm-fs-body);
+  font-weight: var(--hm-fw-semibold);
+}
+
+.hm-sheet__done:disabled {
+  color: var(--hm-color-text-faint);
+}
+
+.hm-sheet__done:active {
+  opacity: 0.5;
+}
+
+/* Approval cards: Deny left and quiet, Approve right and filled, far apart. */
+.hm-approval-card__actions,
+.hm-approval-inline__actions {
+  display: flex;
+  gap: 16px;
+  margin-top: 12px;
+}
+
+.hm-approval-card__actions > button,
+.hm-approval-inline__actions > button {
+  flex: 1 1 0;
+  min-height: 46px;
+  border-radius: 12px;
+  font-size: var(--hm-fs-body);
+  font-weight: var(--hm-fw-semibold);
+}
+
+.hm-approval-card__deny,
+.hm-approval-inline__deny {
+  border: 1px solid var(--hm-color-border);
+  background: var(--hm-color-surface);
+  color: var(--hm-color-text);
+}
+
+.hm-approval-card__approve,
+.hm-approval-inline__approve {
+  border: 0;
+  background: var(--hm-color-primary);
+  color: var(--hm-color-primary-text);
+}
+
+.hm-approval-card[data-risk='danger'] .hm-approval-card__approve,
+.hm-approval-inline[data-risk='danger'] .hm-approval-inline__approve {
+  background: var(--hm-color-danger);
+}
+
+.hm-approval-card__approve--armed,
+.hm-approval-inline__approve--armed {
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--hm-color-danger) 30%, transparent);
+}
+
+.hm-approval-card__actions > button:active,
+.hm-approval-inline__actions > button:active {
+  opacity: 0.7;
+}
+
+.hm-approval-inline__secondary {
+  display: flex;
+  gap: 12px;
+  margin-top: 8px;
+}
+
+.hm-approval-inline__always {
+  flex: 1 1 0;
+  min-height: 40px;
+  border: 0;
+  border-radius: 10px;
+  background: var(--hm-color-fill);
+  color: var(--hm-color-text);
+  font-size: var(--hm-fs-small);
+  font-weight: var(--hm-fw-medium);
+}
+
+.hm-approval-inline__always--persistent {
+  color: var(--hm-color-danger);
+}
+
+.hm-approval-card__risk,
+.hm-approval-inline__risk {
+  text-transform: none;
+  letter-spacing: 0;
+  padding: 3px 9px;
+  border-radius: var(--hm-radius-full);
+  font-size: var(--hm-fs-label);
+  font-weight: var(--hm-fw-semibold);
+  background: var(--hm-color-fill);
+  color: var(--hm-color-text-muted);
+}
+
+.hm-approval-card__risk--danger,
+.hm-approval-inline__risk--danger {
+  background: var(--hm-color-danger-bg);
+  color: var(--hm-color-danger-strong);
+}
+
+.hm-approval-card__error,
+.hm-approval-inline__error {
+  margin: 8px 0 0;
+  padding: 8px 12px;
+  border-radius: 10px;
+  background: var(--hm-color-danger-bg);
+  color: var(--hm-color-danger-strong);
+  font-size: var(--hm-fs-small);
+}
+
+.hm-approval-command {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.hm-approval-card__cmd,
+.hm-approval-inline__cmd {
+  max-height: none;
+  overflow: visible;
+}
+
+.hm-approval-command__more {
+  align-self: flex-start;
+  min-height: 32px;
+  padding: 0 2px;
+  border: 0;
+  background: transparent;
+  color: var(--hm-color-primary);
+  font-size: var(--hm-fs-label);
+  font-weight: var(--hm-fw-medium);
+}

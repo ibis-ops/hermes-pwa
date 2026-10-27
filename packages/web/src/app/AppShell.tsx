@@ -160,6 +160,37 @@ const DRAWER_ITEMS: { key: Screen; label: string; icon: IconName }[] = [
   { key: 'settings', label: 'Settings', icon: 'settings' },
 ];
 
+/** The tab bar: the three places a thumb goes most, and More for the rest. */
+const TAB_ITEMS: { key: Screen | 'more'; label: string; icon: IconName }[] = [
+  { key: 'chat', label: 'Chat', icon: 'chat' },
+  { key: 'approvals', label: 'Approvals', icon: 'shield' },
+  { key: 'sessions', label: 'Sessions', icon: 'sessions' },
+  { key: 'more', label: 'More', icon: 'menu' },
+];
+
+interface ShellHistoryState {
+  screen?: Screen;
+  drawer?: boolean;
+  sheet?: string;
+}
+
+function shellHistoryState(): ShellHistoryState | null {
+  if (typeof window === 'undefined') return null;
+  const state: unknown = window.history.state;
+  return state && typeof state === 'object' ? (state as ShellHistoryState) : null;
+}
+
+function writeHistory(mode: 'push' | 'replace', state: ShellHistoryState): void {
+  if (typeof window === 'undefined') return;
+  try {
+    const url = state.screen ? `#/${state.screen}` : undefined;
+    if (mode === 'push') window.history.pushState(state, '', url);
+    else window.history.replaceState(state, '', url);
+  } catch {
+    // Some embedded webviews refuse history writes; navigation still works.
+  }
+}
+
 const HIDDEN_ADMIN_SCREENS = new Set<Screen>([
   // TODO: Skills/Tools is temporarily hidden from the PWA until we decide
   // whether this administrative surface belongs in the mobile app.
@@ -255,6 +286,13 @@ export function AppShell({ connectionState, rpc, rest, onRetry }: AppShellProps)
   const settledConnectionState = useSettledConnectionState(connectionState);
   const [screen, setScreen] = useState<Screen>(() => getInitialScreen());
   const [drawerOpen, setDrawerOpen] = useState(false);
+  // How many in-app pushes sit under the current screen; the header shows a
+  // back chevron while there is somewhere to go back to.
+  const [backDepth, setBackDepth] = useState(0);
+  const screenRef = useRef<Screen>(screen);
+  screenRef.current = screen;
+  const drawerOpenRef = useRef(false);
+  drawerOpenRef.current = drawerOpen;
   const [drawerSourceFilter, setDrawerSourceFilter] = useState<SourceFilter>('all');
   const [gatewayHealth, setGatewayHealth] = useState<GatewayHealth>('checking');
   const [updateCheck, setUpdateCheck] = useState<UpdateCheck | undefined>();
@@ -293,6 +331,41 @@ export function AppShell({ connectionState, rpc, rest, onRetry }: AppShellProps)
   useEffect(() => {
     persistScreen(screen);
   }, [screen]);
+
+  // Back button and swipe-back: close the drawer first, then step through the
+  // screens this shell pushed. Tab taps replace the entry, so Back never walks
+  // through tabs the way it walks through pages.
+  useEffect(() => {
+    const current = shellHistoryState();
+    if (!current?.screen) writeHistory('replace', { screen: screenRef.current });
+    const onPopState = () => {
+      const state = shellHistoryState();
+      if (state?.sheet) return; // a sheet owns this entry
+      if (drawerOpenRef.current && !state?.drawer) {
+        setDrawerOpen(false);
+        return;
+      }
+      if (state?.drawer) {
+        setDrawerOpen(true);
+        return;
+      }
+      const target = state?.screen && !HIDDEN_ADMIN_SCREENS.has(state.screen) ? state.screen : undefined;
+      if (target && target !== screenRef.current) {
+        setScreen(target);
+        setBackDepth((depth) => Math.max(0, depth - 1));
+      }
+    };
+    window.addEventListener('popstate', onPopState);
+    return () => window.removeEventListener('popstate', onPopState);
+  }, []);
+
+  // The icon badge on the home screen mirrors the approvals waiting.
+  useEffect(() => {
+    const nav = navigator as Navigator & { setAppBadge?: (count?: number) => Promise<void>; clearAppBadge?: () => Promise<void> };
+    if (typeof nav.setAppBadge !== 'function') return;
+    if (pendingApprovals > 0) void nav.setAppBadge(pendingApprovals).catch(() => undefined);
+    else void nav.clearAppBadge?.().catch(() => undefined);
+  }, [pendingApprovals]);
 
   useEffect(() => {
     function persistCurrentScreen() {
@@ -545,7 +618,7 @@ export function AppShell({ connectionState, rpc, rest, onRetry }: AppShellProps)
     function onKey(e: KeyboardEvent) {
       if (e.key === 'Escape') {
         e.preventDefault();
-        setDrawerOpen(false);
+        closeDrawer();
         return;
       }
       if (e.key !== 'Tab') return;
@@ -575,13 +648,45 @@ export function AppShell({ connectionState, rpc, rest, onRetry }: AppShellProps)
     return () => document.removeEventListener('keydown', onKey);
   }, [drawerOpen]);
 
-  function navigate(s: Screen) {
+  function navigate(s: Screen, options: { replace?: boolean } = {}) {
     if (HIDDEN_ADMIN_SCREENS.has(s)) {
       s = 'home';
+    }
+    const fromDrawer = drawerOpenRef.current;
+    if (s !== screenRef.current) {
+      if (options.replace || fromDrawer) {
+        // A tab tap, or a pick from the drawer (whose own entry is replaced).
+        writeHistory('replace', { screen: s });
+        if (options.replace) setBackDepth(0);
+      } else {
+        writeHistory('push', { screen: s });
+        setBackDepth((depth) => depth + 1);
+      }
+    } else if (fromDrawer) {
+      writeHistory('replace', { screen: s });
     }
     setScreen(s);
     persistScreen(s);
     setDrawerOpen(false);
+  }
+
+  function openDrawer() {
+    if (drawerOpenRef.current) return;
+    writeHistory('push', { screen: screenRef.current, drawer: true });
+    setDrawerOpen(true);
+  }
+
+  function closeDrawer() {
+    if (!drawerOpenRef.current) return;
+    if (shellHistoryState()?.drawer) {
+      window.history.back();
+      return;
+    }
+    setDrawerOpen(false);
+  }
+
+  function goBack() {
+    window.history.back();
   }
 
   function handleNewSession() {
@@ -635,16 +740,27 @@ export function AppShell({ connectionState, rpc, rest, onRetry }: AppShellProps)
     <div className="hm-app-shell">
       {/* ── Header ───────────────────────────────────────────────── */}
       <header className="hm-header" data-testid="app-header">
-        <button
-          ref={menuRef}
-          className="hm-header__menu"
-          onClick={() => setDrawerOpen(true)}
-          aria-label="Open menu"
-          aria-expanded={drawerOpen}
-          aria-haspopup="dialog"
-        >
-          <Icon name="menu" size={22} />
-        </button>
+        {backDepth > 0 ? (
+          <button
+            ref={menuRef}
+            className="hm-header__menu hm-header__back"
+            onClick={goBack}
+            aria-label="Back"
+          >
+            <Icon name="chevR" size={22} />
+          </button>
+        ) : (
+          <button
+            ref={menuRef}
+            className="hm-header__menu"
+            onClick={openDrawer}
+            aria-label="Open menu"
+            aria-expanded={drawerOpen}
+            aria-haspopup="dialog"
+          >
+            <Icon name="menu" size={22} />
+          </button>
+        )}
         <div className="hm-header__titles">
           <h1 className="hm-header__title">{screenTitle}</h1>
           {screen === 'chat' ? (
@@ -710,6 +826,31 @@ export function AppShell({ connectionState, rpc, rest, onRetry }: AppShellProps)
         </LazyScreenErrorBoundary>
       </main>
 
+      {/* ── Tab bar ──────────────────────────────────────────────── */}
+      <nav className="hm-tabbar" aria-label="Primary" data-testid="tab-bar">
+        {TAB_ITEMS.map((item) => {
+          const active = item.key === 'more' ? drawerOpen : screen === item.key;
+          return (
+            <button
+              key={item.key}
+              type="button"
+              className={`hm-tabbar__item${active ? ' hm-tabbar__item--active' : ''}`}
+              onClick={() => (item.key === 'more' ? openDrawer() : navigate(item.key, { replace: true }))}
+              aria-current={active && item.key !== 'more' ? 'page' : undefined}
+              aria-label={item.key === 'approvals' && pendingApprovals > 0 ? `${item.label}, ${pendingApprovals} waiting` : item.label}
+            >
+              <span className="hm-tabbar__icon" aria-hidden="true">
+                <Icon name={item.icon} size={24} />
+                {item.key === 'approvals' && pendingApprovals > 0 ? (
+                  <span className="hm-tabbar__badge" data-testid="tab-approvals-badge">{pendingApprovals}</span>
+                ) : null}
+              </span>
+              <span className="hm-tabbar__label">{item.label}</span>
+            </button>
+          );
+        })}
+      </nav>
+
       {/* ── Drawer ───────────────────────────────────────────────── */}
       {(drawerOpen || drawer.mounted) && (
         <div
@@ -721,7 +862,7 @@ export function AppShell({ connectionState, rpc, rest, onRetry }: AppShellProps)
         >
           <button
             className="hm-drawer__overlay"
-            onClick={() => setDrawerOpen(false)}
+            onClick={closeDrawer}
             aria-hidden="true"
             tabIndex={-1}
           />
@@ -737,7 +878,7 @@ export function AppShell({ connectionState, rpc, rest, onRetry }: AppShellProps)
               <button
                 ref={drawerCloseRef}
                 className="hm-drawer__close"
-                onClick={() => setDrawerOpen(false)}
+                onClick={closeDrawer}
                 aria-label="Close menu"
               >
                 <Icon name="close" size={17} />

@@ -62,6 +62,9 @@ const restMock = {
 describe('AppShell', () => {
   beforeEach(() => {
     localStorage.clear();
+    // Most of these tests were written around the Home screen; the app itself
+    // now lands on Chat (see the tab bar tests below).
+    localStorage.setItem('hermes-mobile-screen', 'home');
     useConnectionStore.setState({ state: 'connected', error: undefined } as ReturnType<typeof useConnectionStore.getState>);
     useProfilesStore.setState({ profiles: [], activeName: undefined, currentName: undefined, loading: false, error: undefined });
     useProjectsStore.setState({ boards: [], activeBoardSlug: undefined, tasks: [], workers: [], loading: false, error: undefined });
@@ -96,9 +99,46 @@ describe('AppShell', () => {
     window.history.replaceState(null, '', '/');
   });
 
-  it('renders home screen by default', () => {
+  it('renders home screen when it was the last screen', () => {
     render(<AppShell connectionState="connected" rpc={rpcMock} rest={restMock} />);
     expect(screen.getByRole('heading', { name: 'Home' })).toBeInTheDocument();
+  });
+
+  it('lands on Chat on a fresh install', () => {
+    localStorage.clear();
+    render(<AppShell connectionState="connected" rpc={rpcMock} rest={restMock} />);
+    expect(screen.getByRole('heading', { name: 'Chat' })).toBeInTheDocument();
+  });
+
+  it('switches screens from the tab bar and shows the approvals badge', async () => {
+    useActivityStore.setState({
+      items: [
+        { id: 'ap-1', kind: 'approval', status: 'needs_you', title: 'Approval required', createdAt: Date.now(), highImpact: true } as import('@hermes-pwa/core').Approval,
+      ],
+      loading: false,
+      error: undefined,
+    });
+    render(<AppShell connectionState="connected" rpc={rpcMock} rest={restMock} />);
+    const tabs = screen.getByTestId('tab-bar');
+    expect(within(tabs).getByTestId('tab-approvals-badge')).toHaveTextContent('1');
+    fireEvent.click(within(tabs).getByRole('button', { name: /Sessions/ }));
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'Sessions' })).toBeInTheDocument());
+    expect(window.history.state?.screen).toBe('sessions');
+    fireEvent.click(within(tabs).getByRole('button', { name: /More/ }));
+    expect(screen.getByRole('dialog', { name: /navigation menu/i })).toBeInTheDocument();
+  });
+
+  it('pushes a history entry for in-app navigation and steps back on popstate', async () => {
+    render(<AppShell connectionState="connected" rpc={rpcMock} rest={restMock} />);
+    fireEvent.click(screen.getByRole('button', { name: /Open system status/i }));
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'System' })).toBeInTheDocument());
+    expect(window.history.state?.screen).toBe('command');
+    expect(screen.getByRole('button', { name: 'Back' })).toBeInTheDocument();
+
+    window.history.replaceState({ screen: 'home' }, '');
+    fireEvent(window, new PopStateEvent('popstate', { state: { screen: 'home' } }));
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'Home' })).toBeInTheDocument());
+    expect(screen.queryByRole('button', { name: 'Back' })).toBeNull();
   });
 
   it('shows update notification when backend reports a newer version', async () => {
@@ -284,7 +324,7 @@ describe('AppShell', () => {
   it('does not restore hidden administrative screens from localStorage', () => {
     localStorage.setItem('hermes-mobile-screen', 'skills');
     render(<AppShell connectionState="connected" rpc={rpcMock} rest={restMock} />);
-    expect(screen.getByRole('heading', { name: 'Home' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Chat' })).toBeInTheDocument();
     expect(restMock.skillsList).not.toHaveBeenCalled();
 
     localStorage.clear();
@@ -329,7 +369,8 @@ describe('AppShell', () => {
   it('navigates via drawer and updates title', async () => {
     render(<AppShell connectionState="connected" rpc={rpcMock} rest={restMock} />);
     fireEvent.click(screen.getByRole('button', { name: /open menu/i }));
-    fireEvent.click(screen.getByRole('button', { name: 'Approvals' }));
+    const drawer = screen.getByRole('dialog', { name: /navigation menu/i });
+    fireEvent.click(within(drawer).getByRole('button', { name: 'Approvals' }));
     await waitFor(() =>
       expect(screen.getByRole('heading', { name: 'Approvals' })).toBeInTheDocument(),
     );

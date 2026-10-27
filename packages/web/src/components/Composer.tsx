@@ -5,6 +5,7 @@ import { AttachMenu } from './AttachMenu';
 import { SkillPicker } from './SkillPicker';
 import { useVoiceRecorder } from '../hooks/useVoiceRecorder';
 import { useVoiceConversation } from '../hooks/useVoiceConversation';
+import { readDraft, writeDraft } from '../lib/draftStorage';
 import {
   MAX_ATTACHMENT_BYTES,
   MAX_ATTACHMENTS_PER_SELECTION,
@@ -148,6 +149,16 @@ interface ComposerProps {
   onLayoutChange?: () => void;
   /** Enables "Use a skill" in the plus menu; the picker lists Hermes's skills through it. */
   rest?: RestClient | undefined;
+  /** Scope for the saved draft (the bot's name); without it nothing is saved. */
+  draftKey?: string | undefined;
+}
+
+const DRAFT_SAVE_DELAY_MS = 250;
+
+/** Touch keyboards have no Shift+Enter, so Return makes a new line there and the arrow sends. */
+function isTouchKeyboard(): boolean {
+  if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return false;
+  return window.matchMedia('(pointer: coarse)').matches;
 }
 
 function formatDuration(seconds: number): string {
@@ -176,9 +187,13 @@ export function Composer({
   onUploadFile,
   onLayoutChange,
   rest,
+  draftKey,
 }: ComposerProps) {
-  const [text, setText] = useState('');
-  const [attachments, setAttachments] = useState<AttachmentDraft[]>([]);
+  const [text, setText] = useState(() => readDraft(draftKey)?.text ?? '');
+  const [attachments, setAttachments] = useState<AttachmentDraft[]>(
+    () => readDraft(draftKey)?.attachments.map((a) => ({ id: a.id, name: a.name, path: a.path, uploading: false })) ?? [],
+  );
+  const touchKeyboard = useMemo(() => isTouchKeyboard(), []);
   const [voiceModeEnabled, setVoiceModeEnabled] = useState(false);
   const [attachMenuOpen, setAttachMenuOpen] = useState(false);
   const [skillPickerOpen, setSkillPickerOpen] = useState(false);
@@ -238,6 +253,28 @@ export function Composer({
   useEffect(() => {
     resize();
   }, [text, resize]);
+
+  // Restore the draft when the bot changes; save it (debounced) as it changes.
+  const draftKeyRef = useRef(draftKey);
+  useEffect(() => {
+    if (draftKeyRef.current === draftKey) return;
+    draftKeyRef.current = draftKey;
+    const draft = readDraft(draftKey);
+    setText(draft?.text ?? '');
+    setAttachments(draft?.attachments.map((a) => ({ id: a.id, name: a.name, path: a.path, uploading: false })) ?? []);
+  }, [draftKey]);
+
+  useEffect(() => {
+    if (!draftKey) return undefined;
+    const uploaded = attachments.filter((a) => !a.uploading && !a.error && a.path).map((a) => ({ id: a.id, name: a.name, path: a.path }));
+    const save = () => writeDraft(draftKey, { text, attachments: uploaded });
+    const timer = window.setTimeout(save, DRAFT_SAVE_DELAY_MS);
+    window.addEventListener('pagehide', save);
+    return () => {
+      window.clearTimeout(timer);
+      window.removeEventListener('pagehide', save);
+    };
+  }, [draftKey, text, attachments]);
 
   useEffect(() => {
     if (!slashPaletteOpen || !slashCommandsRpc) {
@@ -364,6 +401,7 @@ export function Composer({
       prev.forEach(releasePreview);
       return [];
     });
+    writeDraft(draftKey, undefined);
     closeSlashPalette();
   }
 
@@ -390,6 +428,10 @@ export function Composer({
     }
 
     if (e.key === 'Enter' && !e.shiftKey) {
+      // A touch keyboard's Return inserts a line break; the arrow sends. On a
+      // hardware keyboard Enter sends and Shift+Enter breaks the line. Never
+      // send mid-composition (IME).
+      if (touchKeyboard || e.nativeEvent.isComposing) return;
       e.preventDefault();
       handleSubmit();
     }
@@ -538,7 +580,7 @@ export function Composer({
           type="button"
           className="hm-composer__action hm-composer__action--attach"
           onClick={() => setAttachMenuOpen((v) => !v)}
-          disabled={isRecording || isVoiceBusy || (!onUploadFile && !rest)}
+          disabled={isRecording || isVoiceBusy || (!onUploadFile && !rest && !onTranscribeAudio)}
           aria-label="Add attachment or skill"
         >
           <Icon name="plus" size={19} />
@@ -548,6 +590,8 @@ export function Composer({
           onClose={() => setAttachMenuOpen(false)}
           onFiles={handleFilesSelected}
           onSkill={rest ? () => setSkillPickerOpen(true) : undefined}
+          onVoiceMode={onTranscribeAudio ? toggleVoiceMode : undefined}
+          voiceModeOn={voiceModeEnabled}
         />
         {skillPickerOpen && rest ? (
           <SkillPicker rest={rest} title="Use a skill" onPick={applySkill} onClose={() => setSkillPickerOpen(false)} />
@@ -573,47 +617,50 @@ export function Composer({
           }
           disabled={isRecording || isVoiceBusy}
           aria-label="Message input"
+          enterKeyHint={touchKeyboard ? 'enter' : 'send'}
           rows={1}
         />
 
-        <button
-          type="button"
-          className={`hm-composer__action hm-composer__action--mic ${isRecording ? 'hm-composer__action--recording' : ''}`}
-          onClick={voiceRecorder.dictate}
-          disabled={isVoiceBusy}
-          aria-label={isRecording ? 'Stop recording' : 'Record voice'}
-        >
-          <Icon name="mic" size={19} />
-          {isRecording && (
-            <span className="hm-composer__timer">{formatDuration(voiceRecorder.elapsedSeconds)}</span>
-          )}
-        </button>
-
-        <button
-          type="button"
-          className={`hm-composer__action hm-composer__action--voice ${voiceConversation.active ? 'hm-composer__action--active' : ''}`}
-          onClick={toggleVoiceMode}
-          disabled={isRecording}
-          aria-label={voiceConversation.active ? 'Turn off voice mode' : 'Turn on voice mode'}
-        >
-          <Icon name="wave" size={19} />
-        </button>
-
-        {busy && !hasPayload ? (
+        {/* One trailing control, like Messages: the mic while the field is
+            empty, the send arrow once there is something to send, and Stop
+            while Hermes is busy with nothing typed. */}
+        {busy && !hasPayload && !isRecording ? (
           <button
             type="button"
             className="hm-composer__stop"
             onClick={onStop}
             aria-label="Stop generating"
           >
-            <Icon name="close" size={16} />
+            <span className="hm-composer__stop-square" aria-hidden="true" />
+          </button>
+        ) : hasPayload && !isRecording ? (
+          <button
+            type="submit"
+            className="hm-composer__send"
+            disabled={isVoiceBusy || (busy && !onSteer)}
+            aria-label={busy ? busySubmitLabel : 'Send message'}
+          >
+            <Icon name="arrowUp" size={20} />
+          </button>
+        ) : onTranscribeAudio ? (
+          <button
+            type="button"
+            className={`hm-composer__action hm-composer__action--mic ${isRecording ? 'hm-composer__action--recording' : ''}`}
+            onClick={voiceRecorder.dictate}
+            disabled={isVoiceBusy && !isRecording}
+            aria-label={isRecording ? 'Stop recording' : 'Record voice'}
+          >
+            <Icon name="mic" size={19} />
+            {isRecording && (
+              <span className="hm-composer__timer">{formatDuration(voiceRecorder.elapsedSeconds)}</span>
+            )}
           </button>
         ) : (
           <button
             type="submit"
             className="hm-composer__send"
-            disabled={!hasPayload || isRecording || isVoiceBusy || (busy && !onSteer)}
-            aria-label={busy ? busySubmitLabel : 'Send message'}
+            disabled
+            aria-label="Send message"
           >
             <Icon name="arrowUp" size={20} />
           </button>
@@ -674,6 +721,14 @@ export function Composer({
             aria-label={voiceConversation.muted ? 'Unmute' : 'Mute'}
           >
             <Icon name={voiceConversation.muted ? 'play' : 'pause'} size={14} />
+          </button>
+          <button
+            type="button"
+            className="hm-composer__voice-mute hm-composer__voice-end"
+            onClick={toggleVoiceMode}
+            aria-label="Turn off voice mode"
+          >
+            <Icon name="close" size={14} />
           </button>
         </div>
       )}

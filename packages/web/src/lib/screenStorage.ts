@@ -1,9 +1,6 @@
 import type { Screen } from '../app/AppShell';
 
 const STORAGE_KEY = 'hermes-mobile-screen';
-const ACTIVE_SESSION_STORAGE_KEY = 'hermes-pwa.activeSession.v3';
-const PROFILED_ACTIVE_SESSION_STORAGE_KEY_PREFIX = 'hermes-pwa.activeSession.v4:';
-
 const VALID_SCREENS = new Set<Screen>([
   'home',
   'chat',
@@ -31,41 +28,27 @@ export function screenFromLocationHash(hash = typeof window === 'undefined' ? ''
   return VALID_SCREENS.has(normalized as Screen) ? (normalized as Screen) : undefined;
 }
 
-function activeCacheHasSession(raw: string | null): boolean {
-  if (!raw) return false;
-  try {
-    const parsed = JSON.parse(raw) as { storedSessionId?: unknown; messages?: unknown };
-    return Boolean(
-      typeof parsed.storedSessionId === 'string'
-      || (Array.isArray(parsed.messages) && parsed.messages.length > 0),
-    );
-  } catch {
-    return false;
-  }
-}
-
-function hasActiveSessionCache(): boolean {
-  if (activeCacheHasSession(window.localStorage.getItem(ACTIVE_SESSION_STORAGE_KEY))) return true;
-  for (let i = 0; i < window.localStorage.length; i += 1) {
-    const key = window.localStorage.key(i);
-    if (!key?.startsWith(PROFILED_ACTIVE_SESSION_STORAGE_KEY_PREFIX)) continue;
-    if (activeCacheHasSession(window.localStorage.getItem(key))) return true;
-  }
-  return false;
-}
-
+/** The chat is the app; it is where a launch lands unless the last screen was another. */
 export function getInitialScreen(): Screen {
-  if (typeof window === 'undefined') return 'home';
+  if (typeof window === 'undefined') return 'chat';
   const hashScreen = screenFromLocationHash();
   if (hashScreen) return hashScreen;
-  const raw = window.localStorage.getItem(STORAGE_KEY);
-  if (!raw) return hasActiveSessionCache() ? 'chat' : 'home';
-  if (!VALID_SCREENS.has(raw as Screen)) return 'home';
-  if (raw === 'chat' && !hasActiveSessionCache()) return 'home';
+  let raw: string | null = null;
+  try {
+    raw = window.localStorage.getItem(STORAGE_KEY);
+  } catch {
+    return 'chat';
+  }
+  if (!raw) return 'chat';
+  if (!VALID_SCREENS.has(raw as Screen)) return 'chat';
   return raw as Screen;
 }
 
 export function persistScreen(screen: Screen): void {
   if (typeof window === 'undefined') return;
-  window.localStorage.setItem(STORAGE_KEY, screen);
+  try {
+    window.localStorage.setItem(STORAGE_KEY, screen);
+  } catch {
+    // Storage blocked: the screen is simply not remembered.
+  }
 }

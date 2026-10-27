@@ -15,26 +15,49 @@ describe('ApprovalCard', () => {
     expect(screen.getByText('git commit')).toBeInTheDocument();
   });
 
-  it('shows low risk badge by default', () => {
+  it('labels an ordinary approval as a command, not a risk rating', () => {
     render(
       <ApprovalCard
-        item={{ id: 'a-1', kind: 'approval', status: 'needs_you', title: 'shell.exec', summary: 'git commit', highImpact: false, visibility: 'private', createdAt: 1 }}
+        item={{ id: 'a-1', kind: 'approval', status: 'needs_you', title: 'shell.exec', summary: 'git commit', highImpact: true, visibility: 'private', createdAt: 1 }}
         onApprove={vi.fn()}
         onReject={vi.fn()}
       />
     );
-    expect(screen.getByText('Low risk')).toBeInTheDocument();
+    expect(screen.getByText('Command')).toBeInTheDocument();
+    expect(screen.queryByText(/risk/i)).toBeNull();
   });
 
-  it('shows high risk badge for high-impact items', () => {
+  it('flags a safety-refused command and needs a second tap to approve it', () => {
+    const onApprove = vi.fn();
     render(
       <ApprovalCard
-        item={{ id: 'a-1', kind: 'approval', status: 'needs_you', title: 'fs.write', summary: 'write secrets', highImpact: true, visibility: 'private', createdAt: 1 }}
+        item={{ id: 'a-1', kind: 'approval', status: 'needs_you', title: 'fs.write', summary: 'rm -rf build', highImpact: true, smartDenied: true, visibility: 'private', createdAt: 1 }}
+        onApprove={onApprove}
+        onReject={vi.fn()}
+      />
+    );
+    expect(screen.getByText('Flagged risky')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Approve' }));
+    expect(onApprove).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm approve' }));
+    expect(onApprove).toHaveBeenCalledWith('a-1');
+  });
+
+  it('puts Deny before Approve and folds a long command', () => {
+    const command = Array.from({ length: 12 }, (_, i) => `echo line ${i + 1}`).join('\n');
+    render(
+      <ApprovalCard
+        item={{ id: 'a-1', kind: 'approval', status: 'needs_you', title: 'shell.exec', command, commandComplete: true, highImpact: true, visibility: 'private', createdAt: 1 }}
         onApprove={vi.fn()}
         onReject={vi.fn()}
       />
     );
-    expect(screen.getByText('High risk')).toBeInTheDocument();
+    const buttons = screen.getAllByRole('button').map((b) => b.textContent);
+    expect(buttons.indexOf('Deny')).toBeLessThan(buttons.indexOf('Approve'));
+    expect(screen.getByText(/Show full command \(12 lines\)/)).toBeInTheDocument();
+    expect(screen.queryByText(/echo line 12/)).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: /Show full command/ }));
+    expect(screen.getByText(/echo line 12/)).toBeInTheDocument();
   });
 
   it('approves on click', () => {

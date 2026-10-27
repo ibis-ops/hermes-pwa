@@ -7,12 +7,12 @@ describe('screenStorage', () => {
     window.history.replaceState(null, '', '/');
   });
 
-  it('opens Home on the first launch when no screen was persisted', () => {
-    expect(getInitialScreen()).toBe('home');
+  it('opens Chat on the first launch when no screen was persisted', () => {
+    expect(getInitialScreen()).toBe('chat');
   });
 
-  it('restores Chat when no screen was persisted but active cache exists', () => {
-    localStorage.setItem('hermes-pwa.activeSession.v4:default', JSON.stringify({ storedSessionId: 'stored-1', messages: [] }));
+  it('opens Chat even without an active session cache', () => {
+    localStorage.setItem('hermes-mobile-screen', 'chat');
     expect(getInitialScreen()).toBe('chat');
   });
 
@@ -23,45 +23,18 @@ describe('screenStorage', () => {
 
   it('parses notification hash routes', () => {
     expect(screenFromLocationHash('#/approvals')).toBe('approvals');
-    expect(screenFromLocationHash('#approvals')).toBe('approvals');
-    expect(screenFromLocationHash('./index.html#/approvals')).toBe('approvals');
-    expect(screenFromLocationHash('#/unknown')).toBeUndefined();
+    expect(screenFromLocationHash('#/chat?x=1')).toBe('chat');
+    expect(screenFromLocationHash('#/nope')).toBeUndefined();
+    expect(screenFromLocationHash('')).toBeUndefined();
   });
 
-  it('falls back to Home when the last screen was Chat but no active session cache exists', () => {
-    localStorage.setItem('hermes-mobile-screen', 'chat');
-    expect(getInitialScreen()).toBe('home');
-  });
-
-  it('restores Chat when the last screen was Chat and legacy active cache has a durable session', () => {
-    localStorage.setItem('hermes-mobile-screen', 'chat');
-    localStorage.setItem('hermes-pwa.activeSession.v3', JSON.stringify({ storedSessionId: 'stored-1', messages: [] }));
+  it('ignores an unknown persisted screen', () => {
+    localStorage.setItem('hermes-mobile-screen', 'skills');
     expect(getInitialScreen()).toBe('chat');
-  });
-
-  it('falls back to Home when Chat cache has only an ephemeral live runtime id', () => {
-    localStorage.setItem('hermes-mobile-screen', 'chat');
-    localStorage.setItem('hermes-pwa.activeSession.v3', JSON.stringify({ sessionId: 'dead-live-runtime', messages: [] }));
-    expect(getInitialScreen()).toBe('home');
-  });
-
-  it('restores Chat when the last screen was Chat and profiled active cache has messages', () => {
-    localStorage.setItem('hermes-mobile-screen', 'chat');
-    localStorage.setItem(
-      'hermes-pwa.activeSession.v4:default',
-      JSON.stringify({ profile: 'default', messages: [{ id: 'm-1', role: 'user', text: 'hello' }] }),
-    );
-    expect(getInitialScreen()).toBe('chat');
-  });
-
-  it('ignores invalid active cache JSON and falls back to Home for Chat', () => {
-    localStorage.setItem('hermes-mobile-screen', 'chat');
-    localStorage.setItem('hermes-pwa.activeSession.v3', '{bad json');
-    expect(getInitialScreen()).toBe('home');
   });
 
   it('persists the provided screen', () => {
-    persistScreen('agents');
-    expect(localStorage.getItem('hermes-mobile-screen')).toBe('agents');
+    persistScreen('settings');
+    expect(localStorage.getItem('hermes-mobile-screen')).toBe('settings');
   });
 });

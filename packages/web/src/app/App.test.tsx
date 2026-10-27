@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor, fireEvent } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent, within } from '@testing-library/react';
 import { App } from './App';
 
 const mockInit = vi.fn();
@@ -56,12 +56,13 @@ describe('App Phase 3', () => {
     } as ReturnType<typeof coreModule.useConnectionStore>);
 
     render(<App />);
-    expect(screen.getByRole('heading', { name: 'Home' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Chat' })).toBeInTheDocument();
     const menu = screen.getByRole('button', { name: /Open menu/i });
     expect(menu).toBeInTheDocument();
     fireEvent.click(menu);
+    const drawer = await screen.findByRole('dialog', { name: /navigation menu/i });
     await waitFor(() =>
-      expect(screen.getByRole('button', { name: /^Chat$/i })).toBeInTheDocument(),
+      expect(within(drawer).getByRole('button', { name: /^Chat$/i })).toBeInTheDocument(),
     );
   });
 

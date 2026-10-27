@@ -164,8 +164,8 @@ const noopRpc: RpcClient = {
   replayEvent: () => undefined,
   replayEpoch: () => undefined,
   onServerRequest: () => () => undefined,
-  respond: () => undefined,
-  respondError: () => undefined,
+  respond: () => true,
+  respondError: () => true,
   replayServerRequests: () => undefined,
 };
 
