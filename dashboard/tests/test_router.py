@@ -353,6 +353,11 @@ class DirectiveTests(unittest.TestCase):
         self.assertIn("Decide yourself", unsure)
         self.assertIn("Gmail Connector (@gmail-connector): Reads and sends email", unsure)
         self.assertIn("Bots you hand work to cannot hand it on from here", unsure)
+        # In Sean's chat the router once delegated with no profile, so the specialist never got the task.
+        self.assertIn("Give every task its profile name", unsure)
+        # Nor may it borrow another bot's login when a bot lacks one (it did once, from ~/.hermes).
+        for text in (hand, unsure):
+            self.assertIn("no pointing HERMES_HOME at another bot", text)
         nested = pwa_router.directive("router", {"route": None, "guess": "manager", "confidence": 0.4, "source": "router", "options": options}, True)
         self.assertNotIn("cannot hand it on", nested)
         off = pwa_router.directive("router", {"route": None, "reason": "no Jev key on the Mac", "source": "router", "options": options}, False)
@@ -372,6 +377,8 @@ class DirectiveTests(unittest.TestCase):
         self.assertIn("Jev picked Manager (@manager) for this (95% sure): a job for Manager's team.", split)
         self.assertIn("do Manager's part yourself", split)
         self.assertIn("one task per bot and all in one call", split)
+        self.assertIn("Give every task its profile name", split)
+        self.assertIn("tell Sean what it was missing", split)
         self.assertIn("Manager's team: Gmail Connector (@gmail-connector): Reads and sends email in Sean's Gmail.", split)
         self.assertNotIn('profile "manager"', split)
         # With deeper delegation on, Manager runs its own team.

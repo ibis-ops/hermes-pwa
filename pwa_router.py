@@ -652,6 +652,16 @@ def _percent(value: float | None) -> str:
     return f"{round((value or 0) * 100)}%"
 
 
+# A delegate_task without a profile runs as the router itself: its fast model, not the specialist.
+_NAME_THE_PROFILE = "Give every task its profile name; a task without one runs as you, on your fast model, not as that bot."
+# Seen on the Mac: a bot without its own Gmail login gave up, and the router went looking under
+# ~/.hermes for another bot's Google token and borrowed it. Bots never touch ~/.hermes.
+_NO_WORKAROUNDS = (
+    "If a bot cannot do its part, tell Sean what it was missing; do not do that part yourself with another "
+    "bot's access (no looking for tokens or keys, no pointing HERMES_HOME at another bot)."
+)
+
+
 def directive(bot: str, decision: dict[str, Any], orchestration: bool) -> str:
     """What the router is told before it answers."""
     route = decision.get("route")
@@ -677,13 +687,14 @@ def directive(bot: str, decision: dict[str, Any], orchestration: bool) -> str:
                 f"{picked}: a job for {label}'s team. Bots you hand work to cannot hand it on from here, so do "
                 f"{label}'s part yourself: give each piece to the bot whose job covers it with delegate_task, one task "
                 "per bot and all in one call so they work side by side, each goal with Sean's own words and everything "
-                f"that bot needs. Then put their answers together for Sean in a few lines. {label}'s team: {roster}."
+                f"that bot needs. {_NAME_THE_PROFILE} Then put their answers together for Sean in a few lines. "
+                f"{_NO_WORKAROUNDS} {label}'s team: {roster}."
             )
         return (
             f"{picked}. Hand it over with delegate_task, profile \"{route}\". Put everything it needs in the goal: "
             "Sean's message in his own words, the names, dates and details he gave, and what to send back. The bot "
             "does not see this chat, so when this follows up something earlier, put that in the goal too. When it "
-            "finishes, give Sean the result in a few lines."
+            f"finishes, give Sean the result in a few lines. {_NO_WORKAROUNDS}"
         )
     roster = _roster(options)
     if decision.get("guess"):
@@ -697,7 +708,8 @@ def directive(bot: str, decision: dict[str, Any], orchestration: bool) -> str:
     )
     return (
         f"{head} {why} Decide yourself: answer quick things directly; hand real work to the bot whose job "
-        f"covers it with delegate_task and its profile name.{flat} Your team: {roster}."
+        f"covers it with delegate_task and its profile name.{flat} {_NAME_THE_PROFILE} {_NO_WORKAROUNDS} "
+        f"Your team: {roster}."
     )
 
 

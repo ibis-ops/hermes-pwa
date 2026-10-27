@@ -18,6 +18,11 @@ All notable changes are documented here. The format follows
   Hermes passes the hook and the decision log, so "and Saturday?" still goes where the last
   message went after a gateway restart, and the router is told to put the earlier ask in the
   goal, since the bot it hands work to does not see the chat.
+- **Handoffs that reach the right bot, and no borrowed logins.** Tested on the Mac: the router once
+  delegated without a profile, which runs the task as the router on its fast model, and when Gmail
+  Connector had no Gmail login of its own the router searched `~/.hermes` for another bot's Google
+  token and used it. The router note now says to give every task its profile name, and when a bot
+  cannot do its part, to tell Sean what it was missing instead of doing it with another bot's access.
 - **What Jev costs.** The Router sheet sums what Jev's latest answers cost.
 - **Try a message.** The Router sheet asks Jev where a message would go, with the router's own
   delegation routes, and says so ("It would go to Google Calander · Jev 99% sure", or that the
