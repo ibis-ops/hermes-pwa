@@ -5,6 +5,39 @@ All notable changes are documented here. The format follows
 
 ## Unreleased
 
+### Phone app polish
+
+- **Messages look.** Chat bubbles without headers or avatars, typing dots, time stamps between
+  turns, meta and Copy under the last bubble of a turn, a quiet tool strip with long output folded,
+  a "New reply" pill when the reply grows below the fold, and a pill composer with the send arrow,
+  mic and Stop where Messages has them. On a phone keyboard Return makes a new line.
+- **Navigation.** A bottom tab bar (Chat, Approvals with a badge, Sessions, More), the app opens on
+  Chat, and the system Back gesture steps back through screens, the drawer and sheets. Sheets have
+  Done, drag to dismiss and Back. Every `window.confirm` became an action sheet that asks a second
+  time for anything irreversible.
+- **Speed.** The cached transcript shows at launch instead of a "Connecting" screen; skeleton rows
+  instead of "Loading"; screen chunks are prefetched; polling is slower and pauses in the
+  background; narrow store subscriptions; the service worker precaches the entry files and never
+  caches an error page. The stylesheets lost 126 unused classes and 923 overridden declarations.
+- **Chat reliability.** The live stream is handled at the shell level, so leaving the chat mid-reply
+  no longer drops it; the message queue is kept in the store and survives a reload; a send the
+  gateway does not take goes back into the composer; drafts persist per bot; switching bots no
+  longer throws a running turn away; the history merge no longer duplicates turns.
+- **Approvals.** Full commands, a risk pill, Deny left and Run right, a second tap for a command the
+  safety check flagged, and cards for questions asked on the socket stay until answered.
+- **Settings.** Appearance (Automatic, Light, Dark), one switch for notifications on this phone,
+  a confirm before logging out, and "Clear saved chats on this phone".
+- **Notes.** `[[wikilinks]]` in the note viewer open the linked note in place, with a way back.
+- **Voice.** The level meter no longer re-renders the composer every frame; voice mode no longer
+  sticks on "Thinking" after a reply with no text or reads an old reply again; microphone and
+  transcription errors are shown instead of swallowed.
+- **Accessibility.** AA contrast for muted text, blue and red text and badges in both themes,
+  a 44pt hit area on every small control, and text that follows the iPhone Text Size setting.
+- **Security.** Hardened file and push routes (frame-ancestors, CORP, vetted file descriptors,
+  wider forbidden roots, redaction of bearer tokens), bounded caches, push sends off the request
+  thread, locked state files, request ids on every approval answer, markdown images limited to the
+  plugin's own file route, and a fuller sign-out that clears drafts, per-bot choices and cards.
+
 ### Added
 
 - **Obsidian tab.** Lists the notes Hermes created or edited in the Obsidian vault, grouped by

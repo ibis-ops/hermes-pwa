@@ -9,59 +9,40 @@
 
 ## 1. Design principles
 
-1. **AI OS cockpit, not a toy chatbot.** Serious, operational, calm, technical. No cute mascots, no rounded-everything bubbles.
-2. **Mobile-first, not a shrunk desktop.** Big tap targets, bottom navigation, cards over dense panels, minimal tables.
-3. **The main agent is the center.** First tab is Chat. Delegation/profiles are visible but never required.
-4. **Approval-first safety.** High-impact actions are deliberate, spaced, and explained. Hard to do by accident.
-5. **Familiar, but independent.** Takes visual cues from the desktop Hermes app — light-surface, neutral, a calm single accent, a status-bar idiom — so it feels familiar, while staying a separate, unofficial client (its own reimplementation, not a copy).
-6. **Tell the user what to do.** Errors and empty states are instructional, never dead ends.
+1. **Messages, not a dashboard.** The chat reads like Messages on iPhone: bubbles, a quiet tool strip, time stamps between turns, a pill composer. Everything else follows iOS Settings: grouped lists, one accent, system type.
+2. **Mobile-first, not a shrunk desktop.** Big tap targets, a bottom tab bar, sheets from the bottom edge, minimal tables.
+3. **The main agent is the center.** The app opens on Chat. Bots, sessions and the system screens are a tap away, never in the way.
+4. **Approval-first safety.** Commands are shown in full before they run; Deny sits left and Run right; a command the safety check flagged takes a second tap; anything lasting or destructive asks once more in a sheet.
+5. **Fast by default.** The cached transcript is on screen at launch, loading shows the shape of what is coming, and nothing polls while the app is in the background.
+6. **Tell the person what to do.** Errors and empty states say what happened and what to try, in plain words.
 
 ---
 
 ## 2. Theming
 
-Two themes, **light default**, full dark support. Dark is selected by the `data-theme="dark"` attribute on `:root` (an attribute, not a class). With no explicit `data-theme`, `prefers-color-scheme: dark` applies the dark palette automatically. Components only ever read tokens.
+Two themes following iOS: light (grouped gray background, white cells) and dark (true black base). With no `data-theme` on `:root` the phone's setting decides (`prefers-color-scheme`); Settings → Appearance can force light or dark, which sets `data-theme` before the first paint (`lib/appearance.ts`) and updates the `theme-color` metas. Components only read tokens.
+
+Key light values (`tokens.css` is the source of truth):
 
 ```css
-/* tokens.css — semantic tokens */
-:root {                            /* LIGHT (default) */
-  --hm-color-bg:        #f4f6fc;   /* app background */
-  --hm-color-surface:   #ffffff;   /* cards, sheets */
-  --hm-color-surface-2: #f5f7fd;   /* inset / sidebar */
-  --hm-color-border:    #e7eaf3;
+:root {
+  --hm-color-bg:        #f2f2f7;   /* grouped background */
+  --hm-color-surface:   #ffffff;   /* cells, cards, sheets */
+  --hm-color-fill:      rgba(120, 120, 128, 0.12);
+  --hm-color-bubble:    #e9e9eb;   /* assistant bubble */
 
-  --hm-color-text:           #161a27; /* primary text */
-  --hm-color-text-2:         #2b3346; /* strong secondary */
-  --hm-color-text-muted:     #6b7384; /* secondary */
-  --hm-color-text-secondary: #868fa1;
-  --hm-color-text-faint:     #9aa2b4; /* inactive / disabled */
-  --hm-color-text-subtle:    #c4cad8;
+  --hm-color-text:       #000000;
+  --hm-color-text-muted: rgba(60, 60, 67, 0.74);   /* iOS secondaryLabel, darkened for AA */
 
-  --hm-color-primary:      #2540ff;   /* primary action / active / links */
-  --hm-color-primary-tint: #eef1ff;
-  --hm-color-primary-text: #ffffff;
-  /* aliases for older .hm-* classes: --hm-color-accent → primary, accent-weak → primary-tint, on-accent → primary-text */
-
-  --hm-color-success: #15a06a;  --hm-color-warning: #d98a16;  --hm-color-danger: #dc4b46;
-  --hm-color-running: #2540ff;  /* active/running task — the same blue as primary */
-  /* AA-contrast text colors for use on tinted backgrounds: */
-  --hm-color-success-strong: #065f46;  --hm-color-warning-strong: #92400e;  --hm-color-danger-strong: #991b1b;
-
-  --hm-color-success-bg: #e3fbef;  --hm-color-warning-bg: #fff7ed;
-  --hm-color-danger-bg:  #fdeaea;  --hm-color-info-bg:    #e7f4fd;
+  --hm-color-primary:      #0071e3;   /* fills: user bubbles, primary buttons, toggles */
+  --hm-color-primary-text: #ffffff;   /* text on primary */
+  --hm-color-accent-text:  #0060c0;   /* blue used as text on light surfaces and tints */
+  --hm-color-danger-text:  #d70015;   /* red used as text */
+  --hm-color-badge:        #d70015;   /* count badges, both themes */
 }
-
-:root[data-theme='dark'] {
-  --hm-color-bg:        #0e1116;  --hm-color-surface: #161b22;  --hm-color-surface-2: #1c222b;  --hm-color-border: #2a313c;
-  --hm-color-text:      #e6e9ee;  --hm-color-text-2: #c8cdd8;   --hm-color-text-muted: #9aa3b0;  --hm-color-text-faint: #6b7382;
-  --hm-color-primary:   #5c7cff;  --hm-color-primary-tint: #1b2440;  --hm-color-primary-text: #0e1116;
-  --hm-color-success:   #51cf66;  --hm-color-warning: #ffc14d;  --hm-color-danger: #ff6b6b;  --hm-color-running: #5c7cff;
-  --hm-color-success-bg: #11261a;  --hm-color-warning-bg: #2a2110;  --hm-color-danger-bg: #2a1414;
-}
-/* The same dark values apply automatically via @media (prefers-color-scheme: dark) when no data-theme is set. */
 ```
 
-> Known gap (a11y): the dark theme does not yet remap `--hm-color-text-secondary`, `--hm-color-text-subtle`, or the `*-strong` contrast tokens — they fall back to the light values. Remap them when tightening dark-mode contrast.
+Dark keeps the same blue fill (`#0071e3`, white on it reads 4.7:1) and uses lighter text variants (`accent-text #409cff`, `danger-text #ff6961`). The `*-strong` tokens are the AA text colors on the matching tinted `*-bg`.
 
 ### Color semantics (do not improvise meanings)
 
@@ -70,86 +51,53 @@ Two themes, **light default**, full dark support. Dark is selected by the `data-
 | `success` / green | ready, success, safe |
 | `warning` / amber | attention, setup required, degraded |
 | `danger` / red | dangerous, destructive, failure |
-| `running` / blue | active / running agent or task (currently the same blue as `primary`) |
-| `primary` / blue | primary action, selected, links (`accent` is a back-compat alias) |
-| `text-faint` / gray | inactive, archived, disabled |
-| `*-strong` | AA-contrast text on the matching tinted `*-bg` |
+| `running` / blue | active / running agent or task |
+| `primary` / blue | primary action, selected, the user's own bubble |
+| `accent-text` | blue text: links, text buttons, active labels |
+| `text-faint` / gray | inactive, archived, disabled, decorative only |
 
 ---
 
 ## 3. Spacing, radius, elevation
 
-```css
-:root {
-  /* 4px base scale */
-  --hm-space-1: 4px;  --hm-space-2: 8px;  --hm-space-3: 12px;
-  --hm-space-4: 16px; --hm-space-5: 24px; --hm-space-6: 32px; --hm-space-8: 48px;
-
-  --hm-radius-xs: 6px;  --hm-radius-sm: 8px;  --hm-radius-md: 11px;
-  --hm-radius-card: 14px; --hm-radius-lg: 15px; --hm-radius-xl: 16px; --hm-radius-full: 999px;
-
-  --hm-elev-1:      0 1px 2px rgba(20,30,60,.04), 0 1px 1px rgba(20,30,60,.03);
-  --hm-elev-2:      0 4px 12px rgba(20,30,60,.08);
-  --hm-elev-3:      0 6px 20px rgba(37,64,255,.07);
-  --hm-elev-sheet:  0 -8px 28px rgba(20,30,60,.14);
-  --hm-elev-drawer: 14px 0 40px rgba(15,20,40,.18);
-
-  --hm-tap-min: 44px;   /* minimum interactive height/width */
-}
-```
-
-Default card padding `--hm-space-4`; screen gutters `--hm-space-4`; section gaps `--hm-space-5`.
+4px spacing scale (`--hm-space-1` 4px to `--hm-space-8` 48px). Radii follow iOS: 10px grouped cells, 12px tiles, 18 to 20px bubbles, 14px action-sheet groups. Shadows are rare; separators are 0.5px hairlines.
 
 ---
 
 ## 4. Typography
 
-Brand fonts (loaded from Google Fonts in `index.html`) — **not** a pure system stack:
+The system stack (`-apple-system`, SF Pro on Apple devices) at iOS Dynamic Type sizes, in rem against a 17px root:
 
 ```css
-:root {
-  --hm-font-display: 'Bodoni Moda', Georgia, serif;                              /* display / hero */
-  --hm-font-sans:    'Hanken Grotesk', system-ui, -apple-system, sans-serif;     /* default UI */
-  --hm-font-mono:    'JetBrains Mono', 'SF Mono', 'Cascadia Code', Consolas, monospace;
-
-  --hm-fs-display: 28px;  /* first-run / install hero (uses --hm-font-display) */
-  --hm-fs-title:   20px;  /* screen titles */
-  --hm-fs-heading: 16px;  /* card titles */
-  --hm-fs-body:    15px;  /* default */
-  --hm-fs-small:   13px;  /* meta, captions */
-  --hm-fs-label:   11px;  /* tiny labels / chips */
-  --hm-fs-mono:    13px;  /* code, logs */
-
-  --hm-fw-regular: 400; --hm-fw-medium: 500; --hm-fw-semibold: 600; --hm-fw-bold: 700;
-}
+--hm-fs-display: calc(34rem / 17);  /* Large Title */
+--hm-fs-title:   calc(22rem / 17);  /* Title 2 */
+--hm-fs-heading: 1rem;              /* Headline, 17px */
+--hm-fs-body:    1rem;              /* Body, 17px */
+--hm-fs-small:   calc(15rem / 17);  /* Subheadline */
+--hm-fs-label:   calc(13rem / 17);  /* Footnote */
+--hm-fs-mono:    calc(14rem / 17);
 ```
 
-Line-heights are applied in component CSS, not on the size tokens. Body text `--hm-fs-body` / `text`. Meta `--hm-fs-small` / `text-muted`. Code uses `--hm-font-mono` in a `surface-2` block. The Bodoni Moda display face is reserved for hero/wordmark moments.
-
-Motion tokens (see §7): `--hm-duration-fast: 150ms`, `--hm-duration-normal: 220ms`, `--hm-ease-out: cubic-bezier(0.16, 1, 0.3, 1)`.
+On iPhone the root follows Settings → Display & Brightness → Text Size (`lib/textSize.ts` reads the system body font), held between 14px and 23px so fixed-height controls do not clip. Elsewhere the root is 17px and the sizes read as the px values above.
 
 ---
 
 ## 5. Layout (mobile-first)
 
 ```text
-Baseline widths: 375 (iPhone SE/baseline) · 390 (modern iPhone) · 430 (large) · 768 (tablet bonus)
-
 ┌──────────────────────────┐
-│ Header  (title · conn dot)│  56px, surface, bottom border
+│ ‹ / ☰   Title     Status │  header: back chevron when there is somewhere to go back
 ├──────────────────────────┤
-│                          │
-│  Screen content (scroll) │  gutters --hm-space-4
-│                          │
+│  Screen content (scroll) │
 ├──────────────────────────┤
-│ Chat │Proj│Activ│Agent│Set│  Bottom tab bar, 56px + safe-area-inset-bottom
+│ Chat │Approvals│Sessions│More │  tab bar + safe-area inset; hidden while the keyboard is up
 └──────────────────────────┘
 ```
 
-- Bottom tab bar is the primary nav: **Chat · Projects · Activity · Agents · Settings**.
-- Respect `env(safe-area-inset-*)` (notch / home indicator).
-- Detail views and high-impact confirmations use **bottom sheets**, not full-page navigation, where it keeps context.
-- Tablet (≥768px): content max-width ~640px centered; do not stretch chat lines full width.
+- The tab bar is the primary navigation; More opens the drawer with every other screen.
+- In-app navigation and open sheets are entries in the browser history, so the system Back gesture steps back through them (tab taps replace instead of push).
+- Detail views, pickers and confirmations are bottom sheets (Done or Cancel at top right, drag down, scrim, Escape or Back to close). Destructive and lasting choices use the action sheet (`ActionSheet` / `ConfirmSheet`), never `window.confirm`.
+- Respect `env(safe-area-inset-*)`.
 
 ---
 
@@ -158,24 +106,26 @@ Baseline widths: 375 (iPhone SE/baseline) · 390 (modern iPhone) · 430 (large) 
 Each component: variants, states, a11y note. Built as design-system primitives in `packages/web/src/components/`.
 
 ### Primitives
-- **Button** — variants: `primary`, `secondary` (surface+border), `ghost`, `danger`. States: default/hover/active/disabled/loading. Min height `--hm-tap-min`.
-- **IconButton** — 44×44, accessible name required.
-- **Card** — `surface`, `--hm-radius-card`, `--hm-elev-1`, padding `--hm-space-4`.
-- **BottomSheet** — drag handle, `--hm-elev-sheet`, backdrop, focus trap, swipe/scrim dismiss.
-- **StatusDot** — semantic color; used for connection + worker state.
-- **Badge / Pill** — status labels (`running`, `done`, `blocked`).
-- **Input / Textarea** — 44px min, clear focus ring `2px primary`.
-- **Spinner / Skeleton** — loading states.
-- **Toast** — transient feedback (non-blocking).
-- **EmptyState** — icon + title + instructional copy + optional action.
+- **Button**: variants: `primary`, `secondary` (surface+border), `ghost`, `danger`. States: default/hover/active/disabled/loading. Min height `--hm-tap-min`.
+- **IconButton**: 44×44, accessible name required.
+- **Card**: `surface`, `--hm-radius-card`, `--hm-elev-1`, padding `--hm-space-4`.
+- **BottomSheet**: drag handle, `--hm-elev-sheet`, backdrop, focus trap, swipe/scrim dismiss.
+- **StatusDot**: semantic color; used for connection + worker state.
+- **Badge / Pill**: status labels (`running`, `done`, `blocked`).
+- **Input / Textarea**: 44px min, clear focus ring `2px primary`.
+- **Skeleton**: loading states in the shape of the content; spinners only inside controls.
+- **Toast**: transient feedback (non-blocking).
+- **EmptyState**: icon + title + instructional copy + optional action.
 
 ### Domain components
-- **MessageBubble** — `user` (primary-tint, right) vs `assistant` (surface, left, markdown). Code blocks in mono on `surface-2`.
-- **ToolGroup** — wraps one or more tool calls under a shared header (`Tool actions · 2 steps · done`). Each row shows the tool name and target; tapping expands the raw output. Never dump raw logs inline.
-- **ApprovalCard / ApprovalInline** — consequence summary; `[Reject]` and `[Approve]` spaced far apart; `danger` styling for destructive actions.
-- **TaskCard** — title, status pill, assignee/profile, priority, last update.
-- **ConnectionBanner** — offline/reconnecting state with the network recipe.
-- **UpdateNotification** — banner when a newer plugin release is available.
+- **MessageBubble**: `user` (primary fill, white text, right) vs `assistant` (gray bubble, left, markdown). Meta (time, duration, Copy) shows under the last bubble of a turn, or under any bubble after a tap. Typing dots while a reply starts.
+- **ToolGroup**: wraps one or more tool calls under a shared header (`Tool actions · 2 steps · done`). Each row shows the tool name and target; tapping expands the raw output. Never dump raw logs inline.
+- **ApprovalCard / ApprovalInline**: the full command (folded past 8 lines), a risk pill, Deny left and Run right; a flagged command needs a second tap; "Allow for this session" and "Always allow" ask in a sheet first.
+- **ActionSheet / ConfirmSheet**: the iOS action sheet; destructive items in red, irreversible ones ask a second time in place.
+- **SkeletonRows**: loading placeholders in the shape of the content (list, chat, cards).
+- **TaskCard**: title, status pill, assignee/profile, priority, last update.
+- **ConnectionBanner**: offline/reconnecting state with the network recipe.
+- **UpdateNotification**: banner when a newer plugin release is available.
 
 ---
 
@@ -184,7 +134,7 @@ Each component: variants, states, a11y note. Built as design-system primitives i
 - Motion is functional and quick: `--hm-duration-fast` (150ms) / `--hm-duration-normal` (220ms) with `--hm-ease-out` for sheets/toasts; no decorative animation.
 - Streaming chat appends tokens smoothly; auto-scroll only when the user is already at the bottom.
 - Honor `prefers-reduced-motion`: `tokens.css` globally reduces animation/transition durations.
-- Destructive confirmations: two-step (sheet → confirm), or swipe-to-confirm for high-impact. Buttons never adjacent for irreversible actions.
+- Destructive confirmations: two steps inside one action sheet. Irreversible buttons are never adjacent to their opposite.
 
 ---
 
@@ -198,11 +148,12 @@ Each component: variants, states, a11y note. Built as design-system primitives i
 
 ## 9. Accessibility (target WCAG 2.1 AA)
 
-- Contrast ≥ 4.5:1 for body text, ≥ 3:1 for large text and UI borders. Verify both themes (note the dark-mode gap in §2).
-- Every interactive element keyboard-focusable with a visible focus ring and an accessible name.
-- Tap targets ≥ 44×44px.
-- Don't encode meaning in color alone — pair status color with an icon/label.
-- Respect `prefers-reduced-motion` and `prefers-color-scheme` (default theme follows OS unless the user overrides in Settings).
+- Text contrast at least 4.5:1 (3:1 for large text) in both themes; `styles/accessibility-source.test.ts` checks the text tokens against white and the grouped gray.
+- Every control has an accessible name and a 44×44pt hit area. Small-looking controls keep their look and get an invisible `::after` hit area (see the Pass 11 block in `apple.css`).
+- Text follows the iPhone Text Size setting (section 4).
+- Don't encode meaning in color alone: pair status color with an icon or label.
+- Respect `prefers-reduced-motion` (skeleton shimmer, typing dots, switches and sheets stop animating).
+- The chat log is a polite live region; errors use `role="alert"`.
 
 ---
 
