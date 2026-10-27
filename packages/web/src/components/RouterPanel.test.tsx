@@ -4,8 +4,10 @@ import { HermesHttpError, useModelStore, useProfilesStore, type RestClient, type
 import { RouterCard } from './RouterPanel';
 
 const OFF: RouterStatus = {
-  settings: { enabled: false, bot: 'router', jevModel: '~typesafe/jev-latest', minConfidence: 0.6 },
+  settings: { enabled: false, bot: 'router', jevModel: '', minConfidence: 0.6 },
   keyConfigured: false,
+  provider: undefined,
+  keyName: 'HERMES_PWA_JEV_API_KEY',
   decisions: [],
 };
 
@@ -73,17 +75,17 @@ describe('RouterCard', () => {
       ...OFF,
       settings: { ...OFF.settings, enabled: true },
       decisions: [
-        { at: '2026-10-27T20:00:00Z', bot: 'router', sessionId: 's', key: 'k', preview: 'Any email from clients?', route: 'gmail-connector', guess: null, confidence: 0.9, source: 'jev', reason: '', ms: 300, cost: 0.00002 },
+        { at: '2026-10-27T20:00:00Z', bot: 'router', sessionId: 's', key: 'k', preview: 'Any email from clients?', route: 'gmail-connector', guess: null, confidence: 0.9, source: 'jev', reason: '', ms: 300, cost: 0.00002, provider: 'vercel', zdr: true },
       ],
     };
     const rest = makeRest({ routerStatus: vi.fn().mockResolvedValue(on) });
     const onOpenBot = vi.fn();
     render(<RouterCard rest={rest} bots={[...PROFILES.map((p) => p.name), 'router']} onMapChanged={vi.fn()} onOpenBot={onOpenBot} />);
     const card = await screen.findByRole('button', { name: 'Router settings' });
-    expect(card).toHaveTextContent('On, but Jev needs an OpenRouter key');
+    expect(card).toHaveTextContent('On, but Jev needs its key on the Mac');
     fireEvent.click(card);
     const sheet = await screen.findByRole('dialog', { name: 'Router' });
-    expect(within(sheet).getByTestId('router-key')).toHaveTextContent('hermes config set OPENROUTER_API_KEY');
+    expect(within(sheet).getByTestId('router-key')).toHaveTextContent('hermes config set HERMES_PWA_JEV_API_KEY "$(pbpaste)"');
     expect(within(sheet).getByTestId('router-decision')).toHaveTextContent('Sent to Gmail Connector · Jev 90% sure');
     fireEvent.click(within(sheet).getByRole('switch', { name: 'Route with Jev' }));
     await waitFor(() => expect(rest.saveRouter).toHaveBeenCalledWith({ enabled: false }));
@@ -92,5 +94,25 @@ describe('RouterCard', () => {
     await waitFor(() => expect(rest.saveRouter).toHaveBeenCalledWith({ minConfidence: 0.75 }));
     fireEvent.click(within(sheet).getByRole('button', { name: 'Message' }));
     expect(onOpenBot).toHaveBeenCalledWith('router');
+  });
+
+  it('says which service Jev runs through and whether zero data retention is on', async () => {
+    const connected: RouterStatus = {
+      ...OFF,
+      settings: { ...OFF.settings, enabled: true },
+      keyConfigured: true,
+      provider: 'Vercel AI Gateway',
+      decisions: [
+        { at: '2026-10-27T21:05:00Z', bot: 'router', sessionId: 's', key: 'a', preview: 'Out of credits?', route: null, guess: null, confidence: null, source: 'router', reason: 'Vercel AI Gateway is out of credits', ms: 120, cost: null, provider: 'vercel', zdr: null },
+        { at: '2026-10-27T21:00:00Z', bot: 'router', sessionId: 's', key: 'b', preview: 'hi', route: 'answer', guess: null, confidence: 0.97, source: 'jev', reason: '', ms: 200, cost: 0.00001, provider: 'vercel', zdr: false },
+      ],
+    };
+    render(<RouterCard rest={makeRest({ routerStatus: vi.fn().mockResolvedValue(connected) })} bots={[...PROFILES.map((p) => p.name), 'router']} onMapChanged={vi.fn()} />);
+    const card = await screen.findByRole('button', { name: 'Router settings' });
+    expect(card).toHaveTextContent('On: Jev picks who takes each message.');
+    fireEvent.click(card);
+    const sheet = await screen.findByRole('dialog', { name: 'Router' });
+    expect(within(sheet).getByTestId('router-key')).toHaveTextContent('Connected through Vercel AI Gateway on the Mac. Zero data retention is off');
+    expect(within(sheet).getAllByTestId('router-decision')[0]).toHaveTextContent('Router decided · Vercel AI Gateway is out of credits');
   });
 });

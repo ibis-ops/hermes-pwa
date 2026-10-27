@@ -1,7 +1,7 @@
 """Jev routing for the router bot: who should handle each of Sean's messages.
 
 Sean put a router bot on top of his team map. For each message he sends it,
-Jev (TypeSafe's decision model, called through OpenRouter's Decisions API)
+Jev (TypeSafe's decision model, called through Vercel AI Gateway or OpenRouter)
 reads the message and picks who should take it: the router itself, which runs
 a fast model and answers quick things at once, or one of the bots the router
 can hand work to. The router is told the pick at the start of its turn, before
@@ -10,11 +10,14 @@ unreachable or not set up, the router is told so and decides for itself.
 
 Settings live in the plugin's state folder (``router.json``): whether routing
 is on, which bot is the router, the Jev model, and how sure Jev must be. The
-OpenRouter key comes from the environment (``OPENROUTER_API_KEY`` in Hermes's
-``.env``), the same way the plugin reads its push keys. Each decision is kept
-in a short local log (``router_decisions.jsonl``) so the phone app can show
-it. Nothing here reads or writes Hermes configuration except a read-only look
-at the router's own delegation routes.
+key is the plugin's own ``HERMES_PWA_JEV_API_KEY`` in Hermes's ``.env`` (a
+Vercel AI Gateway key, or an OpenRouter one); Hermes's own
+``AI_GATEWAY_API_KEY`` or ``OPENROUTER_API_KEY`` work too. The file is read
+when a decision is made, so a new key works without a restart. On Vercel each
+request asks for zero data retention. Each decision is kept in a short local
+log (``router_decisions.jsonl``) so the phone app can show it. Nothing here
+writes Hermes configuration; it only reads the key and the router's own
+delegation routes.
 """
 
 from __future__ import annotations
@@ -25,6 +28,7 @@ import os
 import re
 import threading
 import time
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
@@ -38,8 +42,33 @@ except ImportError:  # Loaded on its own (the dashboard routes, the tests).
 
 logger = logging.getLogger(__name__)
 
-JEV_ENDPOINT = "https://openrouter.ai/api/alpha/decisions"
-DEFAULT_JEV_MODEL = "~typesafe/jev-latest"
+@dataclass(frozen=True)
+class JevProvider:
+    """Where Jev is called, and how."""
+
+    name: str
+    label: str
+    endpoint: str
+    default_model: str
+    model_prefixes: tuple[str, ...]
+
+
+VERCEL = JevProvider(
+    "vercel", "Vercel AI Gateway", "https://ai-gateway.vercel.sh/v1/evaluate", "typesafe-ai/jev", ("typesafe-ai/",)
+)
+OPENROUTER = JevProvider(
+    "openrouter", "OpenRouter", "https://openrouter.ai/api/alpha/decisions", "~typesafe/jev-latest", ("typesafe/", "~typesafe/")
+)
+# The plugin's own key: a Vercel AI Gateway key (vck_...) or an OpenRouter one (sk-or-...).
+KEY_ENV = "HERMES_PWA_JEV_API_KEY"
+# Checked in this order; Hermes's own provider keys work when the plugin's is not set.
+KEY_SOURCES: tuple[tuple[str, JevProvider | None], ...] = (
+    (KEY_ENV, None),
+    ("AI_GATEWAY_API_KEY", VERCEL),
+    ("OPENROUTER_API_KEY", OPENROUTER),
+)
+# After Vercel refuses zero data retention (it needs a Pro plan), ask without it for this long.
+ZDR_RETRY_SECONDS = 3600
 DEFAULT_MIN_CONFIDENCE = 0.6
 MIN_CONFIDENCE_RANGE = (0.3, 0.95)
 JEV_TIMEOUT_SECONDS = 4.0
@@ -58,6 +87,20 @@ _settings_cache: tuple[tuple[int, int, int], dict[str, Any]] | None = None
 _previous_lock = threading.Lock()
 # The last routed message per session, for follow-ups: {session: (time, text, route)}.
 _previous: dict[str, tuple[float, str, str]] = {}
+_env_lock = threading.Lock()
+_env_cache: tuple[tuple[int, int, int], dict[str, str]] | None = None
+_zdr_lock = threading.Lock()
+# When Vercel last refused zero data retention; None while it never has.
+_zdr_refused_at: float | None = None
+
+
+class JevHTTPError(RuntimeError):
+    """Jev's endpoint answered with an HTTP error; ``body`` is the start of its answer."""
+
+    def __init__(self, status: int, body: str = ""):
+        super().__init__(f"HTTP {status}")
+        self.status = status
+        self.body = body
 
 
 class RouterSettingsError(ValueError):
@@ -81,7 +124,8 @@ def _now_iso() -> str:
 
 
 def default_settings() -> dict[str, Any]:
-    return {"enabled": False, "bot": "router", "jevModel": DEFAULT_JEV_MODEL, "minConfidence": DEFAULT_MIN_CONFIDENCE}
+    # An empty jevModel means the provider's own Jev model.
+    return {"enabled": False, "bot": "router", "jevModel": "", "minConfidence": DEFAULT_MIN_CONFIDENCE}
 
 
 def validate_settings(raw: object, base: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -100,8 +144,8 @@ def validate_settings(raw: object, base: dict[str, Any] | None = None) -> dict[s
         settings["bot"] = bot
     if "jevModel" in raw:
         model = raw["jevModel"]
-        if not isinstance(model, str) or not MODEL_RE.match(model.strip()):
-            raise RouterSettingsError("jevModel must be an OpenRouter model id")
+        if not isinstance(model, str) or (model.strip() and not MODEL_RE.match(model.strip())):
+            raise RouterSettingsError("jevModel must be a model id")
         settings["jevModel"] = model.strip()
     if "minConfidence" in raw:
         value = raw["minConfidence"]
@@ -154,9 +198,82 @@ def save_settings(raw: object) -> dict[str, Any]:
     return record
 
 
-def openrouter_key() -> str | None:
-    key = (os.environ.get("OPENROUTER_API_KEY") or "").strip()
-    return key or None
+def _clean_key(raw: object) -> str:
+    """A key as pasted: no whitespace or quotes, and no ``NAME=`` from a copied env line."""
+    if not isinstance(raw, str):
+        return ""
+    value = raw.strip().strip("\"'").strip()
+    match = re.match(r"^(?:export\s+)?[A-Z][A-Z0-9_]*\s*=\s*(.*)$", value)
+    if match:
+        value = match.group(1).strip().strip("\"'").strip()
+    # An unresolved secret-manager reference is not a key.
+    if not value or value.startswith("op://") or any(ch.isspace() for ch in value):
+        return ""
+    return value
+
+
+def _env_file_values() -> dict[str, str]:
+    """The key lines of Hermes's root ``.env``, read-only, cached until the file changes."""
+    global _env_cache
+    path = bot_graph._root_hermes_home() / ".env"
+    try:
+        stat = path.stat()
+    except OSError:
+        return {}
+    stamp = (stat.st_ino, stat.st_mtime_ns, stat.st_size)
+    with _env_lock:
+        if _env_cache and _env_cache[0] == stamp:
+            return _env_cache[1]
+    values: dict[str, str] = {}
+    wanted = {name for name, _ in KEY_SOURCES}
+    try:
+        for line in path.read_text(encoding="utf-8").splitlines():
+            match = re.match(r"^\s*(?:export\s+)?([A-Z][A-Z0-9_]*)\s*=(.*)$", line)
+            if match and match.group(1) in wanted:
+                values[match.group(1)] = match.group(2)
+    except (OSError, UnicodeDecodeError):
+        return {}
+    with _env_lock:
+        _env_cache = (stamp, values)
+    return values
+
+
+def jev_credentials() -> tuple[JevProvider, str] | None:
+    """The provider and key to ask Jev with, or None when no key is set.
+
+    The ``.env`` file wins over the process environment, so a key changed with
+    ``hermes config set`` works at once, without restarting anything.
+    """
+    file_values = _env_file_values()
+    for name, provider in KEY_SOURCES:
+        key = _clean_key(file_values.get(name)) or _clean_key(os.environ.get(name))
+        if key:
+            return provider or (OPENROUTER if key.startswith("sk-or-") else VERCEL), key
+    return None
+
+
+def jev_model(provider: JevProvider, settings: dict[str, Any]) -> str:
+    """The settings' model when it belongs to this provider, else the provider's own Jev."""
+    model = str(settings.get("jevModel") or "").strip()
+    return model if model and model.startswith(provider.model_prefixes) else provider.default_model
+
+
+def _zdr_available(now: float) -> bool:
+    with _zdr_lock:
+        return _zdr_refused_at is None or now - _zdr_refused_at >= ZDR_RETRY_SECONDS
+
+
+def _note_zdr_refused(now: float) -> None:
+    global _zdr_refused_at
+    with _zdr_lock:
+        _zdr_refused_at = now
+
+
+def _refused_zdr(exc: BaseException) -> bool:
+    """Vercel said no to zero data retention (a plan without it), as opposed to any other error."""
+    return isinstance(exc, JevHTTPError) and exc.status in (400, 402, 403) and bool(
+        re.search(r"zero.?data.?retention|\bzdr\b", exc.body, re.I)
+    )
 
 
 def delegation_routes() -> tuple[dict[str, str] | None, bool]:
@@ -234,11 +351,50 @@ Poster = Callable[[str, dict[str, str], bytes, float], dict[str, Any]]
 
 
 def _post_json(url: str, headers: dict[str, str], body: bytes, timeout: float) -> dict[str, Any]:
+    from urllib.error import HTTPError
     from urllib.request import Request, urlopen
 
     request = Request(url, data=body, headers=headers, method="POST")
-    with urlopen(request, timeout=timeout) as response:  # noqa: S310 - fixed https endpoint
-        return json.loads(response.read().decode("utf-8"))
+    try:
+        with urlopen(request, timeout=timeout) as response:  # noqa: S310 - fixed https endpoints
+            return json.loads(response.read().decode("utf-8"))
+    except HTTPError as exc:
+        try:
+            text = exc.read(2000).decode("utf-8", "replace")
+        except Exception:
+            text = ""
+        finally:
+            exc.close()
+        raise JevHTTPError(exc.code, text) from None
+
+
+def _number(value: object) -> float | None:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)):
+        return float(value)
+    if isinstance(value, str):
+        try:
+            return float(value)
+        except ValueError:
+            return None
+    return None
+
+
+def _probabilities(raw: object) -> dict[str, float]:
+    """``{option: probability}`` from either shape: a mapping, or a list of ``{value, probability}``."""
+    out: dict[str, float] = {}
+    if isinstance(raw, dict):
+        items = raw.items()
+    elif isinstance(raw, list):
+        items = ((entry.get("value"), entry.get("probability")) for entry in raw if isinstance(entry, dict))
+    else:
+        return out
+    for key, value in items:
+        number = _number(value)
+        if key is not None and number is not None:
+            out[str(key)] = number
+    return out
 
 
 def ask_jev(
@@ -248,6 +404,8 @@ def ask_jev(
     options: dict[str, str],
     key: str,
     model: str,
+    provider: JevProvider = VERCEL,
+    zdr: bool = False,
     session_id: str = "",
     previous: tuple[float, str, str] | None = None,
     post: Poster | None = None,
@@ -255,7 +413,7 @@ def ask_jev(
 ) -> dict[str, Any]:
     """One Jev decision: ``{"choice", "confidence", "probabilities", "cost"}``. Raises on failure."""
     now = time.time() if now is None else now
-    body = {
+    body: dict[str, Any] = {
         "model": model,
         "state": _state(message, previous, now),
         "questions": {
@@ -272,42 +430,56 @@ def ask_jev(
             }
         },
     }
-    if session_id:
-        body["session_id"] = session_id[:256]
-    headers = {
-        "Authorization": f"Bearer {key}",
-        "Content-Type": "application/json",
-        "X-Title": "Hermes phone app router",
-    }
-    response = (post or _post_json)(JEV_ENDPOINT, headers, json.dumps(body).encode("utf-8"), JEV_TIMEOUT_SECONDS)
-    answer = ((response or {}).get("answers") or {}).get("route") or {}
+    headers = {"Authorization": f"Bearer {key}", "Content-Type": "application/json"}
+    if provider is OPENROUTER:
+        if session_id:
+            body["session_id"] = session_id[:256]
+        headers["X-Title"] = "Hermes phone app router"
+    elif zdr:
+        # Only providers that keep nothing may answer (TypeSafe is one of them on Vercel).
+        body["providerOptions"] = {"gateway": {"zeroDataRetention": True}}
+    response = (post or _post_json)(provider.endpoint, headers, json.dumps(body).encode("utf-8"), JEV_TIMEOUT_SECONDS)
+    response = response if isinstance(response, dict) else {}
+    answers = response.get("answers")
+    if isinstance(answers, list):  # the OpenAI-style shape answers in a list, by name
+        answers = {entry.get("name"): entry for entry in answers if isinstance(entry, dict)}
+    answer = (answers or {}).get("route") if isinstance(answers, dict) else None
+    answer = answer if isinstance(answer, dict) else {}
     choice = answer.get("choice")
     if not isinstance(choice, str) or (choice != SELF and choice not in options):
         raise ValueError("Jev returned no usable choice")
-    try:
-        confidence = float(answer.get("confidence"))
-    except (TypeError, ValueError):
-        confidence = 0.0
-    probabilities = answer.get("probabilities") if isinstance(answer.get("probabilities"), dict) else {}
-    cost = ((response or {}).get("usage") or {}).get("cost")
+    probabilities = _probabilities(answer.get("probabilities"))
+    # Vercel's answer may carry only the probabilities: the chosen option's is how sure Jev was.
+    confidence = _number(answer.get("confidence"))
+    if confidence is None:
+        confidence = probabilities.get(choice, 0.0)
+    gateway = ((response.get("providerMetadata") or response.get("provider_metadata") or {}).get("gateway")) or {}
+    cost = _number((response.get("usage") or {}).get("cost"))
+    if cost is None and isinstance(gateway, dict):
+        cost = _number(gateway.get("cost"))
     return {
         "choice": choice,
         "confidence": max(0.0, min(1.0, confidence)),
-        "probabilities": {str(k): float(v) for k, v in probabilities.items() if isinstance(v, (int, float))},
-        "cost": float(cost) if isinstance(cost, (int, float)) else None,
+        "probabilities": probabilities,
+        "cost": cost,
     }
 
 
-def _short_error(exc: BaseException) -> str:
-    code = getattr(exc, "code", None)
-    if isinstance(code, int):
-        if code in (401, 403):
-            return "OpenRouter refused the key"
-        if code == 402:
-            return "the OpenRouter account is out of credit"
-        if code == 429:
-            return "OpenRouter is rate limiting"
-        return f"OpenRouter answered {code}"
+def _short_error(exc: BaseException, provider: JevProvider = VERCEL) -> str:
+    """Why Jev did not answer, in a few words for the router and the app."""
+    label = provider.label
+    status = exc.status if isinstance(exc, JevHTTPError) else getattr(exc, "code", None)
+    body = exc.body if isinstance(exc, JevHTTPError) else ""
+    if isinstance(status, int):
+        if status == 402 or (status in (400, 403) and re.search(r"credit|insufficient|balance|funds|top.?up", body, re.I)):
+            return f"{label} is out of credits"
+        if re.search(r"free.?tier", body, re.I):
+            return f"Jev is not in {label}'s free tier"
+        if status in (401, 403):
+            return f"{label} refused the key"
+        if status == 429:
+            return f"{label} is rate limiting"
+        return f"{label} answered {status}"
     if isinstance(exc, TimeoutError) or "timed out" in str(exc).lower():
         return "Jev took too long"
     return "Jev could not be reached"
@@ -322,6 +494,7 @@ def decide(
     routes: dict[str, str] | None,
     session_id: str = "",
     key: str | None = None,
+    provider: JevProvider = VERCEL,
     post: Poster | None = None,
     now: float | None = None,
 ) -> dict[str, Any]:
@@ -339,28 +512,46 @@ def decide(
         "options": options,
         "cost": None,
         "ms": None,
+        "provider": None,
+        "zdr": None,
     }
     if not options:
         decision.update(route=SELF, reason="no other bot to hand work to")
     elif not key:
-        decision["reason"] = "no OpenRouter key on the Mac"
+        decision["reason"] = "no Jev key on the Mac"
     else:
         started = time.monotonic()
-        try:
-            answer = ask_jev(
+        zdr = provider is VERCEL and _zdr_available(now)
+        decision["provider"] = provider.name
+
+        def ask(with_zdr: bool) -> dict[str, Any]:
+            return ask_jev(
                 message,
                 bot=bot,
                 options=options,
                 key=key,
-                model=str(settings.get("jevModel") or DEFAULT_JEV_MODEL),
+                model=jev_model(provider, settings),
+                provider=provider,
+                zdr=with_zdr,
                 session_id=session_id,
                 previous=previous,
                 post=post,
                 now=now,
             )
+
+        try:
+            try:
+                answer = ask(zdr)
+            except Exception as exc:
+                if not (zdr and _refused_zdr(exc)):
+                    raise
+                # A Vercel plan without zero data retention: ask without it, and stop asking for it a while.
+                _note_zdr_refused(now)
+                zdr = False
+                answer = ask(False)
         except Exception as exc:  # network, HTTP or a malformed answer: the router decides
             logger.debug("Hermes PWA router: Jev failed: %s", exc)
-            decision["reason"] = _short_error(exc)
+            decision["reason"] = _short_error(exc, provider)
             close = getattr(exc, "close", None)  # an HTTPError holds the response open
             if callable(close):
                 try:
@@ -368,6 +559,8 @@ def decide(
                 except Exception:
                     pass
         else:
+            if provider is VERCEL:
+                decision["zdr"] = zdr
             decision.update(cost=answer["cost"], confidence=answer["confidence"])
             if answer["confidence"] >= float(settings.get("minConfidence") or DEFAULT_MIN_CONFIDENCE):
                 decision.update(route=answer["choice"], source="jev")
@@ -453,6 +646,8 @@ def record(decision: dict[str, Any], *, bot: str, session_id: str, message: str)
         "reason": decision.get("reason") or "",
         "ms": decision.get("ms"),
         "cost": decision.get("cost"),
+        "provider": decision.get("provider"),
+        "zdr": decision.get("zdr"),
     }
     path = decisions_path()
     try:
@@ -519,6 +714,7 @@ def hook_context(
     if not name or name != settings.get("bot"):
         return None
     routes, orchestration = delegation_routes()
+    credentials = jev_credentials()
     decision = decide(
         text,
         bot=name,
@@ -526,7 +722,8 @@ def hook_context(
         graph=bot_graph.load(),
         routes=routes,
         session_id=session_id,
-        key=openrouter_key(),
+        key=credentials[1] if credentials else None,
+        provider=credentials[0] if credentials else VERCEL,
         post=post,
     )
     record(decision, bot=name, session_id=session_id, message=text)
@@ -534,14 +731,24 @@ def hook_context(
 
 
 def status() -> dict[str, Any]:
-    """What the app shows: the settings and whether Jev can be asked."""
-    return {"settings": load_settings(), "keyConfigured": openrouter_key() is not None}
+    """What the app shows: the settings, whether Jev can be asked, and through which service."""
+    credentials = jev_credentials()
+    return {
+        "settings": load_settings(),
+        "keyConfigured": credentials is not None,
+        "provider": credentials[0].label if credentials else None,
+        "keyName": KEY_ENV,
+    }
 
 
 def forget_previous() -> None:
     """For tests."""
-    global _settings_cache
+    global _settings_cache, _env_cache, _zdr_refused_at
     with _previous_lock:
         _previous.clear()
     with _settings_lock:
         _settings_cache = None
+    with _env_lock:
+        _env_cache = None
+    with _zdr_lock:
+        _zdr_refused_at = None

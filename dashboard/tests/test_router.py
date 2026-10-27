@@ -7,7 +7,6 @@ import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
-from urllib.error import HTTPError
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -37,10 +36,13 @@ ROUTES = {
     "gmail-connector": "Reads and sends email in Sean's Gmail.",
     "default": "General work as the main agent.",
 }
-ON = {"enabled": True, "bot": "router", "jevModel": "~typesafe/jev-latest", "minConfidence": 0.6}
+ON = {"enabled": True, "bot": "router", "jevModel": "", "minConfidence": 0.6}
+KEY_NAMES = ("HERMES_PWA_JEV_API_KEY", "AI_GATEWAY_API_KEY", "OPENROUTER_API_KEY")
 
 
 def jev_answer(choice, confidence, cost=0.00002):
+    """OpenRouter's shape: a confidence next to the probabilities, the cost in usage."""
+
     def post(url, headers, body, timeout):
         post.calls.append({"url": url, "headers": headers, "body": json.loads(body), "timeout": timeout})
         return {
@@ -52,6 +54,33 @@ def jev_answer(choice, confidence, cost=0.00002):
     return post
 
 
+def vercel_answer(choice, probability, *, refuse_zdr=False):
+    """Vercel's /v1/evaluate shape: probabilities only, the cost as text in the gateway metadata."""
+
+    def post(url, headers, body, timeout):
+        sent = json.loads(body)
+        post.calls.append({"url": url, "headers": headers, "body": sent, "timeout": timeout})
+        if refuse_zdr and sent.get("providerOptions", {}).get("gateway", {}).get("zeroDataRetention"):
+            raise pwa_router.JevHTTPError(403, '{"error":"Zero Data Retention is available on Pro and Enterprise plans"}')
+        rest = round(1 - probability, 4)
+        return {
+            "model": "typesafe-ai/jev",
+            "answers": {"route": {"type": "choice", "choice": choice, "probabilities": {choice: probability, "answer" if choice != "answer" else "manager": rest}}},
+            "usage": {"inputTokens": 275, "outputTokens": 20},
+            "providerMetadata": {"gateway": {"cost": "0.00001155", "routing": {"finalProvider": "typesafe-ai"}}},
+        }
+
+    post.calls = []
+    return post
+
+
+def failing(status, body=""):
+    def post(url, headers, body_bytes, timeout):
+        raise pwa_router.JevHTTPError(status, body)
+
+    return post
+
+
 class TempHome(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -59,7 +88,8 @@ class TempHome(unittest.TestCase):
         env = patch.dict(os.environ, {"HERMES_HOME": self.tmp.name}, clear=False)
         env.start()
         self.addCleanup(env.stop)
-        os.environ.pop("OPENROUTER_API_KEY", None)
+        for name in KEY_NAMES:
+            os.environ.pop(name, None)
         root = patch.object(bot_graph, "_root_hermes_home", return_value=Path(self.tmp.name))
         root.start()
         self.addCleanup(root.stop)
@@ -104,11 +134,45 @@ class DecideTests(unittest.TestCase):
     def setUp(self):
         pwa_router.forget_previous()
 
-    def test_asks_jev_with_the_message_and_follows_a_sure_pick(self):
+    def test_asks_jev_through_vercel_with_zero_data_retention(self):
+        post = vercel_answer("gmail-connector", 0.93)
+        decision = pwa_router.decide(
+            "Any email from the Kahunas clients today?", bot="router", settings=ON, graph=ROUTER_ON_TOP, routes=ROUTES,
+            session_id="s-1", key="vck_test", provider=pwa_router.VERCEL, post=post, now=1000.0,
+        )
+        self.assertEqual((decision["route"], decision["source"], decision["confidence"]), ("gmail-connector", "jev", 0.93))
+        self.assertEqual((decision["provider"], decision["zdr"], decision["cost"]), ("vercel", True, 0.00001155))
+        call = post.calls[0]
+        self.assertEqual(call["url"], "https://ai-gateway.vercel.sh/v1/evaluate")
+        self.assertEqual(call["headers"]["Authorization"], "Bearer vck_test")
+        self.assertNotIn("X-Title", call["headers"])
+        self.assertEqual(call["body"]["model"], "typesafe-ai/jev")
+        self.assertEqual(call["body"]["providerOptions"], {"gateway": {"zeroDataRetention": True}})
+        self.assertNotIn("session_id", call["body"])
+        self.assertEqual(call["body"]["state"], {"message": "Any email from the Kahunas clients today?"})
+        self.assertEqual(sorted(call["body"]["questions"]["route"]["criteria"]), ["answer", "gmail-connector", "manager"])
+
+    def test_a_plan_without_zero_data_retention_still_routes(self):
+        post = vercel_answer("manager", 0.8, refuse_zdr=True)
+        decision = pwa_router.decide("Plan my week", bot="router", settings=ON, graph=ROUTER_ON_TOP, routes=ROUTES,
+                                     key="vck_test", provider=pwa_router.VERCEL, post=post, now=1000.0)
+        self.assertEqual((decision["route"], decision["zdr"]), ("manager", False))
+        self.assertEqual([("providerOptions" in c["body"]) for c in post.calls], [True, False])
+        # Within the hour it asks without zero data retention straight away; after it, tries again.
+        again = vercel_answer("manager", 0.8, refuse_zdr=True)
+        pwa_router.decide("Plan my week", bot="router", settings=ON, graph=ROUTER_ON_TOP, routes=ROUTES,
+                          key="vck_test", provider=pwa_router.VERCEL, post=again, now=1000.0 + 600)
+        self.assertEqual(len(again.calls), 1)
+        later = vercel_answer("manager", 0.8)
+        result = pwa_router.decide("Plan my week", bot="router", settings=ON, graph=ROUTER_ON_TOP, routes=ROUTES,
+                                   key="vck_test", provider=pwa_router.VERCEL, post=later, now=1000.0 + 3700)
+        self.assertEqual(result["zdr"], True)
+
+    def test_asks_jev_through_openrouter_and_follows_a_sure_pick(self):
         post = jev_answer("gmail-connector", 0.91)
         decision = pwa_router.decide(
             "Any email from the Kahunas clients today?", bot="router", settings=ON, graph=ROUTER_ON_TOP, routes=ROUTES,
-            session_id="s-1", key="sk-or-test", post=post, now=1000.0,
+            session_id="s-1", key="sk-or-test", provider=pwa_router.OPENROUTER, post=post, now=1000.0,
         )
         self.assertEqual((decision["route"], decision["source"], decision["confidence"]), ("gmail-connector", "jev", 0.91))
         call = post.calls[0]
@@ -120,6 +184,15 @@ class DecideTests(unittest.TestCase):
         self.assertEqual(question["type"], "choice")
         self.assertEqual(sorted(question["criteria"]), ["answer", "gmail-connector", "manager"])
         self.assertEqual(call["body"]["session_id"], "s-1")
+        self.assertNotIn("providerOptions", call["body"])
+        self.assertEqual(decision["zdr"], None)
+
+    def test_a_model_from_the_other_service_falls_back_to_its_own_jev(self):
+        stale = {**ON, "jevModel": "~typesafe/jev-latest"}
+        self.assertEqual(pwa_router.jev_model(pwa_router.VERCEL, stale), "typesafe-ai/jev")
+        self.assertEqual(pwa_router.jev_model(pwa_router.OPENROUTER, stale), "~typesafe/jev-latest")
+        self.assertEqual(pwa_router.jev_model(pwa_router.VERCEL, {**ON, "jevModel": "typesafe-ai/jev-1.14"}), "typesafe-ai/jev-1.14")
+        self.assertEqual(pwa_router.jev_model(pwa_router.OPENROUTER, ON), "~typesafe/jev-latest")
 
     def test_a_follow_up_carries_the_previous_message_and_where_it_went(self):
         pwa_router.decide("Check my inbox", bot="router", settings=ON, graph=ROUTER_ON_TOP, routes=ROUTES, session_id="s-1",
@@ -142,19 +215,22 @@ class DecideTests(unittest.TestCase):
 
     def test_without_a_key_jev_is_not_asked(self):
         decision = pwa_router.decide("hi", bot="router", settings=ON, graph=ROUTER_ON_TOP, routes=ROUTES, key=None)
-        self.assertEqual((decision["route"], decision["source"], decision["reason"]), (None, "router", "no OpenRouter key on the Mac"))
+        self.assertEqual((decision["route"], decision["source"], decision["reason"]), (None, "router", "no Jev key on the Mac"))
 
     def test_jev_failures_become_a_reason(self):
-        def failing(code):
-            def post(url, headers, body, timeout):
-                raise HTTPError(url, code, "nope", {}, None)
-
-            return post
-
-        cases = {401: "OpenRouter refused the key", 402: "the OpenRouter account is out of credit", 500: "OpenRouter answered 500"}
-        for code, reason in cases.items():
-            with self.subTest(code=code):
-                decision = pwa_router.decide("hi", bot="router", settings=ON, graph=ROUTER_ON_TOP, routes=ROUTES, key="k", post=failing(code))
+        cases = [
+            (pwa_router.VERCEL, 401, "", "Vercel AI Gateway refused the key"),
+            (pwa_router.VERCEL, 402, "", "Vercel AI Gateway is out of credits"),
+            (pwa_router.VERCEL, 403, '{"error":"Insufficient funds: add AI Gateway credits"}', "Vercel AI Gateway is out of credits"),
+            (pwa_router.VERCEL, 403, '{"error":"This model is not available on the free tier"}', "Jev is not in Vercel AI Gateway's free tier"),
+            (pwa_router.VERCEL, 429, "", "Vercel AI Gateway is rate limiting"),
+            (pwa_router.OPENROUTER, 402, "", "OpenRouter is out of credits"),
+            (pwa_router.OPENROUTER, 500, "", "OpenRouter answered 500"),
+        ]
+        for provider, status, body, reason in cases:
+            with self.subTest(provider=provider.name, status=status, body=body):
+                decision = pwa_router.decide("hi", bot="router", settings=ON, graph=ROUTER_ON_TOP, routes=ROUTES, key="k",
+                                             provider=provider, post=failing(status, body))
                 self.assertEqual((decision["route"], decision["reason"]), (None, reason))
 
         def timeout(url, headers, body, timeout):
@@ -189,10 +265,44 @@ class DirectiveTests(unittest.TestCase):
         self.assertIn("best guess Manager (@manager), 40%", unsure)
         self.assertIn("Decide yourself", unsure)
         self.assertIn("Gmail Connector (@gmail-connector): Reads and sends email", unsure)
-        off = pwa_router.directive("router", {"route": None, "reason": "no OpenRouter key on the Mac", "source": "router", "options": options}, False)
-        self.assertIn("Jev did not decide this time (no OpenRouter key on the Mac)", off)
+        off = pwa_router.directive("router", {"route": None, "reason": "no Jev key on the Mac", "source": "router", "options": options}, False)
+        self.assertIn("Jev did not decide this time (no Jev key on the Mac)", off)
         for text in (answer, hand, flat, unsure, off):
             self.assertNotIn("—", text)
+
+
+class CredentialTests(TempHome):
+    def write_env(self, text):
+        (Path(self.tmp.name) / ".env").write_text(text, encoding="utf-8")
+        pwa_router.forget_previous()  # the cache keys on the file's stamp, which a fast rewrite can repeat
+
+    def test_reads_the_key_from_hermes_env_and_picks_the_service(self):
+        self.assertIsNone(pwa_router.jev_credentials())
+        self.write_env("ANTHROPIC_API_KEY=sk-ant-x\nHERMES_PWA_JEV_API_KEY=vck_abc123\n")
+        provider, key = pwa_router.jev_credentials()
+        self.assertEqual((provider.name, key), ("vercel", "vck_abc123"))
+        # A copied env line and quotes are cleaned off; an OpenRouter key is told apart by its prefix.
+        self.write_env('HERMES_PWA_JEV_API_KEY="AI_GATEWAY_API_KEY=vck_line"\n')
+        self.assertEqual(pwa_router.jev_credentials()[1], "vck_line")
+        self.write_env("export HERMES_PWA_JEV_API_KEY='sk-or-v1-abc'\n")
+        self.assertEqual(pwa_router.jev_credentials()[0].name, "openrouter")
+
+    def test_the_env_file_wins_and_hermes_keys_are_the_fallback(self):
+        with patch.dict(os.environ, {"HERMES_PWA_JEV_API_KEY": "vck_old"}):
+            self.write_env("HERMES_PWA_JEV_API_KEY=vck_new\n")
+            self.assertEqual(pwa_router.jev_credentials()[1], "vck_new")
+        self.write_env("AI_GATEWAY_API_KEY=vck_hermes\n")
+        self.assertEqual([*map(lambda x: getattr(x, "name", x), pwa_router.jev_credentials())], ["vercel", "vck_hermes"])
+        self.write_env("OPENROUTER_API_KEY=sk-or-hermes\nHERMES_PWA_JEV_API_KEY=op://vault/item/key\n")
+        self.assertEqual(pwa_router.jev_credentials()[0].name, "openrouter")
+
+    def test_status_says_which_service_without_the_key(self):
+        self.assertEqual(pwa_router.status()["keyConfigured"], False)
+        self.assertIsNone(pwa_router.status()["provider"])
+        self.write_env("HERMES_PWA_JEV_API_KEY=vck_secret_value\n")
+        status = pwa_router.status()
+        self.assertEqual((status["keyConfigured"], status["provider"], status["keyName"]), (True, "Vercel AI Gateway", "HERMES_PWA_JEV_API_KEY"))
+        self.assertNotIn("vck_secret_value", json.dumps(status))
 
 
 class HookAndLogTests(TempHome):
@@ -209,6 +319,16 @@ class HookAndLogTests(TempHome):
         self.assertIsNone(self.hook("hello", parent_session_id="parent"))
         self.assertIsNone(self.hook("[Background process notification] job 4 finished"))
         self.assertIsNone(self.hook("   "))
+
+    def test_a_key_added_later_works_without_a_restart(self):
+        bot_graph.save(ROUTER_ON_TOP)
+        pwa_router.save_settings({"enabled": True})
+        self.assertIn("no Jev key on the Mac", self.hook("hello"))
+        (Path(self.tmp.name) / ".env").write_text("HERMES_PWA_JEV_API_KEY=vck_test\n", encoding="utf-8")
+        post = vercel_answer("answer", 0.97)
+        self.assertIn("picked you to answer it yourself (97% sure)", self.hook("what is 15% of 2340?", post=post))
+        self.assertEqual(post.calls[0]["headers"]["Authorization"], "Bearer vck_test")
+        self.assertEqual((pwa_router.recent()[0]["provider"], pwa_router.recent()[0]["zdr"]), ("vercel", True))
 
     def test_logs_each_decision_without_the_message(self):
         bot_graph.save(ROUTER_ON_TOP)
@@ -264,7 +384,8 @@ class RouteTests(TempHome):
         self.assertEqual(saved.status_code, 200, saved.text)
         self.assertTrue(saved.json()["settings"]["enabled"])
         with patch.dict(os.environ, {"OPENROUTER_API_KEY": "sk-or-test"}):
-            self.assertTrue(self.client.get("/router").json()["keyConfigured"])
+            body = self.client.get("/router").json()
+            self.assertEqual((body["keyConfigured"], body["provider"]), (True, "OpenRouter"))
         bad = self.client.put("/router", json={"minConfidence": 5})
         self.assertEqual(bad.status_code, 400)
         pwa_router.record({"route": "manager", "source": "jev", "confidence": 0.8}, bot="router", session_id="s-1", message="plan my week")

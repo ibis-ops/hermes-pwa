@@ -4,13 +4,21 @@ function sure(decision: RouterDecision): string {
   return decision.confidence !== null ? ` · Jev ${Math.round(decision.confidence * 100)}% sure` : '';
 }
 
-/** The small line under a router reply: who took the message, and how sure Jev was. */
-export function routeNoteText(decision: RouterDecision): string {
+function capitalized(text: string): string {
+  return text ? text.charAt(0).toUpperCase() + text.slice(1) : text;
+}
+
+/**
+ * The small line under a router reply: who took the message, and how sure Jev
+ * was. `detailed` (the Router sheet's list) also says why Jev did not decide.
+ */
+export function routeNoteText(decision: RouterDecision, options: { detailed?: boolean } = {}): string {
   if (decision.source === 'jev' && decision.route === ROUTER_SELF) return `Quick answer${sure(decision)}`;
   if (decision.source === 'jev' && decision.route) return `Sent to ${botLabel(decision.route)}${sure(decision)}`;
   if (decision.route === ROUTER_SELF) return 'Answered here';
   if (decision.guess) return 'Router decided · Jev was not sure';
-  if (decision.reason.includes('no OpenRouter key')) return 'Router decided · Jev not set up';
+  if (/no (jev|openrouter) key/i.test(decision.reason)) return 'Router decided · Jev not set up';
+  if (options.detailed && decision.reason) return `Router decided · ${capitalized(decision.reason)}`;
   return 'Router decided · Jev unavailable';
 }
 

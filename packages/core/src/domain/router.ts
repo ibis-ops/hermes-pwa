@@ -1,5 +1,5 @@
 /**
- * The router bot: Jev (TypeSafe's decision model, through OpenRouter) reads
+ * The router bot: Jev (TypeSafe's decision model, through Vercel AI Gateway or OpenRouter) reads
  * each message Sean sends the router and picks who takes it, the router itself
  * on its fast model or a bot it can hand work to. The plugin on the Mac makes
  * the call and keeps a short log; this is the app's side of it. Pure, no DOM.
@@ -15,7 +15,7 @@ export interface RouterSettings {
   enabled: boolean;
   /** The bot whose messages Jev routes. */
   bot: string;
-  /** OpenRouter model id for Jev. */
+  /** Jev's model id; empty means the service's own Jev. */
   jevModel: string;
   /** Below this, Jev's pick is a guess and the router decides itself. */
   minConfidence: number;
@@ -38,16 +38,27 @@ export interface RouterDecision {
   reason: string;
   ms: number | null;
   cost: number | null;
+  /** The service Jev was asked through ("vercel", "openrouter"), when it was asked. */
+  provider: string | null;
+  /** Whether that request asked for zero data retention; null when unknown. */
+  zdr: boolean | null;
 }
 
 export interface RouterStatus {
   settings: RouterSettings;
-  /** Whether the Mac has an OpenRouter key for Jev. */
+  /** Whether the Mac has a key for Jev. */
   keyConfigured: boolean;
+  /** The service the key is for ("Vercel AI Gateway", "OpenRouter"), when there is one. */
+  provider: string | undefined;
+  /** The .env name the plugin reads its own Jev key from. */
+  keyName: string;
   decisions: RouterDecision[];
 }
 
-const DEFAULT_SETTINGS: RouterSettings = { enabled: false, bot: 'router', jevModel: '~typesafe/jev-latest', minConfidence: 0.6 };
+/** The plugin's own Jev key in Hermes's .env, when the Mac does not say otherwise. */
+export const ROUTER_KEY_NAME = 'HERMES_PWA_JEV_API_KEY';
+
+const DEFAULT_SETTINGS: RouterSettings = { enabled: false, bot: 'router', jevModel: '', minConfidence: 0.6 };
 
 function str(value: unknown): string {
   return typeof value === 'string' ? value : '';
@@ -62,7 +73,7 @@ export function toRouterSettings(raw: unknown): RouterSettings {
   const settings: RouterSettings = {
     enabled: record.enabled === true,
     bot: str(record.bot) || DEFAULT_SETTINGS.bot,
-    jevModel: str(record.jevModel) || DEFAULT_SETTINGS.jevModel,
+    jevModel: str(record.jevModel),
     minConfidence: num(record.minConfidence) ?? DEFAULT_SETTINGS.minConfidence,
   };
   if (str(record.updatedAt)) settings.updatedAt = str(record.updatedAt);
@@ -87,6 +98,8 @@ export function toRouterDecision(raw: unknown): RouterDecision | undefined {
     reason: str(record.reason),
     ms: num(record.ms),
     cost: num(record.cost),
+    provider: str(record.provider) || null,
+    zdr: typeof record.zdr === 'boolean' ? record.zdr : null,
   };
 }
 
@@ -96,6 +109,8 @@ export function toRouterStatus(raw: unknown): RouterStatus {
   return {
     settings: toRouterSettings(record.settings),
     keyConfigured: record.keyConfigured === true,
+    provider: str(record.provider) || undefined,
+    keyName: str(record.keyName) || ROUTER_KEY_NAME,
     decisions: decisions.flatMap((entry) => {
       const decision = toRouterDecision(entry);
       return decision ? [decision] : [];

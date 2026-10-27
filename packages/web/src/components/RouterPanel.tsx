@@ -21,7 +21,18 @@ import { routeNoteText } from '../lib/routeNote';
 import { formatListTime } from '../lib/chatTime';
 
 const ROUTER_NAME = 'router';
-const KEY_COMMAND = 'hermes config set OPENROUTER_API_KEY sk-or-...';
+
+/** Run in Terminal on the Mac after copying the key: it goes from the clipboard into Hermes's .env, never through the app. */
+function keyCommand(keyName: string): string {
+  return `hermes config set ${keyName} "$(pbpaste)"`;
+}
+
+/** What the newest answered request says about zero data retention, if anything. */
+function zdrNote(decisions: RouterDecision[]): string {
+  const latest = decisions.find((decision) => decision.zdr !== null);
+  if (!latest) return '';
+  return latest.zdr ? ' Zero data retention is on.' : ' Zero data retention is off: your Vercel plan does not include it.';
+}
 const LEVELS: { label: string; value: number }[] = [
   { label: 'Relaxed', value: 0.5 },
   { label: 'Normal', value: 0.6 },
@@ -39,7 +50,7 @@ function DecisionRow({ decision }: { decision: RouterDecision }) {
       <span className="hm-router__decision-text">{decision.preview || 'A message'}</span>
       <span className="hm-router__decision-route hm-muted">
         {Number.isFinite(at) ? `${formatListTime(at)} · ` : ''}
-        {routeNoteText(decision)}
+        {routeNoteText(decision, { detailed: true })}
       </span>
     </li>
   );
@@ -133,7 +144,7 @@ function RouterSetup({ rest, bots, onStatus, onMapChanged }: SetupProps) {
           ))}
         </select>
       </label>
-      <p className="hm-router__note hm-muted">Jev reads each message you send Router, through OpenRouter.</p>
+      <p className="hm-router__note hm-muted">Jev reads each message you send Router, through your Vercel AI Gateway or OpenRouter key.</p>
       {problem ? (
         <p className="hm-router__note hm-router__note--error" role="alert">
           {problem}
@@ -157,7 +168,8 @@ function RouterSettingsBody({ rest, status, onStatus, onOpenBot }: SettingsProps
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<string | undefined>(undefined);
   const [copied, setCopied] = useState(false);
-  const { settings, keyConfigured, decisions } = status;
+  const { settings, keyConfigured, provider, keyName, decisions } = status;
+  const command = keyCommand(keyName);
 
   async function save(patch: Partial<Omit<RouterSettings, 'updatedAt'>>) {
     setBusy(true);
@@ -173,7 +185,7 @@ function RouterSettingsBody({ rest, status, onStatus, onOpenBot }: SettingsProps
 
   async function copyCommand() {
     try {
-      await navigator.clipboard.writeText(KEY_COMMAND);
+      await navigator.clipboard.writeText(command);
       setCopied(true);
       window.setTimeout(() => setCopied(false), 1600);
     } catch {
@@ -217,12 +229,12 @@ function RouterSettingsBody({ rest, status, onStatus, onOpenBot }: SettingsProps
             <span className="hm-router__row-label">Jev</span>
             <span className="hm-router__row-sub hm-muted">
               {keyConfigured
-                ? 'Connected through your OpenRouter key on the Mac.'
-                : `Not set up yet, so ${botLabel(settings.bot)} decides by itself. Add an OpenRouter key on the Mac, then restart the dashboard:`}
+                ? `Connected through ${provider ?? 'your key'} on the Mac.${zdrNote(decisions)}`
+                : `Not set up yet, so ${botLabel(settings.bot)} decides by itself. Copy your Vercel AI Gateway key, then run this in Terminal on the Mac:`}
             </span>
             {!keyConfigured ? (
               <button type="button" className="hm-router__command" onClick={() => void copyCommand()} aria-label="Copy the command">
-                <code>{KEY_COMMAND}</code>
+                <code>{command}</code>
                 <span className="hm-router__command-copy">{copied ? 'Copied' : 'Copy'}</span>
               </button>
             ) : null}
@@ -254,12 +266,14 @@ function RouterSettingsBody({ rest, status, onStatus, onOpenBot }: SettingsProps
         <p className="hm-router__note hm-muted">None yet. Message {botLabel(settings.bot)} and they show up here.</p>
       ) : (
         <ul className="hm-router__decisions">
-          {decisions.slice(0, 15).map((decision) => (
-            <DecisionRow key={`${decision.at}-${decision.key}`} decision={decision} />
+          {decisions.slice(0, 15).map((decision, index) => (
+            <DecisionRow key={`${decision.at}-${decision.key}-${index}`} decision={decision} />
           ))}
         </ul>
       )}
-      <p className="hm-router__note hm-muted">Jev reads each message you send {botLabel(settings.bot)}, through OpenRouter.</p>
+      <p className="hm-router__note hm-muted">
+        Jev reads each message you send {botLabel(settings.bot)}, through {provider ?? 'Vercel AI Gateway or OpenRouter'}.
+      </p>
       {problem ? (
         <p className="hm-router__note hm-router__note--error" role="alert">
           {problem}
@@ -304,7 +318,7 @@ export function RouterCard({ rest, bots, onMapChanged, onOpenBot }: RouterCardPr
       ? 'Off: Router answers everything itself.'
       : status.keyConfigured
         ? 'On: Jev picks who takes each message.'
-        : 'On, but Jev needs an OpenRouter key. Router decides for now.';
+        : 'On, but Jev needs its key on the Mac. Router decides for now.';
 
   return (
     <>

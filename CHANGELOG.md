@@ -7,14 +7,18 @@ All notable changes are documented here. The format follows
 
 ### Router with Jev, vault sync, and sheets that fit
 
-- **Router.** A router bot can sit on top of the team map. Jev, TypeSafe's decision model called
-  through OpenRouter, reads each message sent to it and picks who takes it: the router answers
-  quick ones itself on a fast model, and real work goes to the bot that owns it with
-  `delegate_task`. When Jev is unsure, unreachable or has no key, the router decides by itself.
-  Bots, Team sets the router up in one tap (a bot copied from the default one, on a fast model,
-  placed above the manager), and shows its settings and latest decisions. Under each router reply
-  the chat says where the message went and how sure Jev was. The OpenRouter key stays in Hermes's
-  `.env`; the decision log keeps only a short preview and a fingerprint of each message.
+- **Router.** A router bot can sit on top of the team map. Jev, TypeSafe's decision model, reads
+  each message sent to it and picks who takes it: the router answers quick ones itself on a fast
+  model, and real work goes to the bot that owns it with `delegate_task`. Jev is called through
+  Vercel AI Gateway (`/v1/evaluate`, asking for zero data retention, and without it when the
+  Vercel plan does not include it) or through OpenRouter, by the key the Mac has. When Jev is
+  unsure, unreachable, out of credits or has no key, the router decides by itself. Bots, Team
+  sets the router up in one tap (a bot copied from the default one, on a fast model, placed above
+  the manager), and shows its settings, its service and its latest decisions with the reason
+  when Jev did not decide. Under each router reply the chat says where the message went and how
+  sure Jev was. The key stays in Hermes's `.env` (`HERMES_PWA_JEV_API_KEY`, set with
+  `hermes config set`) and is read when needed, so a new key works without a restart; the
+  decision log keeps only a short preview and a fingerprint of each message.
 - **Obsidian in the tab bar, and Sync vault.** Obsidian has its own tab. Its screen has Sync vault:
   it opens Obsidian on the Mac in the background when it is closed, since Obsidian Sync only runs
   while it is open, rescans the notes, and offers to open Obsidian on the phone to pull them down.

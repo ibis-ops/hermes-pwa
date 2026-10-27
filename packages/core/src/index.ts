@@ -127,6 +127,7 @@ export {
   type TeamTreeNode,
 } from './domain/teamMap';
 export {
+  ROUTER_KEY_NAME,
   ROUTER_ROLE,
   ROUTER_SELF,
   routerTextKey,

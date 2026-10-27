@@ -19,12 +19,22 @@ describe('router', () => {
         { nope: true },
       ],
     });
-    expect(status.settings).toEqual({ enabled: true, bot: 'router', jevModel: '~typesafe/jev-latest', minConfidence: 0.7 });
+    expect(status.settings).toEqual({ enabled: true, bot: 'router', jevModel: '', minConfidence: 0.7 });
     expect(status.keyConfigured).toBe(true);
+    expect(status.keyName).toBe('HERMES_PWA_JEV_API_KEY');
+    expect(status.provider).toBeUndefined();
     expect(status.decisions.map((d) => [d.route, d.guess, d.source])).toEqual([
       [ROUTER_SELF, null, 'jev'],
       [null, 'manager', 'router'],
     ]);
     expect(toRouterStatus(undefined).settings.enabled).toBe(false);
+    const vercel = toRouterStatus({
+      keyConfigured: true,
+      provider: 'Vercel AI Gateway',
+      decisions: [{ at: '2026-10-27T21:00:00Z', route: 'answer', source: 'jev', confidence: 0.9, provider: 'vercel', zdr: true }],
+    });
+    expect(vercel.provider).toBe('Vercel AI Gateway');
+    expect([vercel.decisions[0]!.provider, vercel.decisions[0]!.zdr]).toEqual(['vercel', true]);
+    expect(status.decisions[0]!.zdr).toBeNull();
   });
 });

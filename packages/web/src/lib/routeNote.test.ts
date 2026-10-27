@@ -16,6 +16,8 @@ function decision(partial: Partial<RouterDecision>): RouterDecision {
     reason: '',
     ms: null,
     cost: null,
+    provider: null,
+    zdr: null,
     ...partial,
   };
 }
@@ -27,7 +29,11 @@ describe('route notes', () => {
     expect(routeNoteText(decision({ route: 'answer', source: 'router' }))).toBe('Answered here');
     expect(routeNoteText(decision({ guess: 'manager', confidence: 0.4 }))).toBe('Router decided · Jev was not sure');
     expect(routeNoteText(decision({ reason: 'no OpenRouter key on the Mac' }))).toBe('Router decided · Jev not set up');
+    expect(routeNoteText(decision({ reason: 'no Jev key on the Mac' }))).toBe('Router decided · Jev not set up');
     expect(routeNoteText(decision({ reason: 'Jev took too long' }))).toBe('Router decided · Jev unavailable');
+    expect(routeNoteText(decision({ reason: 'Vercel AI Gateway is out of credits' }), { detailed: true })).toBe(
+      'Router decided · Vercel AI Gateway is out of credits',
+    );
   });
 
   it('puts each note under the first reply after the message it was about', () => {
