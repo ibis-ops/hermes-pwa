@@ -32,6 +32,7 @@ describe('useChatStore', () => {
       liveStatus: '',
       queuedPrompts: [],
       lastFailedText: undefined,
+      cacheProfile: undefined,
     });
     useSessionsStore.setState({ sessions: [], loading: false, error: undefined, pinnedIds: [] });
     useActivityStore.setState({ items: [], loading: false, error: undefined });
@@ -1855,6 +1856,60 @@ describe('useChatStore', () => {
       expect(merged.preservedLocalTail).toEqual([]);
     });
 
+    it('keeps a finished turn REST has not stored yet when the turns before it share stored ids', () => {
+      // Turns 1 to 3 came from REST before (stored ids); turn 4 was sent and
+      // answered here and REST lags it. Nothing may be dropped.
+      const local = [...turns(1, 3, 's-'), user(4), assistant(4)];
+      const history = turns(1, 3, 's-');
+
+      const merged = mergeHistoryWithLocal(history, local);
+
+      expect(merged.messages.map((m) => m.text)).toEqual([
+        'question 1', 'answer 1', 'question 2', 'answer 2', 'question 3', 'answer 3', 'question 4', 'answer 4',
+      ]);
+      expect(merged.preservedLocalTail.map((m) => m.id)).toEqual(['u-4', 'a-4']);
+    });
+
+    it('drops the turns a capped REST transcript left out, by the shared ids', () => {
+      const local = turns(1, 30, 's-');
+      const history = turns(11, 30, 's-');
+
+      const merged = mergeHistoryWithLocal(history, local);
+
+      expect(merged.messages.filter((m) => m.role === 'user')).toHaveLength(20);
+      expect(merged.messages[0]?.id).toBe('s-u-11');
+      expect(merged.preservedLocalTail).toEqual([]);
+    });
+
+    it('does not repeat a turn REST caught up with while it was capping older ones', () => {
+      const local = [...turns(1, 30, 's-'), user(31), assistant(31)];
+      const history = turns(12, 31, 's-');
+
+      const merged = mergeHistoryWithLocal(history, local);
+
+      const users = merged.messages.filter((m) => m.role === 'user').map((m) => m.text);
+      expect(users).toHaveLength(20);
+      expect(new Set(users).size).toBe(20);
+      expect(users.at(-1)).toBe('question 31');
+      expect(merged.messages.at(-1)?.id).toBe('s-a-31');
+    });
+
+    it('keeps the partial reply and the steer bubble while REST holds only the user row', () => {
+      const local: Message[] = [
+        ...turns(1, 1, 's-'),
+        user(2, 's-u'),
+        { id: 'a-2', role: 'assistant', text: 'working on it', createdAt: 1005 },
+        { id: 'u-steer-9', role: 'user', text: 'also check logs', createdAt: 1006, displayKind: 'steer' },
+        { id: 'a-9', role: 'assistant', text: '', createdAt: 1007 },
+      ];
+      const history = [...turns(1, 1, 's-'), user(2, 's-u')];
+
+      const merged = mergeHistoryWithLocal(history, local);
+
+      expect(merged.messages.map((m) => m.id)).toEqual(['s-u-1', 's-a-1', 's-u-2', 'a-2', 'u-steer-9', 'a-9']);
+      expect(merged.preservedLocalTail.map((m) => m.id)).toEqual(['a-2', 'u-steer-9', 'a-9']);
+    });
+
     it('leaves an uncapped transcript alone when REST merely lags the finished answer', () => {
       const local = [user(1), assistant(1)];
       const history = [user(1, 'rest-u')];
@@ -2150,14 +2205,35 @@ describe('useChatStore', () => {
       expect(useChatStore.getState().messages).toEqual([]);
     });
 
-    it('a failed send drops the prompt from the queue and keeps its text for the composer', async () => {
+    it('a failed send keeps the prompt at the front and pauses the queue', async () => {
+      vi.useFakeTimers();
       useChatStore.setState({ sessionId: 's-1', streaming: false, messages: [], queuedPrompts: ['a', 'b'] });
       vi.mocked(rpcMock.request).mockRejectedValue(new Error('offline'));
+      useChatStore.getState().bindRpc(rpcMock);
+
+      await useChatStore.getState().drainQueuedPrompt(rpcMock);
+
+      expect(useChatStore.getState().queuedPrompts).toEqual(['a', 'b']);
+      // Still queued, so the composer is not handed a copy of it.
+      expect(useChatStore.getState().lastFailedText).toBeUndefined();
+      // Paused: going idle does not send 'b' ahead of 'a' or retry in a loop.
+      vi.mocked(rpcMock.request).mockClear();
+      useChatStore.getState().markIdle();
+      await vi.advanceTimersByTimeAsync(10);
+      expect(rpcMock.request).not.toHaveBeenCalled();
+      useChatStore.getState().bindRpc(undefined);
+      vi.useRealTimers();
+    });
+
+    it('a send that may have gone out is neither handed back nor sent again', async () => {
+      useChatStore.setState({ sessionId: 's-1', streaming: false, messages: [], queuedPrompts: ['a', 'b'] });
+      vi.mocked(rpcMock.request).mockRejectedValue(new Error('Disconnected'));
 
       await useChatStore.getState().drainQueuedPrompt(rpcMock);
 
       expect(useChatStore.getState().queuedPrompts).toEqual(['b']);
-      expect(useChatStore.getState().lastFailedText).toBe('a');
+      expect(useChatStore.getState().lastFailedText).toBeUndefined();
+      expect(useChatStore.getState().error).toMatch(/check whether hermes got it/i);
     });
 
     it('interrupt and send: the prompt waits at the front and goes out once the gateway reports idle', async () => {
@@ -2426,5 +2502,54 @@ describe('useChatStore', () => {
       useChatStore.getState().markIdle();
       expect(useActivityStore.getState().items.map((item) => item.id)).toEqual(['run-2', 'a-1']);
     });
+  });
+});
+
+describe('switching bots', () => {
+  beforeEach(() => {
+    window.localStorage.clear();
+  });
+
+  it('brings up the picked bot\'s cached chat at once and leaves the previous one under its own name', () => {
+    window.localStorage.setItem(
+      'hermes-pwa.activeSession.v4:research',
+      JSON.stringify({ profile: 'research', sessionId: 'live-r', storedSessionId: 'stored-r', messages: [{ id: 'r1', role: 'user', text: 'research question' }] }),
+    );
+    useChatStore.setState({
+      sessionId: 'live-d',
+      storedSessionId: 'stored-d',
+      messages: [{ id: 'd1', role: 'user', text: 'default question', createdAt: 1 }],
+      streaming: true,
+      error: undefined,
+      cacheProfile: 'default',
+      queuedPrompts: ['later'],
+      lastFailedText: undefined,
+      liveStatus: 'thinking',
+    });
+
+    useChatStore.getState().switchCacheProfile('research');
+
+    const state = useChatStore.getState();
+    expect(state).toMatchObject({ sessionId: 'live-r', storedSessionId: 'stored-r', cacheProfile: 'research', streaming: false, liveStatus: '' });
+    expect(state.messages.map((m) => m.text)).toEqual(['research question']);
+    expect(state.queuedPrompts).toEqual([]);
+  });
+
+  it('starts an empty chat for a bot with nothing cached', () => {
+    useChatStore.setState({ sessionId: 'live-d', storedSessionId: 'stored-d', messages: [{ id: 'd1', role: 'user', text: 'x', createdAt: 1 }], cacheProfile: 'default', streaming: false });
+
+    useChatStore.getState().switchCacheProfile('ops');
+
+    expect(useChatStore.getState()).toMatchObject({ sessionId: undefined, storedSessionId: undefined, messages: [], cacheProfile: 'ops' });
+  });
+
+  it('refreshes a chat under its own bot, never under the caller\'s', async () => {
+    useChatStore.setState({ sessionId: 'live-d', storedSessionId: 'stored-d', messages: [], cacheProfile: 'default', streaming: false });
+    const rest = { sessionMessages: vi.fn(async () => ({ messages: [] })) } as unknown as RestClient;
+
+    await useChatStore.getState().refreshHistory(rest, 'research');
+
+    expect(rest.sessionMessages).toHaveBeenCalledWith('stored-d', 'default');
+    expect(useChatStore.getState().cacheProfile).toBe('default');
   });
 });

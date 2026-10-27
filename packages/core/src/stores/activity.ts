@@ -9,14 +9,20 @@ export interface ActivityStore {
   error: string | undefined;
 
   load(rest: RestClient, profile?: string): Promise<void>;
+  /**
+   * Answer an approval. Resolves true once the answer went out (or the
+   * approval was already gone), false when it could not be sent, with the
+   * reason in `error` and the card kept so it can be tried again.
+   */
   respondApproval(
     rpc: RpcClient,
     id: string,
     decision: 'approve' | 'reject',
     sessionId?: string,
     choiceOverride?: 'once' | 'session' | 'always' | 'deny',
-  ): Promise<void>;
-  respondClarify(rpc: RpcClient, id: string, answer: string | Record<string, string | string[] | null>): Promise<void>;
+  ): Promise<boolean>;
+  /** As respondApproval, for a clarify question. */
+  respondClarify(rpc: RpcClient, id: string, answer: string | Record<string, string | string[] | null>): Promise<boolean>;
   /**
    * Take the gateway's `approval` and `clarify` questions (server→client
    * requests) and their `request.cancel` withdrawals. Returns the detach.
@@ -63,6 +69,13 @@ function mergeItemFields(existing: ActionItem, incoming: ActionItem): ActionItem
   const previous: Record<string, unknown> = { ...existing };
   for (const field of CARRIED_ITEM_FIELDS) {
     if (merged[field] === undefined && previous[field] !== undefined) merged[field] = previous[field];
+  }
+  // A question asked on the socket belongs to the live session it came on;
+  // the REST record's session key must not replace it, or the resync that
+  // reconciles open questions by session could never find the card again.
+  if (previous.serverRequestId !== undefined) {
+    if (previous.sessionId !== undefined) merged.sessionId = previous.sessionId;
+    if (previous.sourceSessionId !== undefined) merged.sourceSessionId = previous.sourceSessionId;
   }
   return merged as unknown as ActionItem;
 }
@@ -187,7 +200,7 @@ export const useActivityStore = create<ActivityStore>((set, get) => ({
   },
 
   async respondApproval(rpc, id, decision, sessionId, choiceOverride) {
-    if (approvalResponsesInFlight.has(id)) return;
+    if (approvalResponsesInFlight.has(id)) return false;
     approvalResponsesInFlight.add(id);
     try {
       const item = get().items.find((i) => i.id === id);
@@ -198,10 +211,10 @@ export const useActivityStore = create<ActivityStore>((set, get) => ({
         // An answer that never left keeps the card up so it can be tried again.
         if (rpc.respond(approval.serverRequestId, { choice }) === false) {
           set({ error: respondFailedError() });
-          return;
+          return false;
         }
         set((s) => ({ items: removeById(s.items, id) }));
-        return;
+        return true;
       }
       const resolvedSessionId = sessionId ?? item?.sessionId;
       if (!resolvedSessionId) {
@@ -213,11 +226,12 @@ export const useActivityStore = create<ActivityStore>((set, get) => ({
         ...(approval?.requestId ? { request_id: approval.requestId } : {}),
       });
       set((s) => ({ items: removeById(s.items, id) }));
+      return true;
     } catch (err) {
       if (isStaleApprovalError(err)) {
         const msg = 'Approval expired or was already handled.';
         set((s) => ({ items: removeById(s.items, id), error: msg }));
-        return;
+        return true;
       }
       const msg = err instanceof Error ? err.message : 'Failed to respond.';
       set({ error: msg });
@@ -238,13 +252,14 @@ export const useActivityStore = create<ActivityStore>((set, get) => ({
             : answer;
         if (rpc.respond(clarify.serverRequestId, { answers }) === false) {
           set({ error: respondFailedError() });
-          return;
+          return false;
         }
         set((s) => ({ items: removeById(s.items, id) }));
-        return;
+        return true;
       }
       await rpc.request('clarify.respond', { id, answer: typeof answer === 'string' ? answer : JSON.stringify(answer) });
       set((s) => ({ items: removeById(s.items, id) }));
+      return true;
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Failed to respond.';
       set({ error: msg });
@@ -316,8 +331,10 @@ export const useActivityStore = create<ActivityStore>((set, get) => ({
     set((s) => {
       const items = s.items.filter((item) => {
         if (item.kind !== 'approval' && item.kind !== 'clarify') return true;
-        const serverRequestId = (item as Approval | Clarify).serverRequestId;
-        if (!serverRequestId || item.sessionId !== sessionId) return true;
+        const card = item as Approval | Clarify;
+        const serverRequestId = card.serverRequestId;
+        if (!serverRequestId) return true;
+        if (item.sessionId !== sessionId && card.sourceSessionId !== sessionId) return true;
         return open.has(serverRequestId);
       });
       return items.length === s.items.length ? s : { items };

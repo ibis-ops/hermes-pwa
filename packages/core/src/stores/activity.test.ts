@@ -73,7 +73,7 @@ describe('useActivityStore', () => {
     });
     vi.mocked(rpcMock.request).mockRejectedValue(new Error('4009 no pending approval for session'));
 
-    await expect(useActivityStore.getState().respondApproval(rpcMock, 'a-1', 'approve')).resolves.toBeUndefined();
+    await expect(useActivityStore.getState().respondApproval(rpcMock, 'a-1', 'approve')).resolves.toBe(true);
 
     expect(useActivityStore.getState().items).toHaveLength(0);
     expect(useActivityStore.getState().error).toBe('Approval expired or was already handled.');
@@ -299,6 +299,37 @@ describe('useActivityStore', () => {
     await useActivityStore.getState().load(restMock as never, 'default');
 
     expect(useActivityStore.getState().items.map((i) => i.id)).toEqual(['q-live']);
+  });
+
+  it('a socket card merged with its REST record keeps its live session and still reconciles', async () => {
+    useActivityStore.setState({
+      items: [
+        {
+          id: 'q-live',
+          kind: 'approval',
+          status: 'needs_you',
+          title: 'Approval required',
+          summary: 'git push\nPush to origin',
+          sessionId: 'live-7',
+          sourceSessionId: 'live-7',
+          serverRequestId: 'srq-7',
+          command: 'git push',
+          createdAt: Date.now(),
+          highImpact: true,
+        } as import('../domain/activity').Approval,
+      ],
+    });
+    const restMock = {
+      pendingActions: vi.fn(async () => [
+        { id: 'approval:rest', kind: 'approval', status: 'needs_you', title: 'Approval required', summary: 'git push\nPush to origin', sessionId: 'agent:main:key', createdAt: Date.now(), highImpact: true },
+      ]),
+    };
+    await useActivityStore.getState().load(restMock as never, 'default');
+    expect(useActivityStore.getState().items[0]).toMatchObject({ sessionId: 'live-7', serverRequestId: 'srq-7' });
+
+    useActivityStore.getState().reconcileServerRequests('live-7', []);
+
+    expect(useActivityStore.getState().items).toEqual([]);
   });
 
   it('reconcileServerRequests drops the cards of questions the gateway no longer has open', () => {

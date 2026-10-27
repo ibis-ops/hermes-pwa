@@ -105,6 +105,9 @@ export function useChatSync(
   useEffect(() => {
     if (previousProfileRef.current === activeName) return;
     previousProfileRef.current = activeName;
+    // The store switches first and synchronously (a no-op when activate()
+    // already did), then the gateway is asked for the session's state.
+    useChatStore.getState().switchCacheProfile(activeName);
     if (!restoredRef.current) return;
     void (async () => {
       try {

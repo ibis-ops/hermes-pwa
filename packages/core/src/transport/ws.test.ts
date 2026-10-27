@@ -95,19 +95,21 @@ describe('makeWsConnection', () => {
     expect(MockWebSocket.instances[1]!.url).toBe('wss://example.com/api/ws?ticket=ticket-123');
   });
 
-  it('does not put the ticket in the URL after a plain drop (1006) before open', () => {
-    // 1006 is the network dying or a proxy timing out, not the server
-    // objecting to the ticket subprotocol; retrying over the query string
-    // would leak the ticket into proxy and access logs for nothing.
+  it('falls back once on 1006 before open, the only code a browser reports for a refused handshake', () => {
     const onClose = vi.fn();
     const conn = makeWsConnection('wss://example.com');
 
     conn.connect('ticket-123', vi.fn(), vi.fn(), onClose);
     MockWebSocket.instances[0]!.simulateClose(1006);
 
-    expect(MockWebSocket.instances).toHaveLength(1);
+    expect(MockWebSocket.instances).toHaveLength(2);
+    expect(MockWebSocket.instances[1]!.url).toBe('wss://example.com/api/ws?ticket=ticket-123');
+    expect(onClose).not.toHaveBeenCalled();
+
+    // The fallback failing too ends the attempt; no third socket.
+    MockWebSocket.instances[1]!.simulateClose(1006);
+    expect(MockWebSocket.instances).toHaveLength(2);
     expect(onClose).toHaveBeenCalledTimes(1);
-    expect(onClose.mock.calls[0]?.[0]).toMatchObject({ code: 1006 });
   });
 
   it('does not retry legacy fallback more than once for the same ticket', () => {

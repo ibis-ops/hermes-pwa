@@ -54,6 +54,9 @@ export const useProfilesStore = create<ProfilesStore>((set, get) => ({
   async activate(_rest, name) {
     const profiles = get().profiles.map((p) => ({ ...p, isActive: p.name === name }));
     writeSelectedProfile(name);
+    // The chat follows in the same tick: nothing may run against the previous
+    // bot's session under the new bot's name.
+    useChatStore.getState().switchCacheProfile(name);
     set({ profiles, activeName: name, error: undefined });
   },
 

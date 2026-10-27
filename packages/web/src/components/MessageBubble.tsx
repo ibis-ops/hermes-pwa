@@ -96,12 +96,12 @@ function MessageBubbleView({ message, rpc, rest, isLast, streaming, liveStatus, 
           </div>
         ) : null}
         <FileCards refs={attachments} rest={rest} tone="user" />
-        {showMeta || onInterruptSteer ? (
+        <div className="hm-message__meta-reveal" data-collapsed={showMeta || onInterruptSteer ? 'false' : 'true'}>
           <MessageMeta
             message={message}
             action={onInterruptSteer ? { label: 'Interrupt and send now', onClick: onInterruptSteer } : undefined}
           />
-        ) : null}
+        </div>
       </div>
     );
   }
@@ -163,7 +163,11 @@ function MessageBubbleView({ message, rpc, rest, isLast, streaming, liveStatus, 
       ) : null}
 
       {!active && <FileCards refs={extractFileRefs(message.text)} rest={rest} tone="assistant" />}
-      {showMeta || active ? <MessageMeta message={message} active={active} elapsedFrom={elapsedFrom} copyText={hasText ? message.text : undefined} /> : null}
+      {/* Older bubbles keep their time and Copy in the page, out of sight until
+          tapped or reached with the keyboard (screen readers always hear it). */}
+      <div className="hm-message__meta-reveal" data-collapsed={showMeta || active ? 'false' : 'true'}>
+        <MessageMeta message={message} active={active} elapsedFrom={elapsedFrom} copyText={hasText ? message.text : undefined} />
+      </div>
     </div>
   );
 }

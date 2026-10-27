@@ -43,21 +43,38 @@ describe('ApprovalCard', () => {
     expect(onApprove).toHaveBeenCalledWith('a-1');
   });
 
-  it('puts Deny before Approve and folds a long command', () => {
+  it('puts Deny before Approve, folds a long command, and opens it before it can be approved', () => {
     const command = Array.from({ length: 12 }, (_, i) => `echo line ${i + 1}`).join('\n');
+    const onApprove = vi.fn();
     render(
       <ApprovalCard
         item={{ id: 'a-1', kind: 'approval', status: 'needs_you', title: 'shell.exec', command, commandComplete: true, highImpact: true, visibility: 'private', createdAt: 1 }}
-        onApprove={vi.fn()}
+        onApprove={onApprove}
         onReject={vi.fn()}
       />
     );
     const buttons = screen.getAllByRole('button').map((b) => b.textContent);
-    expect(buttons.indexOf('Deny')).toBeLessThan(buttons.indexOf('Approve'));
+    expect(buttons.indexOf('Deny')).toBeLessThan(buttons.indexOf('Read command'));
     expect(screen.getByText(/Show full command \(12 lines\)/)).toBeInTheDocument();
     expect(screen.queryByText(/echo line 12/)).toBeNull();
-    fireEvent.click(screen.getByRole('button', { name: /Show full command/ }));
+
+    // The approve button opens the command first instead of approving unseen lines.
+    fireEvent.click(screen.getByRole('button', { name: 'Show the full command before approving' }));
+    expect(onApprove).not.toHaveBeenCalled();
     expect(screen.getByText(/echo line 12/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Approve' }));
+    expect(onApprove).toHaveBeenCalledWith('a-1');
+  });
+
+  it('counts characters, not lines, for a long one-line command', () => {
+    render(
+      <ApprovalCard
+        item={{ id: 'a-2', kind: 'approval', status: 'needs_you', title: 'shell.exec', command: `curl ${'x'.repeat(700)}`, commandComplete: true, highImpact: true, visibility: 'private', createdAt: 1 }}
+        onApprove={vi.fn()}
+        onReject={vi.fn()}
+      />
+    );
+    expect(screen.getByText(/Show full command \(705 characters\)/)).toBeInTheDocument();
   });
 
   it('approves on click', () => {

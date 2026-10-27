@@ -4864,3 +4864,17 @@ html.hm-keyboard-open .hm-chat .hm-composer {
   height: 44px;
   transform: translate(-50%, -50%);
 }
+
+/* An older bubble's time and Copy: in the page for the keyboard and screen
+   readers, shown when tapped or when focus reaches it. */
+.hm-message__meta-reveal[data-collapsed='true']:not(:focus-within) {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}

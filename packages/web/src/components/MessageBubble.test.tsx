@@ -86,9 +86,10 @@ describe('MessageBubble', () => {
     const { container } = render(
       <MessageBubble rpc={rpcMock} isLast={false} message={{ id: '2d', role: 'assistant', text: 'Older answer', createdAt: 1_700_000_000 }} />,
     );
-    expect(screen.queryByTestId('message-meta')).toBeNull();
+    // Present for keyboards and screen readers, out of sight until tapped.
+    expect(screen.getByTestId('message-meta').closest('.hm-message__meta-reveal')).toHaveAttribute('data-collapsed', 'true');
     fireEvent.click(container.querySelector('.hm-message__text')!);
-    expect(screen.getByTestId('message-meta')).toBeInTheDocument();
+    expect(screen.getByTestId('message-meta').closest('.hm-message__meta-reveal')).toHaveAttribute('data-collapsed', 'false');
     expect(screen.getByRole('button', { name: /copy/i })).toBeInTheDocument();
   });
 

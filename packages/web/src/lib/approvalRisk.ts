@@ -53,3 +53,13 @@ export function useArmedAction(run: () => void, enabled: boolean): { armed: bool
   return { armed, trigger, disarm };
 }
 
+
+/** Lines and characters of a command an approval card shows before folding it. */
+export const COMMAND_PREVIEW_LINES = 8;
+export const COMMAND_PREVIEW_CHARS = 600;
+
+/** Whether a command is long enough to be folded (and must be opened before approving). */
+export function isLongCommand(text: string | undefined): boolean {
+  if (!text) return false;
+  return text.split('\n').length > COMMAND_PREVIEW_LINES || text.length > COMMAND_PREVIEW_CHARS;
+}

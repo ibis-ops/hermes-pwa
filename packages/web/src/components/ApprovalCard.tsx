@@ -3,12 +3,13 @@ import type { Approval } from '@hermes-pwa/core';
 import { Icon } from './Icon';
 import { approvalText } from './approvalText';
 import { CommandBlock } from './approvalUi';
-import { needsConfirmation, riskLabel, useArmedAction } from '../lib/approvalRisk';
+import { isLongCommand, needsConfirmation, riskLabel, useArmedAction } from '../lib/approvalRisk';
 
 interface ApprovalCardProps {
   item: Approval;
-  onApprove(id: string): void | Promise<void>;
-  onReject(id: string): void | Promise<void>;
+  /** Resolves false when the answer could not be sent (the card stays). */
+  onApprove(id: string): void | Promise<boolean | void>;
+  onReject(id: string): void | Promise<boolean | void>;
 }
 
 /**
@@ -27,7 +28,8 @@ export function ApprovalCard({ item, onApprove, onReject }: ApprovalCardProps) {
     setBusy(kind);
     setError(undefined);
     try {
-      await (kind === 'approve' ? onApprove(item.id) : onReject(item.id));
+      const sent = await (kind === 'approve' ? onApprove(item.id) : onReject(item.id));
+      if (sent === false) setError('Could not reach Hermes. Check the connection and try again.');
     } catch (err) {
       setError(err instanceof Error && err.message ? err.message : 'Could not send the answer. Try again.');
     } finally {
@@ -36,6 +38,14 @@ export function ApprovalCard({ item, onApprove, onReject }: ApprovalCardProps) {
   }
 
   const approve = useArmedAction(() => void run('approve'), needsConfirmation(item));
+  // A folded command is opened before it can be approved: what runs is what was read.
+  const [commandOpen, setCommandOpen] = useState(false);
+  const [commandSeen, setCommandSeen] = useState(false);
+  const unread = isLongCommand(shown.text) && !commandSeen;
+  const showCommand = (open: boolean) => {
+    setCommandOpen(open);
+    if (open) setCommandSeen(true);
+  };
 
   return (
     <div className="hm-approval-card" data-testid="approval-card" data-risk={risk.tone}>
@@ -51,7 +61,9 @@ export function ApprovalCard({ item, onApprove, onReject }: ApprovalCardProps) {
         {item.session && (
           <div className="hm-approval-card__session">{item.session}</div>
         )}
-        {shown.text && <CommandBlock text={shown.text} className="hm-approval-card__cmd" />}
+        {shown.text && (
+          <CommandBlock text={shown.text} className="hm-approval-card__cmd" expanded={commandOpen} onExpandedChange={showCommand} />
+        )}
         {shown.incomplete && (
           <div className="hm-approval-card__warning" role="alert">
             The command text is incomplete. Deny unless you know exactly what this is.
@@ -81,11 +93,11 @@ export function ApprovalCard({ item, onApprove, onReject }: ApprovalCardProps) {
           <button
             type="button"
             className={`hm-approval-card__approve${approve.armed ? ' hm-approval-card__approve--armed' : ''}`}
-            onClick={approve.trigger}
+            onClick={unread ? () => showCommand(true) : approve.trigger}
             disabled={busy !== null}
-            aria-label={approve.armed ? 'Confirm approve' : 'Approve'}
+            aria-label={unread ? 'Show the full command before approving' : approve.armed ? 'Confirm approve' : 'Approve'}
           >
-            {busy === 'approve' ? 'Approving…' : approve.armed ? 'Tap again to confirm' : 'Approve'}
+            {busy === 'approve' ? 'Approving…' : unread ? 'Read command' : approve.armed ? 'Tap again to confirm' : 'Approve'}
           </button>
         </div>
       </div>

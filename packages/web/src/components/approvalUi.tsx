@@ -1,19 +1,34 @@
-import { useState } from 'react';
+import { COMMAND_PREVIEW_CHARS, COMMAND_PREVIEW_LINES, isLongCommand } from '../lib/approvalRisk';
 
-/** Lines of a command shown before "Show full command". */
-const COMMAND_PREVIEW_LINES = 8;
-/** The command exactly as it will run, folded past a few lines. */
-export function CommandBlock({ text, className }: { text: string; className: string }) {
-  const [expanded, setExpanded] = useState(false);
-  const lines = text.split('\n');
-  const long = lines.length > COMMAND_PREVIEW_LINES || text.length > 600;
-  const shown = long && !expanded ? lines.slice(0, COMMAND_PREVIEW_LINES).join('\n').slice(0, 600) : text;
+function foldLabel(text: string): string {
+  const lines = text.split('\n').length;
+  return lines > 1 ? `Show full command (${lines} lines)` : `Show full command (${text.length} characters)`;
+}
+
+/**
+ * The command exactly as it will run, folded past a few lines. The card that
+ * shows it keeps Approve from running a folded command (see the cards): what
+ * is approved is always what was on screen.
+ */
+export function CommandBlock({
+  text,
+  className,
+  expanded,
+  onExpandedChange,
+}: {
+  text: string;
+  className: string;
+  expanded: boolean;
+  onExpandedChange: (expanded: boolean) => void;
+}) {
+  const long = isLongCommand(text);
+  const shown = long && !expanded ? text.split('\n').slice(0, COMMAND_PREVIEW_LINES).join('\n').slice(0, COMMAND_PREVIEW_CHARS) : text;
   return (
     <div className="hm-approval-command">
       <pre className={className} data-collapsed={long && !expanded ? 'true' : 'false'}>{shown}</pre>
       {long ? (
-        <button type="button" className="hm-approval-command__more" onClick={() => setExpanded((value) => !value)} aria-expanded={expanded}>
-          {expanded ? 'Show less' : `Show full command (${lines.length} lines)`}
+        <button type="button" className="hm-approval-command__more" onClick={() => onExpandedChange(!expanded)} aria-expanded={expanded}>
+          {expanded ? 'Show less' : foldLabel(text)}
         </button>
       ) : null}
     </div>

@@ -59,7 +59,7 @@ describe('Profiles', () => {
     expect(rest.profileActivate).not.toHaveBeenCalled();
   });
 
-  it("leaves the running chat and the other bot's cache alone when activating it (the shell restores it)", async () => {
+  it("brings up the other bot's own cached chat at once when activating it", async () => {
     const rest = makeRest();
     useChatStore.setState({
       sessionId: 'live-default',
@@ -85,16 +85,15 @@ describe('Profiles', () => {
     fireEvent.click(screen.getByRole('button', { name: /Activate research/i }));
 
     await waitFor(() => expect(useProfilesStore.getState().activeName).toBe('research'));
-    // Nothing is thrown away here: the default bot's turn keeps streaming in
-    // the store until the shell swaps in the research chat from its cache.
+    // The research bot's own chat comes up in the same tick; nothing of the
+    // default bot's session is left under the research name.
     expect(useChatStore.getState()).toMatchObject({
-      sessionId: 'live-default',
-      storedSessionId: 'stored-default',
-      streaming: true,
-      cacheProfile: 'default',
+      sessionId: 'live-research',
+      storedSessionId: 'stored-research',
+      streaming: false,
+      cacheProfile: 'research',
     });
-    expect(useChatStore.getState().messages.map((m) => m.text)).toEqual(['default profile draft']);
-    expect(window.localStorage.getItem('hermes-pwa.activeSession.v4:research')).not.toBeNull();
+    expect(useChatStore.getState().messages.map((m) => m.text)).toEqual(['old research chat']);
   });
 
   it('creates a profile', async () => {

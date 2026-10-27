@@ -190,6 +190,13 @@ export interface ChatStore {
   cancelQueuedPrompt(index: number): void;
   /** Send the next queued prompt; a busy answer puts it back at the front. */
   drainQueuedPrompt(rpc: RpcClient, profile?: string): Promise<void>;
+  /**
+   * Another bot was picked: bring up its own cached chat (or an empty one) at
+   * once, before anything async runs, so no refresh, send or queue drain in
+   * between can file the previous bot's session under the new bot. The
+   * previous bot's chat is written to its own cache first.
+   */
+  switchCacheProfile(profile: string | undefined): void;
   /** A profile was renamed on the gateway: the cached session follows it. */
   renameCacheProfile(from: string, to: string): void;
   /** A profile was deleted: drop its cached session (and the chat, when it was the one open). */
@@ -679,6 +686,30 @@ function pendingTailCount(userTurns: Message[][]): number {
   return count;
 }
 
+/** A stored row's id from the database, not the index-based one given to rows without an id. */
+function isStoredMessageId(id: string): boolean {
+  return !/^m-\d+$/.test(id) && !/^u-/.test(id);
+}
+
+/**
+ * The newest user turn both transcripts hold, matched by stored id: its index
+ * in each. Undefined when they share none (then the counts decide).
+ */
+function sharedUserAnchor(historyUserTurns: Message[][], localUserTurns: Message[][]): { history: number; local: number } | undefined {
+  const historyIndex = new Map<string, number>();
+  historyUserTurns.forEach((turn, index) => {
+    const id = turn[0]?.id;
+    if (id && isStoredMessageId(id)) historyIndex.set(id, index);
+  });
+  if (historyIndex.size === 0) return undefined;
+  for (let local = localUserTurns.length - 1; local >= 0; local -= 1) {
+    const id = localUserTurns[local]?.[0]?.id;
+    const history = id ? historyIndex.get(id) : undefined;
+    if (history !== undefined) return { history, local };
+  }
+  return undefined;
+}
+
 function pendingToolCalls(turn: Message[]): ToolCall[] {
   return turn.flatMap((m) => (m.role === 'assistant' ? (m.toolCalls ?? []).filter((t) => t.output === undefined) : []));
 }
@@ -735,18 +766,28 @@ export function mergeHistoryWithLocal(history: Message[], local: Message[]): { m
   const covered = userCount(historyTurns);
   let localUserTurns = localTurns.filter((turn) => turn[0]?.role === 'user');
   let localLead = localTurns[0]?.[0]?.role === 'user' ? [] : localTurns[0] ?? [];
-
-  // The only local turns REST can legitimately lack are pending ones it has
-  // not persisted yet (beyond the pending turns it already holds). Any more
-  // than that and REST is capped: drop the oldest local turns so the newest
-  // line up with it.
   const historyUserTurns = historyTurns.filter((turn) => turn[0]?.role === 'user');
-  const newerThanHistory = Math.max(0, pendingTailCount(localUserTurns) - pendingTailCount(historyUserTurns));
+
+  // How many local turns REST does not have yet. Anchored on the newest user
+  // row both sides share by its stored id (a refresh gives every turn REST
+  // holds its database id; a row sent since keeps its local id): local turns
+  // after the anchor beyond what REST has after it are newer than REST, and
+  // local turns before the anchor that REST lacks are the ones a capped REST
+  // transcript dropped. A finished reply REST has not stored yet stays, which
+  // a count of unfinished turns alone could not tell from a capped transcript.
+  const anchor = sharedUserAnchor(historyUserTurns, localUserTurns);
+  const newerThanHistory = anchor
+    ? Math.max(0, localUserTurns.length - 1 - anchor.local - (historyUserTurns.length - 1 - anchor.history))
+    : Math.max(0, pendingTailCount(localUserTurns) - pendingTailCount(historyUserTurns));
   const alignedLocalTurns = covered + newerThanHistory;
+  let trimmed = 0;
   if (localUserTurns.length > alignedLocalTurns) {
-    localUserTurns = localUserTurns.slice(localUserTurns.length - alignedLocalTurns);
+    trimmed = localUserTurns.length - alignedLocalTurns;
+    localUserTurns = localUserTurns.slice(trimmed);
     localLead = [];
   }
+  // Local index of a REST turn: the anchor pins it; without one, by position.
+  const offset = anchor ? anchor.local - trimmed - anchor.history : 0;
 
   const merged: Message[] = [];
   const preservedLocalTail: Message[] = [];
@@ -754,7 +795,7 @@ export function mergeHistoryWithLocal(history: Message[], local: Message[]): { m
   historyTurns.forEach((turn, index) => {
     const isLast = index === historyTurns.length - 1;
     const isLead = turn[0]?.role !== 'user';
-    const localTurn = isLead ? localLead : localUserTurns[index - (historyTurns[0]?.[0]?.role === 'user' ? 0 : 1)] ?? [];
+    const localTurn = isLead ? localLead : localUserTurns[index - (historyTurns[0]?.[0]?.role === 'user' ? 0 : 1) + offset] ?? [];
     let next = attachPendingToolCalls(turn, pendingToolCalls(localTurn));
     if (isLast && !hasCompletedAssistant(turn)) {
       // REST lags the live stream: keep the local assistant for this turn.
@@ -776,7 +817,7 @@ export function mergeHistoryWithLocal(history: Message[], local: Message[]): { m
   });
 
   // Local turns REST has not caught up with yet.
-  const newer = localUserTurns.slice(covered);
+  const newer = localUserTurns.slice(Math.max(0, covered + offset));
   for (const turn of newer) {
     merged.push(...turn);
     preservedLocalTail.push(...turn);
@@ -1308,7 +1349,25 @@ async function replaceMissingLiveSession(
  * happens unless the shell bound a socket and something is waiting, so a
  * bare store never sends on its own.
  */
+/**
+ * Set when a queued prompt could not be sent: the queue waits for the next
+ * successful send (or a new socket) instead of sending the prompts behind it
+ * out of order, or retrying in a loop against a gateway that is down.
+ */
+let queueDrainPaused = false;
+
+/**
+ * A send that failed after its frame may have gone out: the socket dropped or
+ * the gateway did not answer in time. It may be running anyway, so it is
+ * neither handed back to the composer nor sent again from the queue.
+ */
+function isAmbiguousSendError(err: unknown): boolean {
+  const message = err instanceof Error ? err.message : '';
+  return message === 'JSON-RPC request timed out' || message === 'Disconnected';
+}
+
 function afterIdle(): void {
+  if (queueDrainPaused) return;
   if (queuedPromptDrainTimer !== undefined) return;
   const rpc = boundRpc;
   if (!rpc || useChatStore.getState().queuedPrompts.length === 0) return;
@@ -1438,6 +1497,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
   bindRpc(rpc, getProfile) {
     boundRpc = rpc;
     boundProfileGetter = rpc ? getProfile : undefined;
+    if (rpc) queueDrainPaused = false;
     if (!rpc && queuedPromptDrainTimer !== undefined) {
       clearTimeout(queuedPromptDrainTimer);
       queuedPromptDrainTimer = undefined;
@@ -1484,7 +1544,47 @@ export const useChatStore = create<ChatStore>((set, get) => ({
       const requeued = { queuedPrompts: [text, ...current] };
       set(requeued);
       persistActiveSession({ ...get(), ...requeued });
+    } else if (result === 'failed' && get().lastFailedText !== undefined) {
+      // Definitely not sent: it waits at the front, the queue pauses, and the
+      // composer is not handed a copy of a prompt that is still queued.
+      queueDrainPaused = true;
+      const current = get().queuedPrompts;
+      const requeued = { queuedPrompts: [text, ...current], lastFailedText: undefined };
+      set(requeued);
+      persistActiveSession({ ...get(), ...requeued });
     }
+  },
+
+  switchCacheProfile(profile) {
+    const target = normalizeCacheProfile(profile);
+    if (!target || target === get().cacheProfile) return;
+    // The previous bot's latest rows land under its own key.
+    flushPendingActiveSessionPersist();
+    const cached = readActiveSessionCache(target);
+    const next = hasCachedData(cached) && (cached.profile ?? target) === target
+      ? {
+          sessionId: cached.sessionId,
+          storedSessionId: cached.storedSessionId,
+          messages: cached.messages,
+          streaming: false,
+          error: undefined,
+          liveStatus: '',
+          queuedPrompts: cached.queuedPrompts,
+          lastFailedText: undefined,
+          cacheProfile: target,
+        }
+      : {
+          sessionId: undefined,
+          storedSessionId: undefined,
+          messages: [] as Message[],
+          streaming: false,
+          error: undefined,
+          liveStatus: '',
+          queuedPrompts: [] as string[],
+          lastFailedText: undefined,
+          cacheProfile: target,
+        };
+    set(next);
   },
 
   renameCacheProfile(from, to) {
@@ -1567,8 +1667,13 @@ export const useChatStore = create<ChatStore>((set, get) => ({
   },
 
   async refreshHistory(rest, profile) {
-    const cacheProfile = resolveCacheProfile(profile, get().cacheProfile);
-    if (cacheProfile !== get().cacheProfile) set({ cacheProfile });
+    const current = get();
+    // A chat that already has a session refreshes under the bot it belongs
+    // to (a chat resumed from another bot, or one a bot switch is replacing);
+    // taking the caller's name would file that session under the wrong bot.
+    const owned = Boolean(current.cacheProfile && (current.sessionId || current.storedSessionId));
+    const cacheProfile = owned ? current.cacheProfile : resolveCacheProfile(profile, current.cacheProfile);
+    if (cacheProfile !== current.cacheProfile) set({ cacheProfile });
     const before = get();
     const quietFor = liveEventAgeMs();
     if (before.streaming) {
@@ -2086,19 +2191,26 @@ export const useChatStore = create<ChatStore>((set, get) => ({
             throw retryErr;
           }
         }
+        queueDrainPaused = false;
         return 'submitted';
       } catch (err) {
         // Not sent: take the optimistic rows back (events of another turn that
         // reached the placeholder meanwhile stay), and keep the text so the
-        // composer can offer it back.
+        // composer can offer it back. A send that may have gone out anyway
+        // (the socket dropped, no answer in time) is not handed back: sending
+        // it again could run it twice. The next history refresh shows it if
+        // Hermes got it.
+        const ambiguous = isAmbiguousSendError(err);
         const rolled = userRowId && assistantRowId
           ? rollbackOptimisticTurn(get().messages, userRowId, assistantRowId)
           : { messages: get().messages, receivedContent: false };
         const failed = {
           messages: rolled.messages,
           streaming: rolled.receivedContent ? get().streaming : streaming,
-          error: userFacingChatError(err, 'Submit failed.'),
-          lastFailedText: options?.displayText ?? text,
+          error: ambiguous
+            ? 'The connection dropped while sending. Check whether Hermes got it before sending it again.'
+            : userFacingChatError(err, 'Submit failed.'),
+          lastFailedText: ambiguous ? undefined : options?.displayText ?? text,
         };
         set(failed);
         persistActiveSession({ ...get(), ...failed });

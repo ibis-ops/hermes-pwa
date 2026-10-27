@@ -190,6 +190,9 @@ export function BottomSheet({
   // Drag on the grabber or the title row to pull the sheet down.
   const onDragStart = (event: ReactPointerEvent<HTMLDivElement>) => {
     if (closeDisabled || event.pointerType === 'mouse' && event.button !== 0) return;
+    // A press on Done or Cancel is a tap on that button, not the start of a
+    // drag: capturing the pointer here would take its click away.
+    if (event.target instanceof Element && event.target.closest('button, a, input, textarea, select')) return;
     const now = performance.now();
     dragRef.current = { startY: event.clientY, startAt: now, lastY: event.clientY, lastAt: now };
     setDragging(true);

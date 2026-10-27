@@ -54,12 +54,12 @@ export function makeWsConnection(baseWsUrl: string): WsConnection {
       socket.onclose = (event) => {
         if (ws !== socket) return;
 
-        // Only a handshake the server refused (a protocol or TLS close before
-        // open) justifies retrying with the ticket in the query string, where
-        // proxies and access logs can see it. A plain drop (1006) is the
-        // network, not the server objecting to the subprotocol, and must not
-        // leak the ticket into a URL.
-        const refusedHandshake = event.code === 1002 || event.code === 1015;
+        // A gateway that does not take the ticket subprotocol refuses the
+        // handshake, and browsers report every close before open as 1006, so
+        // that is the only signal there is: one retry per connect with the
+        // ticket in the query string. The ticket is single-use and lives for
+        // seconds, so the copy a proxy log might keep is already dead.
+        const refusedHandshake = event.code === 1006 || event.code === 1002 || event.code === 1015;
         if (!opened && !legacyQueryTicket && !legacyFallbackTried && refusedHandshake) {
           legacyFallbackTried = true;
           socket.onclose = null;

@@ -6,7 +6,7 @@ import { Icon } from './Icon';
 import { ConfirmSheet } from './ActionSheet';
 import { approvalText } from './approvalText';
 import { CommandBlock } from './approvalUi';
-import { needsConfirmation, riskLabel, useArmedAction } from '../lib/approvalRisk';
+import { isLongCommand, needsConfirmation, riskLabel, useArmedAction } from '../lib/approvalRisk';
 import { firstStringField } from '../lib/toolView';
 
 interface ApprovalInlineProps {
@@ -115,21 +115,33 @@ function ApprovalInlineView({ rpc, approval, toolScoped, toolName, submitting, s
 
   // Allowing a pattern for longer than this one run asks once more.
   const [asking, setAsking] = useState<'session' | 'always' | undefined>(undefined);
+  // A folded command is opened before anything can run it.
+  const [commandOpen, setCommandOpen] = useState(false);
+  const [commandSeen, setCommandSeen] = useState(false);
+  const unread = isLongCommand(shown.text) && !commandSeen;
+  const showCommand = (open: boolean) => {
+    setCommandOpen(open);
+    if (open) setCommandSeen(true);
+  };
 
   async function respond(choice: ApprovalChoice) {
     if (busy) return;
     setSubmitting(choice);
     setError(undefined);
     try {
-      await respondApproval(
+      const sent = await respondApproval(
         rpc,
         approval.id,
         choice === 'deny' ? 'reject' : 'approve',
         approval.sessionId,
         choice,
       );
+      if (!sent) setError(useActivityStore.getState().error ?? 'Could not reach Hermes. Check the connection and try again.');
     } catch (err) {
       setError(err instanceof Error && err.message ? err.message : 'Could not send the answer. Try again.');
+    } finally {
+      // Never left on "Running…": the card goes away once answered, and a
+      // failed or replayed answer gets its buttons back.
       setSubmitting(null);
     }
   }
@@ -157,7 +169,9 @@ function ApprovalInlineView({ rpc, approval, toolScoped, toolName, submitting, s
           {toolScoped ? `${toolName ?? 'A tool'} wants to run` : `${approval.title} wants to run`}
           {approval.session ? ` · ${approval.session}` : ''}
         </div>
-        {shown.text && <CommandBlock text={shown.text} className="hm-approval-inline__cmd" />}
+        {shown.text && (
+          <CommandBlock text={shown.text} className="hm-approval-inline__cmd" expanded={commandOpen} onExpandedChange={showCommand} />
+        )}
         {shown.incomplete && (
           <div className="hm-approval-inline__warning" role="alert">
             The command text is incomplete. Deny unless you know exactly what this is.
@@ -185,10 +199,10 @@ function ApprovalInlineView({ rpc, approval, toolScoped, toolName, submitting, s
             type="button"
             className={`hm-approval-inline__approve${approve.armed ? ' hm-approval-inline__approve--armed' : ''}`}
             disabled={busy}
-            onClick={approve.trigger}
-            aria-label={approve.armed ? 'Confirm run' : undefined}
+            onClick={unread ? () => showCommand(true) : approve.trigger}
+            aria-label={unread ? 'Show the full command before running it' : approve.armed ? 'Confirm run' : undefined}
           >
-            {approveLabel}
+            {unread ? 'Read command' : approveLabel}
           </button>
         </div>
         {offers('session') || offers('always') ? (
@@ -198,7 +212,7 @@ function ApprovalInlineView({ rpc, approval, toolScoped, toolName, submitting, s
                 type="button"
                 className="hm-approval-inline__always"
                 disabled={busy}
-                onClick={() => setAsking('session')}
+                onClick={() => (unread ? showCommand(true) : setAsking('session'))}
               >
                 {submitting === 'session' ? 'Allowing…' : 'Allow for this session'}
               </button>
@@ -208,7 +222,7 @@ function ApprovalInlineView({ rpc, approval, toolScoped, toolName, submitting, s
                 type="button"
                 className="hm-approval-inline__always hm-approval-inline__always--persistent"
                 disabled={busy}
-                onClick={() => setAsking('always')}
+                onClick={() => (unread ? showCommand(true) : setAsking('always'))}
               >
                 {submitting === 'always' ? 'Allowing…' : 'Always allow'}
               </button>
