@@ -47,6 +47,7 @@
     "bot_graph.py",
     "pwa_router.py",
     "obsidian_sync.py",
+    "plugin_copies.py",
     "scripts/install-plugin.mjs",
     "scripts/verify-pack.mjs",
     "scripts/check-version-consistency.mjs",

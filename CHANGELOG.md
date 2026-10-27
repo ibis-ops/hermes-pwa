@@ -5,6 +5,26 @@ All notable changes are documented here. The format follows
 
 ## Unreleased
 
+### Router audit, and every bot on the same plugin
+
+- **Obsidian works with any bot selected.** The Obsidian list, a note's text, delegated runs,
+  backups and the update check are about the whole Mac, so they no longer carry the selected
+  bot. With another bot selected, Hermes answered them from that bot's own, older copy of the
+  plugin, which had no notes list and showed `{"detail":"Not Found"}`. Errors from the Mac now
+  read as words instead of JSON.
+- **Bots on an older copy of the plugin.** Hermes copies each plugin into a bot when the bot is
+  cloned and updates only the copy it is asked about, so bots kept running old hooks without the
+  team map or the router notes. Bots, Team names any bot whose copy is behind the dashboard's and
+  gives the Terminal command that updates them.
+- **Router fixes from the audit.** A message with pictures sends Jev only its words, never image
+  data. Vercel's "add a card to unlock your free credits", "no providers available" and an answer
+  Jev cannot use each get their own reason instead of "out of credits", "refused the key" or
+  "could not be reached", and the Router card says when Jev did not answer the newest message
+  instead of a plain "On". Zero data retention shows as on
+  only when Vercel's routing notes say it applied (Vercel offers it on Pro and Enterprise plans,
+  and a Hobby team's flag does not apply). Router setup names the bot to copy with `clone_from`,
+  the field current Hermes reads, and keeps the older one for older Macs.
+
 ### Router with Jev, vault sync, and sheets that fit
 
 - **Router.** A router bot can sit on top of the team map. Jev, TypeSafe's decision model, reads

@@ -1098,7 +1098,8 @@ async def save_bots_graph(request: Request) -> JSONResponse:
 
 @router.get("/router", dependencies=[Depends(_require_dashboard_auth)])
 def router_status() -> JSONResponse:
-    """The router bot's settings, whether Jev has an OpenRouter key, and its newest decisions."""
+    """The router bot's settings, whether Jev has a key, which bots run an older copy of this
+    plugin, and the newest decisions."""
     return _data_response({**pwa_router.status(), "decisions": pwa_router.recent(limit=20)})
 
 

@@ -52,6 +52,13 @@ export interface RouterStatus {
   provider: string | undefined;
   /** The .env name the plugin reads its own Jev key from. */
   keyName: string;
+  /**
+   * Bots with their own copy of the plugin at an older version than the dashboard's: their hooks
+   * are old, so they miss the team map and (for the router) Jev's notes.
+   */
+  staleBots: string[];
+  /** Terminal command for the Mac that updates those copies; empty when none is stale. */
+  updateCommand: string;
   decisions: RouterDecision[];
 }
 
@@ -111,6 +118,8 @@ export function toRouterStatus(raw: unknown): RouterStatus {
     keyConfigured: record.keyConfigured === true,
     provider: str(record.provider) || undefined,
     keyName: str(record.keyName) || ROUTER_KEY_NAME,
+    staleBots: Array.isArray(record.staleBots) ? record.staleBots.filter((name): name is string => typeof name === 'string' && name.length > 0) : [],
+    updateCommand: str(record.updateCommand),
     decisions: decisions.flatMap((entry) => {
       const decision = toRouterDecision(entry);
       return decision ? [decision] : [];

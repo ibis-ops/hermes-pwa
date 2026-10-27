@@ -43,6 +43,58 @@ function errorText(err: unknown, fallback: string): string {
   return err instanceof Error && err.message ? err.message : fallback;
 }
 
+/** A Terminal command for the Mac, copied with one tap. */
+function CommandButton({ command }: { command: string }) {
+  const [copied, setCopied] = useState(false);
+
+  async function copy() {
+    try {
+      await navigator.clipboard.writeText(command);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1600);
+    } catch {
+      // No clipboard here; the command stays on screen to type.
+    }
+  }
+
+  return (
+    <button type="button" className="hm-router__command" onClick={() => void copy()} aria-label="Copy the command">
+      <code>{command}</code>
+      <span className="hm-router__command-copy">{copied ? 'Copied' : 'Copy'}</span>
+    </button>
+  );
+}
+
+function namesLine(names: string[]): string {
+  const labels = names.map(botLabel);
+  if (labels.length <= 1) return labels.join('');
+  if (labels.length === 2) return `${labels[0]} and ${labels[1]}`;
+  if (labels.length === 3) return `${labels[0]}, ${labels[1]} and ${labels[2]}`;
+  return `${labels.slice(0, 2).join(', ')} and ${labels.length - 2} more bots`;
+}
+
+/**
+ * Bots whose own copy of the plugin on the Mac is older than the dashboard's. Hermes copies a
+ * plugin into each bot it clones and updates only the copy it is asked about, so a bot can keep
+ * running old hooks: no team map, and for the router no Jev.
+ */
+function StaleCopies({ status }: { status: RouterStatus }) {
+  const { staleBots, updateCommand } = status;
+  if (staleBots.length === 0 || !updateCommand) return null;
+  return (
+    <div className="hm-router-stale" role="note" data-testid="router-stale">
+      <p className="hm-router-stale__title">
+        {namesLine(staleBots)} {staleBots.length === 1 ? 'runs' : 'run'} an older copy of this app&apos;s plugin
+      </p>
+      <p className="hm-router-stale__text">
+        A bot on an older copy can miss the team map and the router&apos;s notes. Run this in Terminal on the Mac, then restart the
+        gateway from System:
+      </p>
+      <CommandButton command={updateCommand} />
+    </div>
+  );
+}
+
 function DecisionRow({ decision }: { decision: RouterDecision }) {
   const at = Date.parse(decision.at);
   return (
@@ -167,9 +219,7 @@ interface SettingsProps {
 function RouterSettingsBody({ rest, status, onStatus, onOpenBot }: SettingsProps) {
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<string | undefined>(undefined);
-  const [copied, setCopied] = useState(false);
   const { settings, keyConfigured, provider, keyName, decisions } = status;
-  const command = keyCommand(keyName);
 
   async function save(patch: Partial<Omit<RouterSettings, 'updatedAt'>>) {
     setBusy(true);
@@ -180,16 +230,6 @@ function RouterSettingsBody({ rest, status, onStatus, onOpenBot }: SettingsProps
       setProblem(errorText(err, 'That did not save. Try again.'));
     } finally {
       setBusy(false);
-    }
-  }
-
-  async function copyCommand() {
-    try {
-      await navigator.clipboard.writeText(command);
-      setCopied(true);
-      window.setTimeout(() => setCopied(false), 1600);
-    } catch {
-      // No clipboard here; the command stays on screen to type.
     }
   }
 
@@ -232,12 +272,7 @@ function RouterSettingsBody({ rest, status, onStatus, onOpenBot }: SettingsProps
                 ? `Connected through ${provider ?? 'your key'} on the Mac.${zdrNote(decisions)}`
                 : `Not set up yet, so ${botLabel(settings.bot)} decides by itself. Copy your Vercel AI Gateway key, then run this in Terminal on the Mac:`}
             </span>
-            {!keyConfigured ? (
-              <button type="button" className="hm-router__command" onClick={() => void copyCommand()} aria-label="Copy the command">
-                <code>{command}</code>
-                <span className="hm-router__command-copy">{copied ? 'Copied' : 'Copy'}</span>
-              </button>
-            ) : null}
+            {!keyConfigured ? <CommandButton command={keyCommand(keyName)} /> : null}
           </span>
           <span className={`hm-router__dot${keyConfigured ? ' hm-router__dot--on' : ''}`} aria-hidden="true" />
         </div>
@@ -312,13 +347,19 @@ export function RouterCard({ rest, bots, onMapChanged, onOpenBot }: RouterCardPr
   if (!status) return error ? <p className="hm-router__note hm-router__note--error">{error}</p> : null;
 
   const exists = bots.includes(status.settings.bot);
+  // The newest message Jev did not answer at all (an account problem, a timeout), as opposed to
+  // one it answered unsure: worth saying on the card, since the router then decides alone.
+  const latest = status.decisions[0];
+  const unanswered = latest && latest.source === 'router' && latest.route === null && latest.guess === null && latest.reason ? latest.reason : '';
   const summary = !exists
     ? 'Jev reads each message and picks who takes it. Set it up in one tap.'
     : !status.settings.enabled
       ? 'Off: Router answers everything itself.'
-      : status.keyConfigured
-        ? 'On: Jev picks who takes each message.'
-        : 'On, but Jev needs its key on the Mac. Router decides for now.';
+      : !status.keyConfigured
+        ? 'On, but Jev needs its key on the Mac. Router decides for now.'
+        : unanswered
+          ? `On, but Jev did not answer last time: ${unanswered}. Router decides for now.`
+          : 'On: Jev picks who takes each message.';
 
   return (
     <>
@@ -345,6 +386,7 @@ export function RouterCard({ rest, bots, onMapChanged, onOpenBot }: RouterCardPr
           <Icon name="chevR" size={14} />
         </span>
       </button>
+      <StaleCopies status={status} />
       {open ? (
         <BottomSheet title={exists ? 'Router' : 'Set up Router'} onClose={() => setOpen(false)} contentClassName="hm-router-sheet">
           {exists ? (

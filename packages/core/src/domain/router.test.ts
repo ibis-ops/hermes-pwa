@@ -37,4 +37,11 @@ describe('router', () => {
     expect([vercel.decisions[0]!.provider, vercel.decisions[0]!.zdr]).toEqual(['vercel', true]);
     expect(status.decisions[0]!.zdr).toBeNull();
   });
+
+  it('reads which bots run an older copy of the plugin, and the command that updates them', () => {
+    expect([toRouterStatus({}).staleBots, toRouterStatus({}).updateCommand]).toEqual([[], '']);
+    const stale = toRouterStatus({ staleBots: ['manager', 7, '', 'gmail-connector'], updateCommand: 'hermes -p manager plugins update hermes-pwa' });
+    expect(stale.staleBots).toEqual(['manager', 'gmail-connector']);
+    expect(stale.updateCommand).toBe('hermes -p manager plugins update hermes-pwa');
+  });
 });

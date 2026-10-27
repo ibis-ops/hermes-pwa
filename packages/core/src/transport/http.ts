@@ -1,9 +1,31 @@
+/**
+ * The words of an error body: FastAPI answers `{"detail": "..."}`, and showing that JSON as is
+ * reads like a crash. A body that is not such JSON is kept whole.
+ */
+export function readableErrorBody(body: string): string {
+  const text = body.trim();
+  if (!text.startsWith('{')) return body;
+  try {
+    const parsed: unknown = JSON.parse(text);
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      for (const key of ['detail', 'error', 'message']) {
+        const value = (parsed as Record<string, unknown>)[key];
+        if (typeof value === 'string' && value.trim()) return value.trim();
+      }
+    }
+  } catch {
+    // Not JSON after all: keep the body.
+  }
+  return body;
+}
+
 export class HermesHttpError extends Error {
   readonly status: number;
+  /** The body exactly as the server sent it. */
   readonly body: string;
 
   constructor(status: number, statusText: string, body: string) {
-    super(body || statusText || `HTTP ${status}`);
+    super(readableErrorBody(body) || statusText || `HTTP ${status}`);
     this.name = 'HermesHttpError';
     this.status = status;
     this.body = body;

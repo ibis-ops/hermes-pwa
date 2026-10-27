@@ -5801,6 +5801,30 @@ button.hm-router-card:active {
   overflow-y: auto;
 }
 
+.hm-router-stale {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: var(--hm-color-warning-bg);
+}
+
+.hm-router-stale__title {
+  margin: 0;
+  color: var(--hm-color-text);
+  font-size: var(--hm-fs-small);
+  font-weight: var(--hm-fw-semibold);
+  line-height: 1.35;
+}
+
+.hm-router-stale__text {
+  margin: 0;
+  color: var(--hm-color-text-muted);
+  font-size: var(--hm-fs-label);
+  line-height: 1.4;
+}
+
 .hm-router {
   display: flex;
   flex-direction: column;

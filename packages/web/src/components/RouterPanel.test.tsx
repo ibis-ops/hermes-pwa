@@ -8,6 +8,8 @@ const OFF: RouterStatus = {
   keyConfigured: false,
   provider: undefined,
   keyName: 'HERMES_PWA_JEV_API_KEY',
+  staleBots: [],
+  updateCommand: '',
   decisions: [],
 };
 
@@ -96,6 +98,42 @@ describe('RouterCard', () => {
     expect(onOpenBot).toHaveBeenCalledWith('router');
   });
 
+  it('says which bots run an older copy of the plugin, with the command that updates them', async () => {
+    const stale: RouterStatus = {
+      ...OFF,
+      staleBots: ['manager', 'gmail-connector', 'signal-connector', 'router'],
+      updateCommand: 'for bot in manager gmail-connector signal-connector router; do hermes -p "$bot" plugins update hermes-pwa; done',
+    };
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+    render(<RouterCard rest={makeRest({ routerStatus: vi.fn().mockResolvedValue(stale) })} bots={[...PROFILES.map((p) => p.name), 'router']} onMapChanged={vi.fn()} />);
+    const note = await screen.findByTestId('router-stale');
+    expect(note).toHaveTextContent('Manager, Gmail Connector and 2 more bots run an older copy of this app\'s plugin');
+    fireEvent.click(within(note).getByRole('button', { name: 'Copy the command' }));
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith(stale.updateCommand));
+    expect(await within(note).findByText('Copied')).toBeInTheDocument();
+  });
+
+  it('says plainly On when Jev answered the newest message, even unsure', async () => {
+    const answered: RouterStatus = {
+      ...OFF,
+      settings: { ...OFF.settings, enabled: true },
+      keyConfigured: true,
+      provider: 'Vercel AI Gateway',
+      decisions: [
+        { at: '2026-10-27T21:10:00Z', bot: 'router', sessionId: 's', key: 'c', preview: 'hmm', route: null, guess: 'manager', confidence: 0.4, source: 'router', reason: 'Jev was not sure', ms: 210, cost: 0.00001, provider: 'vercel', zdr: null },
+      ],
+    };
+    render(<RouterCard rest={makeRest({ routerStatus: vi.fn().mockResolvedValue(answered) })} bots={[...PROFILES.map((p) => p.name), 'router']} onMapChanged={vi.fn()} />);
+    expect(await screen.findByRole('button', { name: 'Router settings' })).toHaveTextContent('On: Jev picks who takes each message.');
+  });
+
+  it('shows no update notice when every copy matches', async () => {
+    render(<RouterCard rest={makeRest()} bots={PROFILES.map((p) => p.name)} onMapChanged={vi.fn()} />);
+    await screen.findByRole('button', { name: 'Router settings' });
+    expect(screen.queryByTestId('router-stale')).toBeNull();
+  });
+
   it('says which service Jev runs through and whether zero data retention is on', async () => {
     const connected: RouterStatus = {
       ...OFF,
@@ -109,7 +147,8 @@ describe('RouterCard', () => {
     };
     render(<RouterCard rest={makeRest({ routerStatus: vi.fn().mockResolvedValue(connected) })} bots={[...PROFILES.map((p) => p.name), 'router']} onMapChanged={vi.fn()} />);
     const card = await screen.findByRole('button', { name: 'Router settings' });
-    expect(card).toHaveTextContent('On: Jev picks who takes each message.');
+    // The newest message got no answer from Jev, so the card says why instead of "On".
+    expect(card).toHaveTextContent('On, but Jev did not answer last time: Vercel AI Gateway is out of credits. Router decides for now.');
     fireEvent.click(card);
     const sheet = await screen.findByRole('dialog', { name: 'Router' });
     expect(within(sheet).getByTestId('router-key')).toHaveTextContent('Connected through Vercel AI Gateway on the Mac. Zero data retention is off');

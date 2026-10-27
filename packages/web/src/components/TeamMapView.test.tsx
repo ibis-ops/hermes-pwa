@@ -19,6 +19,8 @@ function restWith(saved: TeamMap | undefined, save: (map: TeamMap) => Promise<Te
     routerStatus: vi.fn().mockResolvedValue({
       settings: { enabled: false, bot: 'router', jevModel: '~typesafe/jev-latest', minConfidence: 0.6 },
       keyConfigured: false,
+      staleBots: [],
+      updateCommand: '',
       decisions: [],
     }),
   } as unknown as RestClient;

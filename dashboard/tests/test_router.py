@@ -54,20 +54,35 @@ def jev_answer(choice, confidence, cost=0.00002):
     return post
 
 
-def vercel_answer(choice, probability, *, refuse_zdr=False):
-    """Vercel's /v1/evaluate shape: probabilities only, the cost as text in the gateway metadata."""
+def vercel_answer(choice, probability, *, refuse_zdr=False, zdr_notes="applied"):
+    """Vercel's /v1/evaluate shape: probabilities only, the cost as text in the gateway metadata.
+
+    ``zdr_notes`` is what the routing notes say: "applied" (ZDR when asked, as Vercel documents),
+    "ignored" (a plan that lets the flag through without applying it) or "none" (no notes).
+    """
 
     def post(url, headers, body, timeout):
         sent = json.loads(body)
         post.calls.append({"url": url, "headers": headers, "body": sent, "timeout": timeout})
-        if refuse_zdr and sent.get("providerOptions", {}).get("gateway", {}).get("zeroDataRetention"):
-            raise pwa_router.JevHTTPError(403, '{"error":"Zero Data Retention is available on Pro and Enterprise plans"}')
+        asked = bool(sent.get("providerOptions", {}).get("gateway", {}).get("zeroDataRetention"))
+        if refuse_zdr and asked:
+            raise pwa_router.JevHTTPError(
+                400,
+                '{"error":"No ZDR (Zero Data Retention) providers available for model: typesafe-ai/jev.","type":"no_providers_available","statusCode":400}',
+            )
         rest = round(1 - probability, 4)
+        routing = {"finalProvider": "typesafe-ai"}
+        if zdr_notes != "none":
+            routing["planningReasoning"] = (
+                "ZDR requested: 1 attempts → 1 ZDR attempts. ZDR execution order: typesafe-ai(system)"
+                if asked and zdr_notes == "applied"
+                else "System credentials planned for: typesafe-ai"
+            )
         return {
             "model": "typesafe-ai/jev",
             "answers": {"route": {"type": "choice", "choice": choice, "probabilities": {choice: probability, "answer" if choice != "answer" else "manager": rest}}},
             "usage": {"inputTokens": 275, "outputTokens": 20},
-            "providerMetadata": {"gateway": {"cost": "0.00001155", "routing": {"finalProvider": "typesafe-ai"}}},
+            "providerMetadata": {"gateway": {"cost": "0.00001155", "routing": routing}},
         }
 
     post.calls = []
@@ -165,8 +180,55 @@ class DecideTests(unittest.TestCase):
         self.assertEqual(len(again.calls), 1)
         later = vercel_answer("manager", 0.8)
         result = pwa_router.decide("Plan my week", bot="router", settings=ON, graph=ROUTER_ON_TOP, routes=ROUTES,
-                                   key="vck_test", provider=pwa_router.VERCEL, post=later, now=1000.0 + 3700)
+                                   key="vck_test", provider=pwa_router.VERCEL, post=later,
+                                   now=1000.0 + pwa_router.ZDR_RETRY_SECONDS + 100)
         self.assertEqual(result["zdr"], True)
+
+    def test_vercels_own_hobby_answers_from_the_mac(self):
+        # Both bodies came back from Vercel for this Mac's key on 27 Oct 2026, on a Hobby team with
+        # a card on file and no paid credits.
+        zdr_body = (
+            '{"error":{"message":"Zero Data Retention (ZDR) is only available for Pro and Enterprise plans. Current plan: '
+            'hobby. Please upgrade your plan at https://vercel.com/d?to=%2F%5Bteam%5D%2F%7E%2Fsettings%2Fbilling to access '
+            'this feature.","type":"permission_denied"}}'
+        )
+        free_body = (
+            '{"error":{"message":"Free tier users do not have access to this model. Upgrade to paid credits at '
+            'https://vercel.com/d?to=%2F%5Bteam%5D%2F%7E%2Fai%3Fmodal%3Dtop-up for unrestricted access.",'
+            '"type":"no_providers_available"}}'
+        )
+
+        def hobby(url, headers, body, timeout):
+            sent = json.loads(body)
+            hobby.calls.append(sent)
+            if sent.get("providerOptions"):
+                raise pwa_router.JevHTTPError(403, zdr_body)
+            raise pwa_router.JevHTTPError(403, free_body)
+
+        hobby.calls = []
+        decision = pwa_router.decide("What is 15% of 2,340?", bot="router", settings=ON, graph=ROUTER_ON_TOP, routes=ROUTES,
+                                     key="vck_test", provider=pwa_router.VERCEL, post=hobby, now=5000.0)
+        # The plan's refusal of zero data retention is not the reason: it asked again without it.
+        self.assertEqual([("providerOptions" in sent) for sent in hobby.calls], [True, False])
+        self.assertEqual((decision["route"], decision["reason"]), (None, "Jev is not in Vercel AI Gateway's free tier"))
+        # And the next message goes straight to the question without zero data retention.
+        pwa_router.decide("hi", bot="router", settings=ON, graph=ROUTER_ON_TOP, routes=ROUTES, key="vck_test",
+                          provider=pwa_router.VERCEL, post=hobby, now=5060.0)
+        self.assertEqual([("providerOptions" in sent) for sent in hobby.calls], [True, False, False])
+
+    def test_zero_data_retention_counts_as_on_only_when_vercel_says_it_applied(self):
+        ignored = pwa_router.decide("Plan my week", bot="router", settings=ON, graph=ROUTER_ON_TOP, routes=ROUTES, key="vck_test",
+                                    provider=pwa_router.VERCEL, post=vercel_answer("manager", 0.8, zdr_notes="ignored"), now=1000.0)
+        self.assertEqual((ignored["route"], ignored["zdr"]), ("manager", False))
+        silent = pwa_router.decide("Plan my week", bot="router", settings=ON, graph=ROUTER_ON_TOP, routes=ROUTES, key="vck_test",
+                                   provider=pwa_router.VERCEL, post=vercel_answer("manager", 0.8, zdr_notes="none"), now=1000.0)
+        self.assertEqual((silent["route"], silent["zdr"]), ("manager", None))
+
+    def test_a_team_with_no_jev_provider_is_named_as_such(self):
+        body = '{"error":"No providers available for model: typesafe-ai/jev","type":"no_providers_available","statusCode":403}'
+        decision = pwa_router.decide("hi", bot="router", settings=ON, graph=ROUTER_ON_TOP, routes=ROUTES, key="vck_test",
+                                     provider=pwa_router.VERCEL, post=failing(403, body), now=1000.0)
+        self.assertEqual((decision["route"], decision["reason"]), (None, "Vercel AI Gateway has no Jev provider for this account"))
 
     def test_asks_jev_through_openrouter_and_follows_a_sure_pick(self):
         post = jev_answer("gmail-connector", 0.91)
@@ -224,6 +286,15 @@ class DecideTests(unittest.TestCase):
             (pwa_router.VERCEL, 403, '{"error":"Insufficient funds: add AI Gateway credits"}', "Vercel AI Gateway is out of credits"),
             (pwa_router.VERCEL, 403, '{"error":"This model is not available on the free tier"}', "Jev is not in Vercel AI Gateway's free tier"),
             (pwa_router.VERCEL, 429, "", "Vercel AI Gateway is rate limiting"),
+            # Vercel's answer to a team without a card, as it came back from the Mac on 27 Oct 2026.
+            (
+                pwa_router.VERCEL,
+                403,
+                '{"error":{"message":"AI Gateway requires a valid credit card on file to service requests. Please visit '
+                'https://vercel.com/d?to=%2F%5Bteam%5D%2F%7E%2Fai%3Fmodal%3Dadd-credit-card to add a card and unlock your '
+                'free credits.","type":"customer_verification_required"}}',
+                "Vercel AI Gateway needs a card on file",
+            ),
             (pwa_router.OPENROUTER, 402, "", "OpenRouter is out of credits"),
             (pwa_router.OPENROUTER, 500, "", "OpenRouter answered 500"),
         ]
@@ -240,10 +311,25 @@ class DecideTests(unittest.TestCase):
             pwa_router.decide("hi", bot="router", settings=ON, graph=ROUTER_ON_TOP, routes=ROUTES, key="k", post=timeout)["reason"],
             "Jev took too long",
         )
-        # A choice that is not one of the options is not followed.
-        self.assertIsNone(
-            pwa_router.decide("hi", bot="router", settings=ON, graph=ROUTER_ON_TOP, routes=ROUTES, key="k",
-                              post=jev_answer("signal-connector", 0.99))["route"]
+        # A choice that is not one of the options is not followed, and the reason says so.
+        stray = pwa_router.decide("hi", bot="router", settings=ON, graph=ROUTER_ON_TOP, routes=ROUTES, key="k",
+                                  post=jev_answer("signal-connector", 0.99))
+        self.assertEqual((stray["route"], stray["reason"]), (None, "Jev gave no usable answer"))
+
+        def not_json(url, headers, body, timeout):
+            return json.loads("<html>Bad gateway</html>")
+
+        self.assertEqual(
+            pwa_router.decide("hi", bot="router", settings=ON, graph=ROUTER_ON_TOP, routes=ROUTES, key="k", post=not_json)["reason"],
+            "Jev gave no usable answer",
+        )
+
+        def offline(url, headers, body, timeout):
+            raise OSError("nodename nor servname provided")
+
+        self.assertEqual(
+            pwa_router.decide("hi", bot="router", settings=ON, graph=ROUTER_ON_TOP, routes=ROUTES, key="k", post=offline)["reason"],
+            "Jev could not be reached",
         )
 
     def test_no_one_to_hand_to_means_answer(self):
@@ -304,6 +390,16 @@ class CredentialTests(TempHome):
         self.assertEqual((status["keyConfigured"], status["provider"], status["keyName"]), (True, "Vercel AI Gateway", "HERMES_PWA_JEV_API_KEY"))
         self.assertNotIn("vck_secret_value", json.dumps(status))
 
+    def test_status_lists_bots_on_an_older_copy_with_the_fix(self):
+        self.assertEqual((pwa_router.status()["staleBots"], pwa_router.status()["updateCommand"]), ([], ""))
+        with patch.object(pwa_router.plugin_copies, "stale_bots", return_value=["manager", "gmail-connector"]):
+            status = pwa_router.status()
+        self.assertEqual(status["staleBots"], ["manager", "gmail-connector"])
+        self.assertEqual(
+            status["updateCommand"],
+            'for bot in manager gmail-connector; do hermes -p "$bot" plugins update hermes-pwa; done',
+        )
+
 
 class HookAndLogTests(TempHome):
     def hook(self, message, session="s-1", **kwargs):
@@ -349,6 +445,33 @@ class HookAndLogTests(TempHome):
         raw = pwa_router.decisions_path().read_text(encoding="utf-8")
         self.assertNotIn("draft replies", raw)
         self.assertEqual(oct(pwa_router.decisions_path().stat().st_mode & 0o777), "0o600")
+
+    def test_a_message_with_a_picture_sends_jev_only_its_words(self):
+        bot_graph.save(ROUTER_ON_TOP)
+        pwa_router.save_settings({"enabled": True})
+        os.environ["AI_GATEWAY_API_KEY"] = "vck_test"
+        self.addCleanup(os.environ.pop, "AI_GATEWAY_API_KEY", None)
+        picture = "data:image/png;base64," + "iVBORw0KGgo" * 400
+        parts = [
+            {"type": "text", "text": "What is in this photo?"},
+            {"type": "image_url", "image_url": {"url": picture}},
+            {"type": "text", "text": "Keep it short."},
+        ]
+        post = vercel_answer("answer", 0.95)
+        self.assertIn("picked you to answer it yourself", self.hook(parts, post=post))
+        sent = post.calls[0]["body"]
+        self.assertEqual(sent["state"]["message"], "What is in this photo?\nKeep it short.")
+        self.assertNotIn("base64", json.dumps(sent))
+        self.assertEqual(pwa_router.recent()[0]["key"], pwa_router.text_key("What is in this photo?\nKeep it short."))
+        # Only pictures, no words: nothing to route on.
+        self.assertIsNone(self.hook([{"type": "image_url", "image_url": {"url": picture}}], post=post))
+        self.assertEqual(len(post.calls), 1)
+
+    def test_message_text_keeps_only_text_parts(self):
+        self.assertEqual(pwa_router.message_text("plain"), "plain")
+        self.assertEqual(pwa_router.message_text([{"type": "input_text", "text": "a"}, "b", {"text": "c"}, {"type": "file", "text": "x"}]), "a\nb\nc")
+        self.assertEqual(pwa_router.message_text(None), "")
+        self.assertEqual(pwa_router.message_text({"type": "text", "text": "solo"}), "solo")
 
     def test_log_keeps_the_newest(self):
         with patch.object(pwa_router, "LOG_KEEP", 3):
@@ -421,6 +544,13 @@ class RuntimeHookTests(TempHome):
             second = runtime._on_pre_llm_call(session_id="s-1", user_message="thanks")["context"]
             self.assertNotIn("You are Router", second)
             self.assertIn("Jev picked Manager", second)
+            # Hermes passes a message with a picture as a list of parts; Jev gets the words only.
+            third = runtime._on_pre_llm_call(
+                session_id="s-1",
+                user_message=[{"type": "text", "text": "Who is this from?"}, {"type": "image_url", "image_url": {"url": "data:image/png;base64,AAAA"}}],
+            )["context"]
+            self.assertIn("Jev picked Manager", third)
+            self.assertEqual(post.calls[-1]["body"]["state"]["message"], "Who is this from?")
             # A delegated child of the router is left alone.
             self.assertIsNone(runtime._on_pre_llm_call(session_id="c-1", parent_session_id="s-1", user_message="do it"))
 

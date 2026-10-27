@@ -34,10 +34,11 @@ from pathlib import Path
 from typing import Any, Callable
 
 try:  # Loaded as part of the plugin package (the hooks).
-    from . import bot_graph  # type: ignore
+    from . import bot_graph, plugin_copies  # type: ignore
     from .push_common import state_file_lock  # type: ignore
 except ImportError:  # Loaded on its own (the dashboard routes, the tests).
     import bot_graph  # type: ignore
+    import plugin_copies  # type: ignore
     from push_common import state_file_lock  # type: ignore
 
 logger = logging.getLogger(__name__)
@@ -67,8 +68,9 @@ KEY_SOURCES: tuple[tuple[str, JevProvider | None], ...] = (
     ("AI_GATEWAY_API_KEY", VERCEL),
     ("OPENROUTER_API_KEY", OPENROUTER),
 )
-# After Vercel refuses zero data retention (it needs a Pro plan), ask without it for this long.
-ZDR_RETRY_SECONDS = 3600
+# After Vercel refuses zero data retention (it needs a Pro plan), ask without it for this long:
+# each refusal costs a round trip, and a plan changes rarely.
+ZDR_RETRY_SECONDS = 6 * 3600
 DEFAULT_MIN_CONFIDENCE = 0.6
 MIN_CONFIDENCE_RANGE = (0.3, 0.95)
 JEV_TIMEOUT_SECONDS = 4.0
@@ -462,7 +464,19 @@ def ask_jev(
         "confidence": max(0.0, min(1.0, confidence)),
         "probabilities": probabilities,
         "cost": cost,
+        "zdrApplied": _zdr_applied(gateway),
     }
+
+
+def _zdr_applied(gateway: object) -> bool | None:
+    """Whether Vercel says it routed with zero data retention: its routing notes start "ZDR
+    requested" when it did. A team whose plan lacks it can send the flag without it applying, so
+    asking is not proof. None when the answer carries no routing notes."""
+    routing = gateway.get("routing") if isinstance(gateway, dict) else None
+    notes = routing.get("planningReasoning") if isinstance(routing, dict) else None
+    if not isinstance(notes, str) or not notes.strip():
+        return None
+    return bool(re.search(r"\bZDR\b|zero.?data.?retention", notes, re.I))
 
 
 def _short_error(exc: BaseException, provider: JevProvider = VERCEL) -> str:
@@ -471,10 +485,16 @@ def _short_error(exc: BaseException, provider: JevProvider = VERCEL) -> str:
     status = exc.status if isinstance(exc, JevHTTPError) else getattr(exc, "code", None)
     body = exc.body if isinstance(exc, JevHTTPError) else ""
     if isinstance(status, int):
-        if status == 402 or (status in (400, 403) and re.search(r"credit|insufficient|balance|funds|top.?up", body, re.I)):
-            return f"{label} is out of credits"
+        # Vercel serves no request, free credit included, until the team has a card on file.
+        if re.search(r"customer.?verification|credit card on file|add a card", body, re.I):
+            return f"{label} needs a card on file"
+        # Before the credits check: Vercel's free tier answer asks to "upgrade to paid credits".
         if re.search(r"free.?tier", body, re.I):
             return f"Jev is not in {label}'s free tier"
+        if status == 402 or (status in (400, 403) and re.search(r"credit|insufficient|balance|funds|top.?up", body, re.I)):
+            return f"{label} is out of credits"
+        if re.search(r"no.?providers?.?available", body, re.I):
+            return f"{label} has no Jev provider for this account"
         if status in (401, 403):
             return f"{label} refused the key"
         if status == 429:
@@ -482,6 +502,8 @@ def _short_error(exc: BaseException, provider: JevProvider = VERCEL) -> str:
         return f"{label} answered {status}"
     if isinstance(exc, TimeoutError) or "timed out" in str(exc).lower():
         return "Jev took too long"
+    if isinstance(exc, ValueError):  # an answer that is not JSON, or names no option
+        return "Jev gave no usable answer"
     return "Jev could not be reached"
 
 
@@ -560,7 +582,9 @@ def decide(
                     pass
         else:
             if provider is VERCEL:
-                decision["zdr"] = zdr
+                # Asked for it and Vercel's routing notes say so: on. Not asked: off. Asked, and
+                # the answer does not say: unknown, so the app claims nothing.
+                decision["zdr"] = answer.get("zdrApplied") if zdr else False
             decision.update(cost=answer["cost"], confidence=answer["confidence"])
             if answer["confidence"] >= float(settings.get("minConfidence") or DEFAULT_MIN_CONFIDENCE):
                 decision.update(route=answer["choice"], source="jev")
@@ -691,11 +715,26 @@ def recent(session_id: str = "", limit: int = 50) -> list[dict[str, Any]]:
 
 # Hermes wakes a bot with notices of its own (a finished background job, a delegated result).
 _NOTICE_RE = re.compile(r"^\s*\[[^\]\n]*(notification|notice|background|delegat|subagent|process|system|reminder|cron)", re.I)
+_TEXT_PARTS = (None, "text", "input_text")
+
+
+def message_text(raw: object) -> str:
+    """The words of a user message. Hermes passes a string, or a list of parts for a message with
+    pictures or files; only the text parts count, so no image data goes to Jev."""
+    if isinstance(raw, str):
+        return raw
+    words: list[str] = []
+    for part in raw if isinstance(raw, list) else [raw]:
+        if isinstance(part, str):
+            words.append(part)
+        elif isinstance(part, dict) and part.get("type") in _TEXT_PARTS and isinstance(part.get("text"), str):
+            words.append(part["text"])
+    return "\n".join(word for word in words if word.strip())
 
 
 def hook_context(
     session_id: str,
-    user_message: str,
+    user_message: object,
     *,
     parent_session_id: str = "",
     bot: str | None = None,
@@ -704,7 +743,7 @@ def hook_context(
     """The router note for this turn, or None when this bot is not the router or routing is off."""
     if not session_id or parent_session_id:
         return None
-    text = str(user_message or "").strip()
+    text = message_text(user_message).strip()
     if not text or _NOTICE_RE.match(text):
         return None
     settings = load_settings()
@@ -731,13 +770,20 @@ def hook_context(
 
 
 def status() -> dict[str, Any]:
-    """What the app shows: the settings, whether Jev can be asked, and through which service."""
+    """What the app shows: the settings, whether Jev can be asked and through which service, and
+    which bots run an older copy of this plugin (they miss the team map and the router notes)."""
     credentials = jev_credentials()
+    try:
+        stale = plugin_copies.stale_bots(bot_graph._root_hermes_home(), Path(__file__).resolve().parent)
+    except Exception:  # pragma: no cover - defensive: the status still answers
+        stale = []
     return {
         "settings": load_settings(),
         "keyConfigured": credentials is not None,
         "provider": credentials[0].label if credentials else None,
         "keyName": KEY_ENV,
+        "staleBots": stale,
+        "updateCommand": plugin_copies.update_command(stale),
     }
 
 

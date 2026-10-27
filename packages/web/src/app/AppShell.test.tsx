@@ -64,7 +64,7 @@ const restMock = {
   speechAudio: vi.fn().mockRejectedValue(new Error('not in tests')),
   obsidianActivity: vi.fn().mockResolvedValue({ available: true, vaults: [], notes: [], scannedAt: undefined, days: 60, total: 0, error: undefined }),
   obsidianSync: vi.fn().mockResolvedValue({ available: true, running: true, started: false }),
-  routerStatus: vi.fn().mockResolvedValue({ settings: { enabled: false, bot: 'router', jevModel: '~typesafe/jev-latest', minConfidence: 0.6 }, keyConfigured: false, decisions: [] }),
+  routerStatus: vi.fn().mockResolvedValue({ settings: { enabled: false, bot: 'router', jevModel: '~typesafe/jev-latest', minConfidence: 0.6 }, keyConfigured: false, staleBots: [], updateCommand: '', decisions: [] }),
   routerDecisions: vi.fn().mockResolvedValue([]),
 } as unknown as import('@hermes-pwa/core').RestClient;
 

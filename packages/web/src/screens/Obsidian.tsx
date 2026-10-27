@@ -170,6 +170,13 @@ function NoteRow({ note, onOpen }: { note: ObsidianNote; onOpen: (note: Obsidian
   );
 }
 
+function notesError(err: unknown): string {
+  if (err instanceof HermesHttpError && err.status === 404) {
+    return 'Your Mac did not answer with the notes list. Restart the Hermes dashboard on the Mac, then try again.';
+  }
+  return err instanceof Error && err.message ? err.message : 'Could not load the Obsidian activity.';
+}
+
 interface SyncNote {
   tone: 'ok' | 'error';
   text: string;
@@ -196,7 +203,7 @@ export function Obsidian({ rest }: ObsidianProps) {
       setError(undefined);
       setNowMs(Date.now());
     } catch (err) {
-      setError(err instanceof Error && err.message ? err.message : 'Could not load the Obsidian activity.');
+      setError(notesError(err));
     }
   }, [rest]);
 

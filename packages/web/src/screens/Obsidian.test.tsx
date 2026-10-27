@@ -148,4 +148,14 @@ describe('Obsidian', () => {
     expect(await screen.findByRole('status')).toHaveTextContent('Restart the Hermes dashboard on your Mac');
     expect(rest.obsidianActivity).toHaveBeenCalledTimes(2);
   });
+
+  it('explains a missing notes list in words, not the server JSON', async () => {
+    const rest = makeRest();
+    (rest as unknown as { obsidianActivity: () => Promise<never> }).obsidianActivity = vi
+      .fn()
+      .mockRejectedValue(new HermesHttpError(404, 'Not Found', '{"detail":"Not Found"}'));
+    render(<Obsidian rest={rest} />);
+    expect(await screen.findByText(/did not answer with the notes list/)).toBeInTheDocument();
+    expect(screen.queryByText(/detail/)).toBeNull();
+  });
 });

@@ -420,10 +420,36 @@ describe('makeRestClient', () => {
 
     const result = await client.updateCheck();
 
-    expect(httpMock).toHaveBeenCalledWith('/api/plugins/hermes-pwa/update/check');
+    expect(httpMock).toHaveBeenCalledWith('/api/plugins/hermes-pwa/update/check', { skipProfile: true });
     expect(result.updateAvailable).toBe(true);
     expect(result.canApply).toBe(false);
     expect(result.instructions[0]?.command).toBe('npx -y hermes-pwa@latest install --force');
+  });
+
+  it('asks about the whole Mac without the selected bot, so another bot\'s older plugin copy never answers', async () => {
+    httpMock.mockResolvedValue({});
+    await client.obsidianActivity(60);
+    await client.obsidianNote('Vault', 'Notes/a.md');
+    await client.agentHistory(30);
+    await client.opsBackups();
+    await client.updateCheck();
+    const calls = httpMock.mock.calls.map(([path, init]) => [new URL(String(path), 'https://hermes.test').pathname, init]);
+    expect(calls).toEqual([
+      ['/api/plugins/hermes-pwa/obsidian/activity', { skipProfile: true }],
+      ['/api/plugins/hermes-pwa/obsidian/note', { skipProfile: true }],
+      ['/api/plugins/hermes-pwa/agents/history', { skipProfile: true }],
+      ['/api/plugins/hermes-pwa/backups', { skipProfile: true }],
+      ['/api/plugins/hermes-pwa/update/check', { skipProfile: true }],
+    ]);
+  });
+
+  it('names the bot to copy when cloning from the default one, and keeps the older field', async () => {
+    httpMock.mockResolvedValue({ ok: true, name: 'router' });
+    await client.profileCreate({ name: 'router', clone_from_default: true, description: 'Front door' });
+    await client.profileCreate({ name: 'blank' });
+    const sent = httpMock.mock.calls.map(([, init]) => JSON.parse(String(init?.body)) as Record<string, unknown>);
+    expect(sent[0]).toEqual({ name: 'router', clone_from: 'default', clone_from_default: true, description: 'Front door' });
+    expect(sent[1]).toEqual({ name: 'blank' });
   });
 
   it('uses extended HTTP timeout for audio transcription and speech', async () => {

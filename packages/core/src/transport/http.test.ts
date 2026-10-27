@@ -19,6 +19,17 @@ describe('HermesHttpError', () => {
     const err = new HermesHttpError(503, '', '');
     expect(err.message).toBe('HTTP 503');
   });
+
+  it('reads the words out of a FastAPI error body and keeps the body as sent', () => {
+    const err = new HermesHttpError(404, 'Not Found', '{"detail":"Not Found"}');
+    expect(err.message).toBe('Not Found');
+    expect(err.body).toBe('{"detail":"Not Found"}');
+    expect(new HermesHttpError(400, 'Bad Request', ' {"error": "that voice is not installed"} ').message).toBe('that voice is not installed');
+    // Validation errors carry a list, not words: the body stays.
+    const list = '{"detail":[{"loc":["body","name"],"msg":"field required"}]}';
+    expect(new HermesHttpError(422, 'Unprocessable Entity', list).message).toBe(list);
+    expect(new HermesHttpError(500, 'Internal Server Error', '{oops').message).toBe('{oops');
+  });
 });
 
 describe('makeHttp', () => {

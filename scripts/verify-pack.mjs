@@ -42,6 +42,7 @@ const required = [
   'bot_graph.py',
   'pwa_router.py',
   'obsidian_sync.py',
+  'plugin_copies.py',
   'dashboard/manifest.json',
   'dashboard/plugin_api.py',
   'dashboard/dist/index.js',

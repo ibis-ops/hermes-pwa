@@ -35,6 +35,8 @@ const makeRest = (overrides = {}) =>
     routerStatus: vi.fn().mockResolvedValue({
       settings: { enabled: false, bot: 'router', jevModel: '~typesafe/jev-latest', minConfidence: 0.6 },
       keyConfigured: false,
+      staleBots: [],
+      updateCommand: '',
       decisions: [],
     }),
     ...overrides,

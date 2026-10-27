@@ -18,6 +18,9 @@ export interface ProfileActive {
 
 export interface ProfileCreateBody {
   name: string;
+  /** Copy settings, keys, skills and plugins from this bot. */
+  clone_from?: string;
+  /** Older Hermes name for `clone_from: 'default'`; sent along for Macs that predate `clone_from`. */
   clone_from_default?: boolean;
   clone_all?: boolean;
   no_skills?: boolean;

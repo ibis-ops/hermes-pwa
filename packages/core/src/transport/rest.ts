@@ -1,5 +1,5 @@
 import { toTeamMap, type TeamMap } from '../domain/teamMap';
-import type { Http } from './http';
+import type { Http, HermesRequestInit } from './http';
 import {
   PWA_BROWSE_ONLY_SESSION_SOURCES,
   PWA_NON_LOCAL_SESSION_SOURCES,
@@ -390,11 +390,18 @@ export interface RestClient {
 /** How far back the browse-only Sessions list reaches for delegated runs. */
 const BROWSE_ONLY_DELEGATED_DAYS = 30;
 
+/**
+ * For plugin calls about the whole Mac (every bot's notes and runs, backups, updates). With a
+ * `?profile=` for another bot, Hermes answers a plugin call from that bot's own copy of the
+ * plugin, which can be older than the one the dashboard runs and only sees that bot's history.
+ */
+const MAC_WIDE: HermesRequestInit = { skipProfile: true };
+
 export function makeRestClient(http: Http): RestClient {
   let activeProfile: string | undefined;
 
   async function agentHistoryRequest(days: number): Promise<AgentHistory> {
-    return toAgentHistory(await http<unknown>(`/api/plugins/hermes-pwa/agents/history?days=${encodeURIComponent(String(days))}`));
+    return toAgentHistory(await http<unknown>(`/api/plugins/hermes-pwa/agents/history?days=${encodeURIComponent(String(days))}`, MAC_WIDE));
   }
 
   return {
@@ -520,9 +527,12 @@ export function makeRestClient(http: Http): RestClient {
     },
 
     async profileCreate(body: ProfileCreateBody): Promise<ProfileCreateResult> {
+      // Hermes now names the source with clone_from and keeps clone_from_default only for older
+      // clients; send both so a later Hermes that drops the old name still clones.
+      const sent = body.clone_from_default && !body.clone_from ? { ...body, clone_from: 'default' } : body;
       const raw = await http<Record<string, unknown>>('/api/profiles', {
         method: 'POST',
-        body: JSON.stringify(body),
+        body: JSON.stringify(sent),
       });
       return toProfileCreateResult(raw);
     },
@@ -568,7 +578,7 @@ export function makeRestClient(http: Http): RestClient {
     },
 
     async opsBackups(): Promise<Checkpoint[]> {
-      const raw = await http<Record<string, unknown>>('/api/plugins/hermes-pwa/backups');
+      const raw = await http<Record<string, unknown>>('/api/plugins/hermes-pwa/backups', MAC_WIDE);
       return asArray<Record<string, unknown>>(raw.backups ?? raw).map(toCheckpoint);
     },
 
@@ -624,7 +634,7 @@ export function makeRestClient(http: Http): RestClient {
     },
 
     async updateCheck(): Promise<UpdateCheck> {
-      return toUpdateCheck(await http<Record<string, unknown>>('/api/plugins/hermes-pwa/update/check'));
+      return toUpdateCheck(await http<Record<string, unknown>>('/api/plugins/hermes-pwa/update/check', MAC_WIDE));
     },
 
     async cronJobs(profile = 'all'): Promise<CronJob[]> {
@@ -969,7 +979,7 @@ export function makeRestClient(http: Http): RestClient {
 
     async obsidianActivity(days = 60): Promise<ObsidianActivity> {
       return toObsidianActivity(
-        await http<unknown>(`/api/plugins/hermes-pwa/obsidian/activity?days=${encodeURIComponent(String(days))}`),
+        await http<unknown>(`/api/plugins/hermes-pwa/obsidian/activity?days=${encodeURIComponent(String(days))}`, MAC_WIDE),
       );
     },
 
@@ -981,6 +991,7 @@ export function makeRestClient(http: Http): RestClient {
       return toObsidianNoteContent(
         await http<unknown>(
           `/api/plugins/hermes-pwa/obsidian/note?vault=${encodeURIComponent(vault)}&path=${encodeURIComponent(path)}`,
+          MAC_WIDE,
         ),
       );
     },
