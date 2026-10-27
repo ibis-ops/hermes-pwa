@@ -132,10 +132,10 @@ export function Messaging({ rest }: MessagingProps) {
       {platforms !== undefined ? (
         <>
           <section className="hm-settings__section">
-            <h3 className="hm-settings__section-title">Bots</h3>
+            <h3 className="hm-settings__section-title">Set up</h3>
             <div className="hm-settings__section-body hm-bot-list">
               {active.length === 0 ? (
-                <p className="hm-bot-list__empty hm-muted">No bot is set up yet. Add one in the Hermes dashboard on the Mac.</p>
+                <p className="hm-bot-list__empty hm-muted">No chat app is set up yet. Add one in the Hermes dashboard on the Mac.</p>
               ) : (
                 active.map((p) => <PlatformRow key={p.id} platform={p} nowMs={nowMs} />)
               )}

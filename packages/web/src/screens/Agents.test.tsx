@@ -95,7 +95,7 @@ describe('Agents (history)', () => {
     expect(getByText('Yesterday')).toBeInTheDocument();
     const runs = getAllByTestId('agent-run');
     expect(runs.map((r) => r.getAttribute('data-status'))).toEqual(['completed', 'interrupted']);
-    expect(getByText('google-calander')).toBeInTheDocument();
+    expect(getByText('Google Calander')).toBeInTheDocument();
     expect(getByText('Check the calendar for today')).toBeInTheDocument();
     expect(getByText(/Done · claude-sonnet-5 · 1m 03s · 6 tools/)).toBeInTheDocument();
 

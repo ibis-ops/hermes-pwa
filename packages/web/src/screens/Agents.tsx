@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import {
+  botLabel,
   groupRunsByDay,
   useSpawnStore,
   useChatStore,
@@ -182,7 +183,7 @@ function RunRow({ run, nowMs }: { run: AgentRun; nowMs: number }) {
         <span className="hm-run__dot" aria-hidden="true" />
         <span className="hm-run__body">
           <span className="hm-run__line">
-            <span className="hm-run__bot">{run.bot}</span>
+            <span className="hm-run__bot">{botLabel(run.bot)}</span>
             <span className="hm-run__time hm-muted">{formatClockTime(run.startedAt)}</span>
           </span>
           <span className="hm-run__goal">{run.goal}</span>
@@ -200,7 +201,7 @@ function RunRow({ run, nowMs }: { run: AgentRun; nowMs: number }) {
           {run.parent ? (
             <p className="hm-run__parent hm-muted">
               Asked by {run.parent.title ? `“${run.parent.title}”` : 'a chat'}
-              {run.parent.profile && run.parent.profile !== run.bot ? ` (${run.parent.profile})` : ''}
+              {run.parent.profile && run.parent.profile !== run.bot ? ` (${botLabel(run.parent.profile)})` : ''}
             </p>
           ) : null}
           {run.result ? (

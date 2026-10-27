@@ -6049,3 +6049,46 @@ button.hm-router-card:active {
   color: var(--hm-color-accent-text);
   font-weight: var(--hm-fw-semibold);
 }
+
+/* A sheet's body reaches its edges with a negative margin so rows can run
+   edge to edge while their content keeps the gutter; the containment cap of
+   100% cut that margin off on the right, leaving every sheet lopsided. */
+.hm-sheet__body {
+  max-width: calc(100% + 2 * var(--hm-space-4));
+}
+
+/* Model names are long ("claude-haiku-4-5-20251001"): give the value more of the row and end it
+   with an ellipsis instead of cutting it under the chevron. */
+.hm-bot-details__field .hm-select {
+  flex: 1 1 auto;
+  max-width: 68%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* A run's meta line (status, model, time, tools, tokens) wraps instead of losing its end. */
+.hm-run__meta {
+  overflow: visible;
+  white-space: normal;
+}
+
+/* Notes inside a Settings group sit in the group's gutter, under the row they explain,
+   instead of running into the card's edges. */
+.hm-settings__section-body > p {
+  margin: -4px 0 0;
+  padding: 0 16px 12px;
+  font-size: var(--hm-fs-small);
+  line-height: 1.4;
+}
+
+.hm-settings__section-body > .hm-filter-chip {
+  margin: 0 16px 12px;
+  align-self: flex-start;
+}
+
+/* System: "2.1 GB / 8.0 GB used" wraps under the percentage instead of losing its end. */
+.hm-command__resource-detail {
+  overflow: visible;
+  white-space: normal;
+}

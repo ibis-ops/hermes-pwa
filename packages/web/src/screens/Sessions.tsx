@@ -287,11 +287,11 @@ export function Sessions({ rpc, rest, onSessionOpen }: SessionsProps) {
           aria-selected={scope === 'other'}
           onClick={() => switchScope('other')}
         >
-          Signal, scheduled, delegated
+          Signal &amp; jobs
         </button>
       </div>
       {readOnly ? (
-        <p className="hm-sessions__scope-hint hm-muted">Conversations the gateway runs on its own. Tap one to read it.</p>
+        <p className="hm-sessions__scope-hint hm-muted">Signal chats, scheduled jobs and delegated runs. Tap one to read it.</p>
       ) : null}
 
       {readOnly ? null : (

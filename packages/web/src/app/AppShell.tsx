@@ -1,6 +1,6 @@
 import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Approval, Clarify, ConnectionState, RpcClient, RestClient, RpcEvent, Session, UpdateCheck } from '@hermes-pwa/core';
-import { SPAWN_EVENT_TYPES, connectionStateLabel, sessionSourceId, sessionSourceLabel, useActivityStore, useProfilesStore, useSessionsStore, useChatStore, useConnectionStore, useProjectsStore, useSpawnStore } from '@hermes-pwa/core';
+import { SPAWN_EVENT_TYPES, botLabel, connectionStateLabel, sessionSourceId, sessionSourceLabel, useActivityStore, useProfilesStore, useSessionsStore, useChatStore, useConnectionStore, useProjectsStore, useSpawnStore } from '@hermes-pwa/core';
 import { Home } from '../screens/Home';
 import { ConnectionBanner } from '../components/ConnectionBanner';
 import { Icon, type IconName } from '../components/Icon';
@@ -704,7 +704,10 @@ export function AppShell({ connectionState, rpc, rest, onRetry }: AppShellProps)
   const activeProfile = profiles.find((p) => p.name === activeName);
   const activeModel = activeProfile?.model?.trim() || 'Model not set';
   const activeProvider = activeProfile?.provider?.trim();
-  const activeProfileLabel = activeProfile?.displayName ?? activeName ?? 'default';
+  // A Hermes display name is often just the profile name again; "gmail-connector" reads as "Gmail Connector".
+  const activeProfileName = activeProfile?.name ?? activeName ?? 'default';
+  const activeProfileLabel =
+    activeProfile?.displayName && activeProfile.displayName !== activeProfileName ? activeProfile.displayName : botLabel(activeProfileName);
   const modelDetail = activeProvider ? `${activeProvider} · ${activeProfileLabel}` : activeProfileLabel;
   const gatewayLabel = gatewayStatusLabel(settledConnectionState, gatewayHealth);
   const gatewayTone = gatewayStatusTone(connectionState, gatewayHealth);

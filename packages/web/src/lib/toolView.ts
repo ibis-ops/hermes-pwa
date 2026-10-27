@@ -170,6 +170,8 @@ function fallbackDetailText(args: Record<string, unknown>, result: Record<string
   return resultJson || argsJson;
 }
 
+const SALIENT_ARG_KEYS = ['command', 'query', 'search_term', 'goal', 'path', 'file', 'url', 'message', 'prompt', 'title', 'name', 'target', 'text'] as const;
+
 function toolSubtitle(tool: ToolCall, argsRecord: Record<string, unknown>, resultRecord: Record<string, unknown>): string {
   const toolName = tool.name;
 
@@ -229,6 +231,9 @@ function toolSubtitle(tool: ToolCall, argsRecord: Record<string, unknown>, resul
 
   const resultPreview = compactPreview(resultRecord, 120);
   if (resultPreview && resultPreview !== '{}' && resultPreview !== '[]') return resultPreview;
+  // The one argument that says what the tool was asked to do, rather than its arguments as JSON.
+  const salient = firstStringField(argsRecord, SALIENT_ARG_KEYS);
+  if (salient) return compactPreview(salient, 120);
   const argsPreview = compactPreview(argsRecord, 120);
   if (argsPreview && argsPreview !== '{}' && argsPreview !== '[]') return argsPreview;
   const fallback = fallbackDetailText(argsRecord, resultRecord);

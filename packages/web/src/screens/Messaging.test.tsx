@@ -27,7 +27,7 @@ describe('Messaging', () => {
   it('explains when nothing is set up', async () => {
     const rest = { messagingPlatforms: vi.fn().mockResolvedValue({ gatewayRunning: false, platforms: [overview.platforms[0]] }) } as unknown as RestClient;
     render(<Messaging rest={rest} />);
-    await waitFor(() => expect(screen.getByText(/No bot is set up yet/)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(/No chat app is set up yet/)).toBeInTheDocument());
     expect(screen.getByText(/The gateway is stopped/)).toBeInTheDocument();
   });
 });

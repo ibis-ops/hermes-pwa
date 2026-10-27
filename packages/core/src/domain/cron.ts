@@ -242,6 +242,9 @@ export interface ScheduleDescribeStrings {
   none: string;
   everyMinutes: string;
   everyHours: string;
+  /** "Every hour" and "Every minute" read better than "Every 1 hours"; they fall back to the plural form. */
+  everyHour?: string;
+  everyMinute?: string;
   everyDays: string;
   dailyAt: string;
   weeklyAt: string;
@@ -255,6 +258,8 @@ export const ENGLISH_SCHEDULE_STRINGS: ScheduleDescribeStrings = {
   none: '—',
   everyMinutes: 'Every {n} minutes',
   everyHours: 'Every {n} hours',
+  everyHour: 'Every hour',
+  everyMinute: 'Every minute',
   everyDays: 'Every {n} days',
   dailyAt: 'Daily at {time}',
   weeklyAt: 'Weekly on {days} at {time}',
@@ -269,7 +274,10 @@ export function describeSchedule(
   fallbackDisplay: string | undefined,
   strings: ScheduleDescribeStrings,
 ): string {
-  if (!schedule) return fallbackDisplay || strings.none;
+  if (!schedule) {
+    // A job that only carries its cron expression still reads as words when it can.
+    return (fallbackDisplay && describeCronExpression(fallbackDisplay, strings)) || fallbackDisplay || strings.none;
+  }
 
   if (schedule.kind === 'interval' && typeof schedule.minutes === 'number') {
     return describeInterval(schedule.minutes, strings);
@@ -320,6 +328,21 @@ function describeCronExpression(
   ];
 
   if (monField !== '*') return null;
+
+  // Repeating patterns: every N minutes ("*/15 * * * *"), every N hours ("0 */6 * * *"), hourly ("0 * * * *").
+  const everyDay = domField === '*' && dowField === '*';
+  const minuteStep = /^\*\/(\d+)$/.exec(minField);
+  if (everyDay && hourField === '*' && (minuteStep || minField === '*')) {
+    const n = minuteStep ? parseInt(minuteStep[1]!, 10) : 1;
+    if (n === 1) return strings.everyMinute ?? strings.everyMinutes.replace('{n}', '1');
+    if (n > 1 && n < 60) return strings.everyMinutes.replace('{n}', String(n));
+  }
+  const hourStep = /^\*\/(\d+)$/.exec(hourField);
+  if (everyDay && /^\d+$/.test(minField) && (hourStep || hourField === '*')) {
+    const n = hourStep ? parseInt(hourStep[1]!, 10) : 1;
+    if (n === 1) return strings.everyHour ?? strings.everyHours.replace('{n}', '1');
+    if (n > 1 && n < 24) return strings.everyHours.replace('{n}', String(n));
+  }
 
   const isLiteralOrList = (f: string) => /^\d+(,\d+)*$/.test(f) || /^\*$/.test(f);
   if (!isLiteralOrList(minField) || !isLiteralOrList(hourField)) return null;

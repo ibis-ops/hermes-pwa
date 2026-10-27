@@ -123,7 +123,7 @@ describe('Settings', () => {
     });
 
     render(<Settings rest={rest} onNavigate={vi.fn()} onLogout={vi.fn()} />);
-    await waitFor(() => expect(screen.getByText(/anthropic \/ claude-sonnet-4/)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(/claude-sonnet-4/)).toBeInTheDocument());
     fireEvent.click(screen.getByRole('button', { name: /Change/i }));
     await waitFor(() => expect(screen.getByDisplayValue('claude-sonnet-4')).toBeInTheDocument());
     fireEvent.change(screen.getByDisplayValue('claude-sonnet-4'), { target: { value: 'claude-opus-4' } });

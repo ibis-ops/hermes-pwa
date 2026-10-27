@@ -20,6 +20,14 @@ All notable changes are documented here. The format follows
   while it is open, rescans the notes, and offers to open Obsidian on the phone to pull them down.
 - **Sheets above everything.** Sheets and the image viewer render outside the screen that opens
   them, so the System screen's "Restart gateway" button is no longer cut off behind the tab bar.
+- **App walkthrough fixes.** Every sheet had a wider gutter on the right than on the left (a
+  containment cap cut off the body's negative margin); sheets are now even. Model names in a bot's
+  card end with an ellipsis instead of under the chevron. Cron jobs read as words ("Daily at 03:00",
+  "Every 15 minutes") and lost an empty badge. Agents shows bot names as labels and lets a run's
+  details wrap. Sessions' second view is "Signal & jobs" and fits. Settings notes keep their
+  gutter, the Voice row is shorter, and the Model row shows the model alone. Messaging calls its
+  enabled apps "Set up" instead of "Bots". The chat header shows the bot's label. A tool without a
+  known shape shows its key argument (the command, the query, the path) instead of raw JSON.
 - **Listen without the Mac voice.** The app asks the Mac ahead of time whether it can speak; when it
   cannot, a tap speaks with the phone's voice inside the tap, where iPhone allows it, and says so
   when the phone's voice does not start. Settings says when the Mac voice waits on a dashboard

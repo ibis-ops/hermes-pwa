@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { skillCommandSlug, useChatStore, useConnectionStore, useProfilesStore, useModelStore, useConfigStore } from '@hermes-pwa/core';
+import { skillCommandSlug, useChatStore, useConnectionStore, useProfilesStore, useModelStore, useConfigStore, botLabel } from '@hermes-pwa/core';
 import type { RestClient, SystemStats, ModelProvider, ReasoningEffort, PushStatus } from '@hermes-pwa/core';
 import { Icon } from '../components/Icon';
 import { BottomSheet } from '../components/BottomSheet';
@@ -119,7 +119,6 @@ export function Settings({ rest, onNavigate, onLogout }: SettingsProps) {
     ? (status.authProviders?.join(', ') || 'Basic')
     : (status ? 'None' : '—');
   const modelLabel = activeProfile?.model ?? info?.model ?? '—';
-  const providerLabel = activeProfile?.provider ?? info?.provider;
   const pushProfile = activeName || 'default';
   const pushCapability = useMemo(() => getPushCapability(), []);
   const iosSafari = useMemo(() => isIosSafari(), []);
@@ -315,7 +314,7 @@ export function Settings({ rest, onNavigate, onLogout }: SettingsProps) {
             <span className="hm-settings-row__label">Manage bots</span>
             {activeProfile && (
               <span className="hm-settings-row__sub hm-muted">
-                Active: {activeProfile.displayName ?? activeProfile.name}
+                Active: {activeProfile.displayName && activeProfile.displayName !== activeProfile.name ? activeProfile.displayName : botLabel(activeProfile.name)}
               </span>
             )}
           </span>
@@ -355,7 +354,7 @@ export function Settings({ rest, onNavigate, onLogout }: SettingsProps) {
         <SettingsRow label="Auth" value={authLabel} />
         <SettingsRow
           label="Model"
-          value={providerLabel ? `${providerLabel} / ${modelLabel}` : modelLabel}
+          value={modelLabel}
           action={
             <button
               type="button"

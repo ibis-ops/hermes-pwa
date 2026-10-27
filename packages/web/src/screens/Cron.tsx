@@ -273,10 +273,10 @@ export function Cron({ rest }: CronProps) {
                   <span className={`hm-badge ${paused ? 'hm-badge--pending' : 'hm-badge--pass'}`}>
                     {paused ? 'paused' : job.state ?? 'scheduled'}
                   </span>
-                  <span className="hm-badge">{job.profile}</span>
+                  {job.profile ? <span className="hm-badge">{job.profile}</span> : null}
                 </div>
                 <div className="hm-cron-card__meta">
-                  <span className="hm-mono hm-muted">{scheduleText}</span>
+                  <span className={`${/^[\d*/,\s-]+$/.test(scheduleText) ? 'hm-mono ' : ''}hm-muted`}>{scheduleText}</span>
                   <span className="hm-muted">next {formatTime(job.nextRun)}</span>
                   <span className="hm-muted">last {formatTime(job.lastRun)}</span>
                 </div>

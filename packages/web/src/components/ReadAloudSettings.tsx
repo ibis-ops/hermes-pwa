@@ -112,7 +112,7 @@ export function ReadAloudSettings({ rest }: { rest: RestClient }) {
   const hasNaturalVoice = macVoices.some((voice) => voice.quality !== 'standard');
   const sampling = reading.messageId === SAMPLE_ID && reading.status !== 'idle';
   const checking = voices === undefined && failed === undefined;
-  const voiceValue = checking ? 'Checking…' : onMac ? (chosen?.name ?? `Automatic (${automatic?.name ?? 'best'})`) : 'This phone';
+  const voiceValue = checking ? 'Checking…' : onMac ? (chosen?.name ?? automatic?.name ?? 'Automatic') : 'This phone';
 
   return (
     <>
@@ -129,7 +129,9 @@ export function ReadAloudSettings({ rest }: { rest: RestClient }) {
             {checking
               ? 'Looking for the voices on your Mac.'
               : onMac
-                ? 'Spoken on your Mac, so reply text stays there.'
+                ? chosen
+                  ? 'Spoken on your Mac.'
+                  : 'Automatic: the best voice on your Mac.'
                 : failed === 'restart'
                   ? "Your Mac's voices turn on once the Hermes dashboard restarts. Until then this phone reads."
                   : failed === 'unreachable'

@@ -29,7 +29,7 @@ describe('ReadAloudSettings', () => {
 
   it('shows the Mac voice it will use, and how to get a more natural one', async () => {
     render(<ReadAloudSettings rest={restWith(STANDARD_ONLY)} />);
-    await waitFor(() => expect(screen.getByTestId('read-aloud-voice')).toHaveTextContent('Automatic (Samantha)'));
+    await waitFor(() => expect(screen.getByTestId('read-aloud-voice')).toHaveTextContent('Samantha'));
     expect(screen.getByTestId('premium-voice-hint')).toHaveTextContent('Read & Speak');
   });
 
@@ -40,7 +40,7 @@ describe('ReadAloudSettings', () => {
       voices: [{ id: 'Ava (Premium)', name: 'Ava', lang: 'en-US', quality: 'premium' }, ...STANDARD_ONLY.voices],
     };
     render(<ReadAloudSettings rest={restWith(voices)} />);
-    await waitFor(() => expect(screen.getByTestId('read-aloud-voice')).toHaveTextContent('Automatic (Ava)'));
+    await waitFor(() => expect(screen.getByTestId('read-aloud-voice')).toHaveTextContent('Ava'));
     expect(screen.queryByTestId('premium-voice-hint')).toBeNull();
   });
 

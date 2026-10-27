@@ -199,7 +199,7 @@ describe('Sessions screen', () => {
     render(<Sessions rpc={rpcMock} rest={restMock} onSessionOpen={onSessionOpen} />);
     await waitFor(() => expect(screen.getByText(/No sessions yet/i)).toBeInTheDocument());
 
-    fireEvent.click(screen.getByRole('tab', { name: 'Signal, scheduled, delegated' }));
+    fireEvent.click(screen.getByRole('tab', { name: 'Signal & jobs' }));
     await waitFor(() => expect(screen.getAllByTestId('session-row')).toHaveLength(2));
     expect(restMock.browseOnlySessions).toHaveBeenCalledTimes(1);
     const rows = screen.getAllByTestId('session-row');
