@@ -223,8 +223,14 @@ def _on_pre_llm_call(**kwargs: Any) -> dict[str, str] | None:
     except Exception as exc:  # pragma: no cover - defensive: the turn goes ahead without the map
         logger.debug("Hermes PWA team map hook ignored error: %s", exc)
     try:
-        # As Hermes passed it: a string, or a list of parts when pictures came with it.
-        route = router_context(session_id, kwargs.get("user_message"), parent_session_id=parent_session_id)
+        # As Hermes passed it: a string, or a list of parts when pictures came with it. The history
+        # gives a follow-up the message before it, even after a restart.
+        route = router_context(
+            session_id,
+            kwargs.get("user_message"),
+            parent_session_id=parent_session_id,
+            history=kwargs.get("conversation_history"),
+        )
         if route:
             parts.append(route)
     except Exception as exc:  # pragma: no cover - defensive: the router decides for itself

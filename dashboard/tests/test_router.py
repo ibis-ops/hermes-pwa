@@ -343,18 +343,44 @@ class DirectiveTests(unittest.TestCase):
         answer = pwa_router.directive("router", {"route": "answer", "source": "jev", "confidence": 0.93, "options": options}, False)
         self.assertIn("picked you to answer it yourself (93% sure)", answer)
         hand = pwa_router.directive("router", {"route": "manager", "source": "jev", "confidence": 0.81, "options": options}, True)
-        self.assertIn("Jev picked Manager (@manager) for this (81% sure)", hand)
-        self.assertIn('profile "manager", role "orchestrator"', hand)
-        flat = pwa_router.directive("router", {"route": "gmail-connector", "source": "jev", "confidence": 0.8, "options": options}, True)
-        self.assertNotIn("orchestrator", flat)
+        self.assertIn('Jev picked Manager (@manager) for this (81% sure). Hand it over with delegate_task, profile "manager".', hand)
+        # Hermes derives a child's role from its depth and ignores one passed in, so none is asked for.
+        self.assertNotIn("orchestrator", hand)
+        self.assertIn("The bot does not see this chat", hand)
+        self.assertIn("Sean's message in his own words", hand)
         unsure = pwa_router.directive("router", {"route": None, "guess": "manager", "confidence": 0.4, "source": "router", "options": options}, False)
         self.assertIn("best guess Manager (@manager), 40%", unsure)
         self.assertIn("Decide yourself", unsure)
         self.assertIn("Gmail Connector (@gmail-connector): Reads and sends email", unsure)
+        self.assertIn("Bots you hand work to cannot hand it on from here", unsure)
+        nested = pwa_router.directive("router", {"route": None, "guess": "manager", "confidence": 0.4, "source": "router", "options": options}, True)
+        self.assertNotIn("cannot hand it on", nested)
         off = pwa_router.directive("router", {"route": None, "reason": "no Jev key on the Mac", "source": "router", "options": options}, False)
         self.assertIn("Jev did not decide this time (no Jev key on the Mac)", off)
-        for text in (answer, hand, flat, unsure, off):
-            self.assertNotIn("—", text)
+        for text in (answer, hand, unsure, nested, off):
+            self.assertNotIn("\u2014", text)
+
+    def test_a_team_job_is_split_by_the_router_when_bots_cannot_hand_work_on(self):
+        options = pwa_router.candidates("router", ROUTER_ON_TOP, ROUTES)
+        # Manager runs Gmail Connector and Signal Connector on the map; the router can reach Gmail Connector.
+        self.assertEqual(pwa_router.team_of("manager", ROUTER_ON_TOP, options), {"gmail-connector": "Reads and sends email in Sean's Gmail."})
+        self.assertEqual(pwa_router.team_of("gmail-connector", ROUTER_ON_TOP, options), {})
+        decision = pwa_router.decide("Plan my week across email and calendar", bot="router", settings=ON, graph=ROUTER_ON_TOP,
+                                     routes=ROUTES, key="k", post=jev_answer("manager", 0.95))
+        self.assertEqual(decision["team"], {"gmail-connector": "Reads and sends email in Sean's Gmail."})
+        split = pwa_router.directive("router", decision, False)
+        self.assertIn("Jev picked Manager (@manager) for this (95% sure): a job for Manager's team.", split)
+        self.assertIn("do Manager's part yourself", split)
+        self.assertIn("one task per bot and all in one call", split)
+        self.assertIn("Manager's team: Gmail Connector (@gmail-connector): Reads and sends email in Sean's Gmail.", split)
+        self.assertNotIn('profile "manager"', split)
+        # With deeper delegation on, Manager runs its own team.
+        self.assertIn('Hand it over with delegate_task, profile "manager".', pwa_router.directive("router", decision, True))
+        # A bot without a team is a plain handoff either way.
+        single = pwa_router.decide("Any new email?", bot="router", settings=ON, graph=ROUTER_ON_TOP, routes=ROUTES, key="k",
+                                   post=jev_answer("gmail-connector", 0.97))
+        self.assertEqual(single["team"], {})
+        self.assertIn('profile "gmail-connector"', pwa_router.directive("router", single, False))
 
 
 class CredentialTests(TempHome):
@@ -467,6 +493,40 @@ class HookAndLogTests(TempHome):
         self.assertIsNone(self.hook([{"type": "image_url", "image_url": {"url": picture}}], post=post))
         self.assertEqual(len(post.calls), 1)
 
+    def test_a_follow_up_after_a_restart_still_carries_the_earlier_message(self):
+        bot_graph.save(ROUTER_ON_TOP)
+        pwa_router.save_settings({"enabled": True})
+        os.environ["AI_GATEWAY_API_KEY"] = "vck_test"
+        self.addCleanup(os.environ.pop, "AI_GATEWAY_API_KEY", None)
+        self.hook("Check my inbox for anything from Friday", post=vercel_answer("gmail-connector", 0.95))
+        pwa_router.forget_previous()  # a gateway restart: nothing is left in memory
+        history = [
+            {"role": "user", "content": "Check my inbox for anything from Friday\n\n[Router note from Sean's phone app, for this message only.] Jev picked Gmail Connector"},
+            {"role": "assistant", "content": "Two emails came in on Friday."},
+            {"role": "user", "content": "and Saturday?"},
+        ]
+        post = vercel_answer("gmail-connector", 0.9)
+        self.assertIn("Jev picked Gmail Connector", self.hook("and Saturday?", post=post, history=history))
+        state = post.calls[0]["body"]["state"]
+        self.assertEqual((state["previous_message"], state["previous_route"]), ("Check my inbox for anything from Friday", "gmail-connector"))
+        # Another chat has no earlier message of its own.
+        other = vercel_answer("answer", 0.9)
+        self.hook("hello", session="s-9", post=other, history=[{"role": "user", "content": "hello"}])
+        self.assertNotIn("previous_message", other.calls[0]["body"]["state"])
+
+    def test_earlier_message_reads_the_chat_before_this_turn(self):
+        history = [
+            {"role": "user", "content": "first"},
+            {"role": "assistant", "content": "ok"},
+            {"role": "user", "content": "[Background process notification] job 4 finished"},
+            {"role": "user", "content": [{"type": "text", "text": "second"}, {"type": "image_url", "image_url": {"url": "data:,"}}]},
+            {"role": "user", "content": "now"},
+        ]
+        self.assertEqual(pwa_router.earlier_message(history, "now"), "second")
+        self.assertEqual(pwa_router.earlier_message(history[:-1], "now"), "second")  # this turn not in it yet
+        self.assertEqual(pwa_router.earlier_message(history[:2], "first"), "")
+        self.assertEqual(pwa_router.earlier_message(None, "now"), "")
+
     def test_message_text_keeps_only_text_parts(self):
         self.assertEqual(pwa_router.message_text("plain"), "plain")
         self.assertEqual(pwa_router.message_text([{"type": "input_text", "text": "a"}, "b", {"text": "c"}, {"type": "file", "text": "x"}]), "a\nb\nc")
@@ -540,7 +600,7 @@ class RuntimeHookTests(TempHome):
         ), patch.dict(os.environ, {"OPENROUTER_API_KEY": "sk-or-test"}):
             first = runtime._on_pre_llm_call(session_id="s-1", user_message="Plan my week across email and calendar")["context"]
             self.assertIn("You are Router (@router).", first)
-            self.assertIn('Jev picked Manager (@manager) for this (86% sure). Hand it over with delegate_task, profile "manager", role "orchestrator"', first)
+            self.assertIn('Jev picked Manager (@manager) for this (86% sure). Hand it over with delegate_task, profile "manager".', first)
             second = runtime._on_pre_llm_call(session_id="s-1", user_message="thanks")["context"]
             self.assertNotIn("You are Router", second)
             self.assertIn("Jev picked Manager", second)
@@ -551,6 +611,13 @@ class RuntimeHookTests(TempHome):
             )["context"]
             self.assertIn("Jev picked Manager", third)
             self.assertEqual(post.calls[-1]["body"]["state"]["message"], "Who is this from?")
+            # The chat history Hermes passes reaches the router as the earlier message.
+            runtime._on_pre_llm_call(
+                session_id="s-1",
+                user_message="and the one before?",
+                conversation_history=[{"role": "user", "content": "Who is this from?"}, {"role": "assistant", "content": "Kim."}],
+            )
+            self.assertEqual(post.calls[-1]["body"]["state"]["previous_message"], "Who is this from?")
             # A delegated child of the router is left alone.
             self.assertIsNone(runtime._on_pre_llm_call(session_id="c-1", parent_session_id="s-1", user_message="do it"))
 

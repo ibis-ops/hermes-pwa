@@ -6,7 +6,10 @@ reads the message and picks who should take it: the router itself, which runs
 a fast model and answers quick things at once, or one of the bots the router
 can hand work to. The router is told the pick at the start of its turn, before
 the model runs, and acts on it with ``delegate_task``. When Jev is unsure,
-unreachable or not set up, the router is told so and decides for itself.
+unreachable or not set up, the router is told so and decides for itself. When
+Jev picks a bot that runs a team on the map and Hermes lets only the top of a
+delegation hand work on (``delegation.max_spawn_depth`` 1), the router splits
+the job across that team itself, since the bot could not use its team.
 
 Settings live in the plugin's state folder (``router.json``): whether routing
 is on, which bot is the router, the Jev model, and how sure Jev must be. The
@@ -507,6 +510,16 @@ def _short_error(exc: BaseException, provider: JevProvider = VERCEL) -> str:
     return "Jev could not be reached"
 
 
+def team_of(bot: str, graph: dict[str, Any] | None, options: dict[str, str]) -> dict[str, str]:
+    """The bots that report to ``bot`` on the team map and that the router can hand work to."""
+    nodes = (graph or {}).get("nodes") or {}
+    return {
+        name: options[name]
+        for name, node in sorted(nodes.items())
+        if isinstance(node, dict) and node.get("reportsTo") == bot and name in options and name != bot
+    }
+
+
 def decide(
     message: str,
     *,
@@ -519,12 +532,17 @@ def decide(
     provider: JevProvider = VERCEL,
     post: Poster | None = None,
     now: float | None = None,
+    previous: tuple[float, str, str] | None = None,
 ) -> dict[str, Any]:
-    """Who takes this message. ``source`` is "jev" when Jev's pick stands, else "router"."""
+    """Who takes this message. ``source`` is "jev" when Jev's pick stands, else "router".
+
+    ``previous`` is the message before this one in the chat, ``(time, text, where it went)``; when
+    not given, the one this process routed last for the session."""
     now = time.time() if now is None else now
     options = candidates(bot, graph, routes)
-    with _previous_lock:
-        previous = _previous.get(session_id) if session_id else None
+    if previous is None and session_id:
+        with _previous_lock:
+            previous = _previous.get(session_id)
     decision: dict[str, Any] = {
         "route": None,
         "confidence": None,
@@ -532,6 +550,7 @@ def decide(
         "source": "router",
         "reason": "",
         "options": options,
+        "team": {},
         "cost": None,
         "ms": None,
         "provider": None,
@@ -588,6 +607,8 @@ def decide(
             decision.update(cost=answer["cost"], confidence=answer["confidence"])
             if answer["confidence"] >= float(settings.get("minConfidence") or DEFAULT_MIN_CONFIDENCE):
                 decision.update(route=answer["choice"], source="jev")
+                if answer["choice"] != SELF:
+                    decision["team"] = team_of(answer["choice"], graph, options)
             else:
                 decision.update(guess=answer["choice"], reason="Jev was not sure")
         decision["ms"] = int((time.monotonic() - started) * 1000)
@@ -602,6 +623,11 @@ def decide(
 
 def _who(name: str) -> str:
     return f"{bot_graph.bot_label(name)} (@{name})"
+
+
+def _roster(bots: dict[str, str]) -> str:
+    """``Gmail Connector (@gmail-connector): reads email; ...`` without doubled stops."""
+    return "; ".join(f"{_who(name)}: {description.rstrip(' .;')}" for name, description in bots.items())
 
 
 def _percent(value: float | None) -> str:
@@ -622,21 +648,38 @@ def directive(bot: str, decision: dict[str, Any], orchestration: bool) -> str:
             )
         return f"{head} There is no other bot to hand work to, so answer it yourself."
     if route:
-        hint = (
-            f"Hand it over with delegate_task, profile \"{route}\""
-            + (", role \"orchestrator\"" if orchestration and route == "manager" else "")
-            + ". Put everything it needs in the goal: what Sean asked, the names, dates and details he gave, "
-            "and what to send back. When it finishes, give Sean the result in a few lines."
+        picked = f"{head} Jev picked {_who(route)} for this ({_percent(decision.get('confidence'))} sure)"
+        team: dict[str, str] = decision.get("team") or {}
+        if team and not orchestration:
+            # Hermes lets only the top of a delegation hand work on (delegation.max_spawn_depth 1), so a
+            # bot that runs a team would get the job without being able to use its team.
+            label = bot_graph.bot_label(route)
+            roster = _roster(team)
+            return (
+                f"{picked}: a job for {label}'s team. Bots you hand work to cannot hand it on from here, so do "
+                f"{label}'s part yourself: give each piece to the bot whose job covers it with delegate_task, one task "
+                "per bot and all in one call so they work side by side, each goal with Sean's own words and everything "
+                f"that bot needs. Then put their answers together for Sean in a few lines. {label}'s team: {roster}."
+            )
+        return (
+            f"{picked}. Hand it over with delegate_task, profile \"{route}\". Put everything it needs in the goal: "
+            "Sean's message in his own words, the names, dates and details he gave, and what to send back. The bot "
+            "does not see this chat, so when this follows up something earlier, put that in the goal too. When it "
+            "finishes, give Sean the result in a few lines."
         )
-        return f"{head} Jev picked {_who(route)} for this ({_percent(decision.get('confidence'))} sure). {hint}"
-    roster = "; ".join(f"{_who(name)}: {description}" for name, description in options.items())
+    roster = _roster(options)
     if decision.get("guess"):
         why = f"Jev was not sure who should take this (best guess {_who(decision['guess'])}, {_percent(decision.get('confidence'))})."
     else:
         why = f"Jev did not decide this time ({decision.get('reason') or 'unavailable'})."
+    flat = (
+        "" if orchestration else
+        " Bots you hand work to cannot hand it on from here, so for a job that spans several bots give each its piece "
+        "yourself, all in one call."
+    )
     return (
         f"{head} {why} Decide yourself: answer quick things directly; hand real work to the bot whose job "
-        f"covers it with delegate_task and its profile name. Your team: {roster}."
+        f"covers it with delegate_task and its profile name.{flat} Your team: {roster}."
     )
 
 
@@ -732,6 +775,53 @@ def message_text(raw: object) -> str:
     return "\n".join(word for word in words if word.strip())
 
 
+_NOTE_MARKERS = ("[Router note from Sean's phone app", "[Team map from Sean")
+
+
+def _without_notes(text: str) -> str:
+    """A user message as Sean wrote it, without a note this plugin added to it."""
+    cut = min((i for i in (text.find(marker) for marker in _NOTE_MARKERS) if i >= 0), default=-1)
+    return (text[:cut] if cut >= 0 else text).strip()
+
+
+def earlier_message(history: object, current: str) -> str:
+    """Sean's message before this one in the chat, from the history Hermes passes the hook."""
+    if not isinstance(history, list):
+        return ""
+    passed_current = False
+    for entry in reversed(history):
+        if not isinstance(entry, dict) or entry.get("role") != "user":
+            continue
+        text = _without_notes(message_text(entry.get("content")))
+        if not text or _NOTICE_RE.match(text):
+            continue
+        if not passed_current and text == current:
+            passed_current = True  # the history may already hold this turn's message
+            continue
+        return text
+    return ""
+
+
+def _epoch(iso: object) -> float | None:
+    try:
+        return datetime.fromisoformat(str(iso).replace("Z", "+00:00")).timestamp()
+    except ValueError:
+        return None
+
+
+def previous_turn(session_id: str, history: object, current: str) -> tuple[float, str, str] | None:
+    """The message before this one and where it went, ``(time, text, route)``, read from the chat
+    history and the decision log, so a follow-up routes right after a restart or in a new process."""
+    text = earlier_message(history, current)
+    logged = recent(session_id=session_id, limit=1) if session_id else []
+    if not text or not logged:
+        return None
+    at = _epoch(logged[0].get("at"))
+    if at is None:
+        return None
+    return at, text, str(logged[0].get("route") or logged[0].get("guess") or "")
+
+
 def hook_context(
     session_id: str,
     user_message: object,
@@ -739,6 +829,7 @@ def hook_context(
     parent_session_id: str = "",
     bot: str | None = None,
     post: Poster | None = None,
+    history: object = None,
 ) -> str | None:
     """The router note for this turn, or None when this bot is not the router or routing is off."""
     if not session_id or parent_session_id:
@@ -764,6 +855,7 @@ def hook_context(
         key=credentials[1] if credentials else None,
         provider=credentials[0] if credentials else VERCEL,
         post=post,
+        previous=previous_turn(session_id, history, text),
     )
     record(decision, bot=name, session_id=session_id, message=text)
     return directive(name, decision, orchestration)

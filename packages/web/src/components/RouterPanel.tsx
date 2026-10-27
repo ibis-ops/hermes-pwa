@@ -33,6 +33,15 @@ function zdrNote(decisions: RouterDecision[]): string {
   if (!latest) return '';
   return latest.zdr ? ' Zero data retention is on.' : ' Zero data retention is off: your Vercel plan does not include it.';
 }
+/** What Jev's newest answers cost in all, from the costs the gateway reported. */
+function spendLine(decisions: RouterDecision[]): string {
+  const paid = decisions.filter((decision) => decision.cost !== null && decision.cost > 0);
+  if (paid.length === 0) return '';
+  const total = paid.reduce((sum, decision) => sum + (decision.cost ?? 0), 0);
+  const amount = total < 0.01 ? 'less than a cent' : `$${total.toFixed(2)}`;
+  return `Jev's last ${paid.length === 1 ? 'answer' : `${paid.length} answers`} cost ${amount} in all.`;
+}
+
 const LEVELS: { label: string; value: number }[] = [
   { label: 'Relaxed', value: 0.5 },
   { label: 'Normal', value: 0.6 },
@@ -306,6 +315,11 @@ function RouterSettingsBody({ rest, status, onStatus, onOpenBot }: SettingsProps
           ))}
         </ul>
       )}
+      {spendLine(decisions) ? (
+        <p className="hm-router__note hm-muted" data-testid="router-spend">
+          {spendLine(decisions)}
+        </p>
+      ) : null}
       <p className="hm-router__note hm-muted">
         Jev reads each message you send {botLabel(settings.bot)}, through {provider ?? 'Vercel AI Gateway or OpenRouter'}.
       </p>

@@ -153,5 +153,7 @@ describe('RouterCard', () => {
     const sheet = await screen.findByRole('dialog', { name: 'Router' });
     expect(within(sheet).getByTestId('router-key')).toHaveTextContent('Connected through Vercel AI Gateway on the Mac. Zero data retention is off');
     expect(within(sheet).getAllByTestId('router-decision')[0]).toHaveTextContent('Router decided · Vercel AI Gateway is out of credits');
+    // Only the answer with a cost counts.
+    expect(within(sheet).getByTestId('router-spend')).toHaveTextContent("Jev's last answer cost less than a cent in all.");
   });
 });
