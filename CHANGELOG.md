@@ -12,6 +12,8 @@ All notable changes are documented here. The format follows
   bot. With another bot selected, Hermes answered them from that bot's own, older copy of the
   plugin, which had no notes list and showed `{"detail":"Not Found"}`. Errors from the Mac now
   read as words instead of JSON.
+- **Long screens scroll.** Obsidian, Messaging and Agents scroll inside the screen; a long notes
+  list was cut off at the tab bar with no way to reach the rest.
 - **Bots on an older copy of the plugin.** Hermes copies each plugin into a bot when the bot is
   cloned and updates only the copy it is asked about, so bots kept running old hooks without the
   team map or the router notes. Bots, Team names any bot whose copy is behind the dashboard's and

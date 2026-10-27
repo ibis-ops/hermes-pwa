@@ -736,6 +736,14 @@ textarea {
   overscroll-behavior: contain;
 }
 
+/* A screen marked .hm-scroll scrolls inside itself: .hm-screen clips its overflow, so without
+   this a long Obsidian, Messaging or Agents screen was cut off at the tab bar. */
+.hm-screen > .hm-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+}
+
 /* Scrolling screens end above the home indicator. */
 .hm-home,
 .hm-sessions,
