@@ -4825,3 +4825,42 @@ html.hm-keyboard-open .hm-chat .hm-composer {
   background: var(--hm-color-badge);
   color: #ffffff;
 }
+
+/* Composer: what went wrong with an attachment or the microphone, in words. */
+.hm-composer__attach-errors,
+.hm-composer__voice-error {
+  margin: 0 12px 6px;
+  padding: 8px 12px;
+  border-radius: 12px;
+  background: var(--hm-color-danger-bg);
+  color: var(--hm-color-danger-strong);
+  font-size: var(--hm-fs-label);
+  line-height: 1.35;
+  list-style: none;
+}
+
+.hm-composer__voice-error {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.hm-composer__voice-error-dismiss {
+  position: relative;
+  flex: none;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font-weight: var(--hm-fw-semibold);
+}
+
+.hm-composer__voice-error-dismiss::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 44px;
+  height: 44px;
+  transform: translate(-50%, -50%);
+}

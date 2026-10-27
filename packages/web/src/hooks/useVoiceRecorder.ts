@@ -25,6 +25,8 @@ export function useVoiceRecorder({
   const { handle, level, recording } = useMicRecorder();
   const [status, setStatus] = useState<VoiceRecorderStatus>('idle');
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
+  // What went wrong last, in words; cleared by the next try.
+  const [error, setError] = useState<string | undefined>(undefined);
   const startedAtRef = useRef(0);
   const intervalRef = useRef<number | null>(null);
   const timeoutRef = useRef<number | null>(null);
@@ -58,7 +60,11 @@ export function useVoiceRecorder({
       const transcript = (await onTranscribeAudio(result.audio)).trim();
       if (transcript) {
         onTranscript?.(transcript);
+      } else {
+        setError('Nothing was heard. Try again a little closer to the mic.');
       }
+    } catch (err) {
+      setError(voiceErrorMessage(err, 'Could not turn the recording into text.'));
     } finally {
       setStatus('idle');
       onFocusInput?.();
@@ -67,11 +73,13 @@ export function useVoiceRecorder({
 
   const start = async () => {
     if (!onTranscribeAudio) return;
+    setError(undefined);
     try {
       await handle.start({
-        onError: () => {
+        onError: (err) => {
           setStatus('idle');
           clearTimers();
+          setError(voiceErrorMessage(err, 'The recording stopped unexpectedly.'));
         },
       });
       startedAtRef.current = Date.now();
@@ -83,8 +91,9 @@ export function useVoiceRecorder({
       );
       const cap = Math.max(1, Math.min(Math.trunc(maxRecordingSeconds), 600));
       timeoutRef.current = window.setTimeout(() => void stop(), cap * 1000);
-    } catch {
+    } catch (err) {
       setStatus('idle');
+      setError(voiceErrorMessage(err, 'The microphone could not start.'));
     }
   };
 
@@ -96,5 +105,16 @@ export function useVoiceRecorder({
     }
   };
 
-  return { dictate, status, elapsedSeconds, level };
+  return { dictate, status, elapsedSeconds, level, error, clearError: () => setError(undefined) };
+}
+
+/** A message for the person: the browser's own wording when it has one worth showing. */
+export function voiceErrorMessage(err: unknown, fallback: string): string {
+  const name = err instanceof Error ? err.name : '';
+  if (name === 'NotAllowedError' || name === 'SecurityError') {
+    return 'Microphone access is off for Hermes. Allow it in Settings, then try again.';
+  }
+  if (name === 'NotFoundError') return 'No microphone was found.';
+  const message = err instanceof Error ? err.message.trim() : '';
+  return message && message.length < 140 ? message : fallback;
 }

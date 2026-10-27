@@ -65,7 +65,12 @@ function Harness({
     onStopSpeech: mocks.stopSpeech,
     onPrimeAudio: mocks.primeAudio,
   });
-  return <div data-testid="voice-status">{voice.status}</div>;
+  return (
+    <>
+      <div data-testid="voice-status">{voice.status}</div>
+      <div data-testid="voice-error">{voice.error ?? ''}</div>
+    </>
+  );
 }
 
 describe('useVoiceConversation', () => {
@@ -144,6 +149,60 @@ describe('useVoiceConversation', () => {
 
     await waitFor(() => expect(mocks.cancel).toHaveBeenCalled());
     expect(screen.getByTestId('voice-status')).toHaveTextContent('idle');
+  });
+
+  it('goes back to listening when the turn ends without any reply text', async () => {
+    const onSubmit = vi.fn();
+    const { rerender } = render(<Harness enabled busy={false} messages={[]} onSubmit={onSubmit} />);
+    await waitFor(() => expect(screen.getByTestId('voice-status')).toHaveTextContent('listening'));
+    await act(async () => {
+      mocks.getMicOptions()?.onSilence?.();
+    });
+    await waitFor(() => expect(onSubmit).toHaveBeenCalled());
+
+    const turn: Message[] = [
+      { id: 'u-1', role: 'user', text: 'hello from voice', createdAt: undefined },
+      { id: 'a-1', role: 'assistant', text: '', createdAt: undefined, toolCalls: [{ id: 't', name: 'terminal' }] },
+    ];
+    rerender(<Harness enabled busy messages={turn} onSubmit={onSubmit} />);
+    rerender(<Harness enabled busy={false} messages={turn} onSubmit={onSubmit} />);
+
+    await waitFor(() => expect(screen.getByTestId('voice-status')).toHaveTextContent('listening'));
+    expect(mocks.speakText).not.toHaveBeenCalled();
+  });
+
+  it('reads out only the reply to this turn after a history refresh renames ids', async () => {
+    const onSubmit = vi.fn();
+    const before: Message[] = [
+      { id: 'local-u', role: 'user', text: 'earlier question', createdAt: undefined },
+      { id: 'local-a', role: 'assistant', text: 'Earlier answer', createdAt: undefined },
+    ];
+    const { rerender } = render(<Harness enabled busy={false} messages={before} onSubmit={onSubmit} />);
+    await waitFor(() => expect(screen.getByTestId('voice-status')).toHaveTextContent('listening'));
+    await act(async () => {
+      mocks.getMicOptions()?.onSilence?.();
+    });
+    await waitFor(() => expect(onSubmit).toHaveBeenCalled());
+    rerender(<Harness enabled busy messages={before} onSubmit={onSubmit} />);
+    const refreshed: Message[] = [
+      { id: 'rest-1', role: 'user', text: 'earlier question', createdAt: undefined },
+      { id: 'rest-2', role: 'assistant', text: 'Earlier answer', createdAt: undefined },
+      { id: 'rest-3', role: 'user', text: 'hello from voice', createdAt: undefined },
+      { id: 'rest-4', role: 'assistant', text: 'New answer', createdAt: undefined },
+    ];
+    rerender(<Harness enabled busy={false} messages={refreshed} onSubmit={onSubmit} />);
+
+    await waitFor(() => expect(mocks.speakText).toHaveBeenCalledWith('New answer'));
+    expect(mocks.speakText).toHaveBeenCalledTimes(1);
+  });
+
+  it('says so when the recording cannot be turned into text', async () => {
+    render(<Harness enabled busy={false} messages={[]} onTranscribeAudio={vi.fn(async () => Promise.reject(new Error('Transcription service is down')))} />);
+    await waitFor(() => expect(screen.getByTestId('voice-status')).toHaveTextContent('listening'));
+    await act(async () => {
+      mocks.getMicOptions()?.onSilence?.();
+    });
+    await waitFor(() => expect(screen.getByTestId('voice-error')).toHaveTextContent('Transcription service is down'));
   });
 
   it('does not speak an assistant message that existed before the wave turn started', async () => {

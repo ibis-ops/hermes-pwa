@@ -56,6 +56,10 @@ export function useMicRecorder(): { handle: MicRecorderHandle; level: number; re
   const stopResolverRef = useRef<((recording: MicRecording | null) => void) | null>(null);
   const stopTimeoutRef = useRef<number | null>(null);
   const generationRef = useRef(0);
+  // The meter only needs a few steps a few times a second; every animation
+  // frame re-rendered the whole composer.
+  const shownLevelRef = useRef(0);
+  const shownLevelAtRef = useRef(0);
 
   const clearStopTimeout = useCallback(() => {
     if (stopTimeoutRef.current) {
@@ -76,6 +80,7 @@ export function useMicRecorder(): { handle: MicRecorderHandle; level: number; re
     streamRef.current = null;
     recorderRef.current = null;
     setLevel(0);
+    shownLevelRef.current = 0;
     setRecording(false);
     silenceTriggeredRef.current = false;
   }, [clearStopTimeout]);
@@ -110,7 +115,12 @@ export function useMicRecorder(): { handle: MicRecorderHandle; level: number; re
         const normalized = Math.min(1, rms / 42);
         const now = Date.now();
 
-        setLevel(normalized);
+        const stepped = Math.round(normalized * 10) / 10;
+        if (stepped !== shownLevelRef.current && now - shownLevelAtRef.current >= 80) {
+          shownLevelRef.current = stepped;
+          shownLevelAtRef.current = now;
+          setLevel(stepped);
+        }
         options.onLevel?.(normalized);
 
         const speechThreshold = options.silenceLevel ?? 0;

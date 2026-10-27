@@ -763,7 +763,7 @@ describe('Chat', () => {
       expect(rpcMock.request).not.toHaveBeenCalledWith('session.create', expect.anything());
       expect(rpcMock.request).not.toHaveBeenCalledWith('file.attach', expect.anything());
       await waitFor(() =>
-        expect(screen.getByLabelText(unsupportedAttachmentTypeMessage('malware.exe', 'application/x-msdownload'))).toBeInTheDocument(),
+        expect(screen.getByText(unsupportedAttachmentTypeMessage('malware.exe', 'application/x-msdownload'))).toBeInTheDocument(),
       );
     } finally {
       readSpy.mockRestore();
@@ -783,7 +783,7 @@ describe('Chat', () => {
       expect(readSpy).not.toHaveBeenCalled();
       expect(rpcMock.request).not.toHaveBeenCalledWith('session.create', expect.anything());
       expect(rpcMock.request).not.toHaveBeenCalledWith('file.attach', expect.anything());
-      await waitFor(() => expect(screen.getByLabelText(attachmentTooLargeMessage('huge.csv'))).toBeInTheDocument());
+      await waitFor(() => expect(screen.getByText(attachmentTooLargeMessage('huge.csv'))).toBeInTheDocument());
     } finally {
       readSpy.mockRestore();
     }

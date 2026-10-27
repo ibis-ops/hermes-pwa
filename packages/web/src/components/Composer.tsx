@@ -500,6 +500,17 @@ export function Composer({
     );
   }
 
+  // Image previews are object URLs: give them back when the composer goes away.
+  const attachmentsRef = useRef(attachments);
+  attachmentsRef.current = attachments;
+  useEffect(
+    () => () => {
+      for (const draft of attachmentsRef.current) releasePreview(draft);
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [],
+  );
+
   function releasePreview(draft: AttachmentDraft | undefined) {
     if (draft?.previewUrl && typeof URL !== 'undefined' && typeof URL.revokeObjectURL === 'function') {
       URL.revokeObjectURL(draft.previewUrl);
@@ -540,7 +551,7 @@ export function Composer({
               )}
               <span className="hm-composer__chip-name">{a.name}</span>
               {a.uploading && <span className="hm-composer__chip-spin" />}
-              {a.error && <span className="hm-composer__chip-error" aria-label={a.error} />}
+              {a.error && <span className="hm-composer__chip-error" aria-hidden="true" />}
               {!a.uploading && (
                 <button
                   type="button"
@@ -555,6 +566,28 @@ export function Composer({
           ))}
         </div>
       )}
+      {attachments.some((a) => a.error) ? (
+        <ul className="hm-composer__attach-errors" role="alert">
+          {[...new Set(attachments.map((a) => a.error).filter((message): message is string => Boolean(message)))].map((message) => (
+            <li key={message}>{message}</li>
+          ))}
+        </ul>
+      ) : null}
+      {voiceRecorder.error || voiceConversation.error ? (
+        <p className="hm-composer__voice-error" role="alert">
+          <span>{voiceRecorder.error ?? voiceConversation.error}</span>
+          <button
+            type="button"
+            className="hm-composer__voice-error-dismiss"
+            onClick={() => {
+              voiceRecorder.clearError();
+              voiceConversation.clearError();
+            }}
+          >
+            OK
+          </button>
+        </p>
+      ) : null}
 
       {slashPaletteOpen && (
         <div className="hm-slash-palette" role="listbox" aria-label="Slash commands">

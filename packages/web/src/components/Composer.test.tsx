@@ -252,7 +252,7 @@ describe('Composer', () => {
     fireEvent.change(input, { target: { files: [file] } });
 
     expect(onUploadFile).not.toHaveBeenCalled();
-    await waitFor(() => expect(screen.getByLabelText(attachmentTooLargeMessage('huge.csv'))).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(attachmentTooLargeMessage('huge.csv'))).toBeInTheDocument());
   });
 
   it('rejects unsupported MIME types before upload', async () => {
@@ -268,7 +268,7 @@ describe('Composer', () => {
 
     expect(onUploadFile).not.toHaveBeenCalled();
     await waitFor(() =>
-      expect(screen.getByLabelText(unsupportedAttachmentTypeMessage('malware.exe', 'application/x-msdownload'))).toBeInTheDocument(),
+      expect(screen.getByText(unsupportedAttachmentTypeMessage('malware.exe', 'application/x-msdownload'))).toBeInTheDocument(),
     );
   });
 
@@ -293,7 +293,7 @@ describe('Composer', () => {
       'note-4.txt',
       'note-5.txt',
     ]);
-    expect(screen.getByLabelText(`Only ${MAX_ATTACHMENTS_PER_SELECTION} files can be attached at once.`)).toBeInTheDocument();
+    expect(screen.getByText(`Only ${MAX_ATTACHMENTS_PER_SELECTION} files can be attached at once.`)).toBeInTheDocument();
   });
 
   it('reports composer layout changes only when textarea height changes', async () => {
