@@ -800,10 +800,12 @@ def main(argv: list[str] | None = None) -> int:
     started = C.now()
     print(f"Runner A round {n}: {len(tests)} tests x {args.repeat} runs, fixtures {fx.base}, "
           f"bench Chrome port {C.BENCH_PORT}, home {C.BENCH_HOME}", flush=True)
-    records = C.run_suite(cc, tests, env, args.repeat, "a", reset=fx.state.reset)
-    cold = [] if args.no_cold else C.run_cold(cc, [t for t in tests if t.name in COLD], env, "a", reset=fx.state.reset)
+    records = C.run_suite(cc, tests, env, args.repeat, "a", reset=fx.state.reset, save=("direct", n))
+    cold = [] if args.no_cold else C.run_cold(cc, [t for t in tests if t.name in COLD], env, "a", reset=fx.state.reset,
+                                              save=("direct", n))
     data = C.payload("direct", n, started, records, cold, fixtures=fx.base, repeat=args.repeat)
     path = C.write_round("direct", n, data)
+    C.drop_partial("direct", n)
     C.print_scorecard("Runner A (direct, fixtures)", data)
     if args.baseline:
         C.print_compare(data, args.baseline, "direct")

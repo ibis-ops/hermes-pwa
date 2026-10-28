@@ -38,9 +38,10 @@ def main(argv: list[str] | None = None) -> int:
     started = C.now()
     print(f"Runner B round {n}: {len(tests)} live tasks x {args.repeat} runs, bench Chrome port {C.BENCH_PORT}, "
           f"home {C.BENCH_HOME}", flush=True)
-    records = C.run_suite(cc, tests, env, args.repeat, "b")
+    records = C.run_suite(cc, tests, env, args.repeat, "b", save=("live", n))
     data = C.payload("live", n, started, records, [], repeat=args.repeat)
     path = C.write_round("live", n, data)
+    C.drop_partial("live", n)
     C.print_scorecard("Runner B (direct, live sites)", data)
     if args.baseline:
         C.print_compare(data, args.baseline, "live")

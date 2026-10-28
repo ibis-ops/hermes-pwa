@@ -386,25 +386,78 @@ def progress(rec: dict, label: str) -> None:
     print(line, flush=True)
 
 
-def run_suite(cc, tests: list[Test], env: dict, repeat: int, tag: str, reset: Optional[Callable] = None) -> list[dict]:
-    """Every test once per run, `repeat` full runs (run 1 is the accuracy pass, all runs the stability pass)."""
+# ---------------------------------------------------------------------------------------------
+# Saving as it goes: every finished test or task is appended to round-<N>-<kind>.partial.jsonl, so a
+# run that is cut off (a closed session, a sleep, a usage limit) starts again where it stopped. The
+# partial file is removed once the round's results file is written.
+# ---------------------------------------------------------------------------------------------
+
+def partial_path(kind: str, n: int) -> Path:
+    return OUT_DIR / f"round-{n}-{kind}.partial.jsonl"
+
+
+def load_partial(kind: str, n: int) -> list[dict]:
+    out = []
+    try:
+        lines = partial_path(kind, n).read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return out
+    for line in lines:
+        try:
+            out.append(json.loads(line))
+        except ValueError:
+            pass  # a line cut off mid-write
+    return out
+
+
+def save_partial(kind: str, n: int, rec: dict) -> None:
+    OUT_DIR.mkdir(parents=True, exist_ok=True)
+    with open(partial_path(kind, n), "a", encoding="utf-8") as f:
+        f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+        f.flush()
+        os.fsync(f.fileno())
+
+
+def drop_partial(kind: str, n: int) -> None:
+    partial_path(kind, n).unlink(missing_ok=True)
+
+
+def run_suite(cc, tests: list[Test], env: dict, repeat: int, tag: str, reset: Optional[Callable] = None,
+              save: Optional[tuple[str, int]] = None) -> list[dict]:
+    """Every test once per run, `repeat` full runs (run 1 is the accuracy pass, all runs the stability pass).
+    With `save=(kind, n)` each record is saved as it ends and records saved earlier are not run again."""
+    done = {(r["run"], r["name"]): r for r in load_partial(*save) if not r.get("cold")} if save else {}
+    if done:
+        print(f"resuming: {len(done)} test run(s) saved earlier are kept", flush=True)
     records = []
     for run_no in range(1, repeat + 1):
         for i, t in enumerate(tests, 1):
+            if (run_no, t.name) in done:
+                records.append(done[(run_no, t.name)])
+                continue
             rec = run_test(cc, t, env, run_no, tag, reset)
             records.append(rec)
+            if save:
+                save_partial(*save, rec)
             progress(rec, f"[run {run_no}/{repeat} {i:>2}/{len(tests)}]")
     return records
 
 
-def run_cold(cc, tests: list[Test], env: dict, tag: str, reset: Optional[Callable] = None) -> list[dict]:
+def run_cold(cc, tests: list[Test], env: dict, tag: str, reset: Optional[Callable] = None,
+             save: Optional[tuple[str, int]] = None) -> list[dict]:
     """Each test with the bench Chrome stopped first: its first call includes the Chrome launch."""
+    done = {r["name"]: r for r in load_partial(*save) if r.get("cold")} if save else {}
     out = []
     for i, t in enumerate(tests, 1):
+        if t.name in done:
+            out.append(done[t.name])
+            continue
         stop_bench_chrome(cc)
         rec = run_test(cc, t, env, 1, f"{tag}-cold", reset)
         rec["cold"] = True
         out.append(rec)
+        if save:
+            save_partial(*save, rec)
         progress(rec, f"[cold {i}/{len(tests)}]")
     return out
 

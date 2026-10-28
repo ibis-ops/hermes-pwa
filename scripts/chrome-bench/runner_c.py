@@ -413,6 +413,10 @@ def main(argv: list[str] | None = None) -> int:
     print(f"Runner C round {n}: {len(tasks)} task(s) x {args.repeat}, {args.workers} at a time, bot {args.profile} "
           f"({installed_head(args.profile)})", flush=True)
     records: list[dict] = []
+    # Every finished task is saved as it ends; a run cut off earlier picks up where it stopped.
+    done = {(r["run"], r["name"]): r for r in C.load_partial(kind, n)}
+    if done:
+        print(f"resuming: {len(done)} task run(s) saved earlier are kept", flush=True)
     lock = threading.Lock()
     for run_no in range(1, args.repeat + 1):
         # A task and the tasks that must follow it (download after upload) go to one worker, in order.
@@ -423,7 +427,13 @@ def main(argv: list[str] | None = None) -> int:
                 prev.append(t)
             else:
                 chains.append([t])
-        queue = list(chains)
+        # A chain counts as done only when every task in it was saved (a download needs its upload first).
+        queue = []
+        for chain in chains:
+            if all((run_no, t.name) in done for t in chain):
+                records.extend(done[(run_no, t.name)] for t in chain)
+            else:
+                queue.append(chain)
 
         def worker() -> None:
             while True:
@@ -436,6 +446,7 @@ def main(argv: list[str] | None = None) -> int:
                                    args.reasoning, args.tag, args.toolsets, fx.base if fx else "")
                     with lock:
                         records.append(rec)
+                        C.save_partial(kind, n, rec)
                         print(f"[run {run_no}] {'PASS' if rec['pass'] else 'FAIL'} {t.name:<18} {rec['wall_s']:>6}s "
                               f"calls {rec.get('api_calls')} chrome {rec.get('chrome_calls')} out {rec.get('chrome_chars')} "
                               f"| {C.cut(rec['answer'], 90)}" + ("" if rec["pass"] else f" | {C.cut(rec['why'], 120)}"),
@@ -466,6 +477,7 @@ def main(argv: list[str] | None = None) -> int:
             # The 22 tasks of rounds 8 to 18, comparable with those rounds' "all tasks".
             data["c22_summary"] = summarize([r for r in records if r["name"] not in trouble])
     path = C.write_round(kind, n, data)
+    C.drop_partial(kind, n)
     print_scorecard(data)
     if args.baseline:
         print_compare(data, args.baseline, kind)

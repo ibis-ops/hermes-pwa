@@ -46,6 +46,11 @@ nohup $PY runner_a.py --round 2 --baseline 1 > /tmp/hermes-work/bench/logs/round
 tail -f /tmp/hermes-work/bench/logs/round-2-direct.log
 ```
 
+Every runner saves each finished test or task to `round-<N>-<kind>.partial.jsonl` as it ends. Run the
+same command with the same `--round` after an interruption and it keeps what was saved and runs only the
+rest (Runner C reruns a chain such as upload then download unless every task in it was saved). The
+partial file is removed once `round-<N>-<kind>.json` is written.
+
 ### Runner A (fixtures, no LLM)
 
 ```sh
