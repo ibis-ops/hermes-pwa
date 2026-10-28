@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Signup frame</title>
+<style>body{font:14px system-ui,sans-serif;margin:10px}</style></head>
+<body>
+<label for="fe">Frame email</label> <input id="fe" type="email">
+<button id="join" type="button">Join list</button>
+<p id="frame-out"></p>
+<script>
+document.getElementById('join').addEventListener('click', function () {
+  var v = document.getElementById('fe').value;
+  fetch('/api/submit/iframe', { method: 'POST', body: JSON.stringify({ email: v }) }).then(function () {
+    document.getElementById('frame-out').textContent = 'Joined: ' + v;
+  });
+});
+</script>
+</body>
+</html>

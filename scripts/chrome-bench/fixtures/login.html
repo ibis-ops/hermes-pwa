@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Sign in</title>
+<style>body{font:15px/1.5 system-ui,sans-serif;margin:24px;max-width:420px}label{display:block;margin-top:10px}</style></head>
+<body>
+<main>
+<h1>Sign in</h1>
+<p>A fake sign-in page for the bench. Nothing here is a real account.</p>
+<form id="lf">
+  <label for="em">Email address</label><input id="em" type="email" autocomplete="username">
+  <label for="pw">Password</label><input id="pw" type="password" autocomplete="current-password">
+  <p><button type="submit">Sign in</button></p>
+</form>
+<p id="st" role="status"></p>
+</main>
+<script>
+// The password field is prefilled with a dummy value: the connector must never echo it.
+document.getElementById('pw').value = 'fixture-not-a-secret-123';
+document.getElementById('lf').addEventListener('submit', function (e) {
+  e.preventDefault();
+  document.getElementById('st').textContent = 'This is not a real sign-in.';
+});
+</script>
+</body>
+</html>

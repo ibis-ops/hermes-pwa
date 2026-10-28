@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Widgets</title>
+<style>body{font:15px/1.5 system-ui,sans-serif;margin:24px;max-width:640px}</style></head>
+<body>
+<main>
+<h1>Widgets</h1>
+<p id="light">Light DOM text above the component.</p>
+<x-panel></x-panel>
+</main>
+<script>
+// x-panel has an open shadow root holding x-counter, which has its own open shadow root (nested).
+// "Shadow menu" opens on pointerdown, like many menu libraries; a script click() never fires it.
+(function () {
+  function report(o) { return fetch('/api/submit/shadow', { method: 'POST', body: JSON.stringify(o) }); }
+  customElements.define('x-counter', class extends HTMLElement {
+    constructor() {
+      super();
+      var r = this.attachShadow({ mode: 'open' });
+      r.innerHTML = '<style>button,input{margin:4px}</style>' +
+        '<button id="add" type="button">Shadow add</button>' +
+        '<button id="menu" type="button" aria-haspopup="menu">Shadow menu</button>' +
+        '<div><label for="note">Shadow note</label><input id="note"><button id="save" type="button">Save note</button></div>' +
+        '<p>Count: <span id="count">0</span></p><p id="menu-state">menu closed</p>';
+      var n = 0;
+      r.getElementById('add').addEventListener('click', function (e) {
+        n++;
+        r.getElementById('count').textContent = String(n);
+        report({ what: 'add', n: n, trusted: e.isTrusted });
+      });
+      r.getElementById('menu').addEventListener('pointerdown', function (e) {
+        r.getElementById('menu-state').textContent = 'menu open';
+        report({ what: 'menu', trusted: e.isTrusted });
+      });
+      r.getElementById('save').addEventListener('click', function () {
+        report({ what: 'note', note: r.getElementById('note').value });
+      });
+    }
+  });
+  customElements.define('x-panel', class extends HTMLElement {
+    constructor() {
+      super();
+      this.attachShadow({ mode: 'open' }).innerHTML = '<section><h2>Panel</h2><x-counter></x-counter></section>';
+    }
+  });
+})();
+</script>
+</body>
+</html>

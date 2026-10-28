@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Upload</title>
+<style>body{font:15px/1.5 system-ui,sans-serif;margin:24px;max-width:640px}</style></head>
+<body>
+<main>
+<h1>Upload</h1>
+<p><label for="doc">Attachment</label> <input type="file" id="doc"></p>
+<p><input type="file" id="hidden-file" hidden> <button id="choose" type="button">Choose file</button> <span id="chosen">No file chosen</span></p>
+<div id="status" role="status"></div>
+</main>
+<script>
+// Both fields send the file's bytes to the server, which keeps the name, size and sha256.
+(function () {
+  function send(key, file) {
+    return file.arrayBuffer().then(function (buf) {
+      return fetch('/api/upload/' + key, { method: 'POST', headers: { 'X-File-Name': encodeURIComponent(file.name) }, body: buf });
+    }).then(function (r) { return r.json(); }).then(function () {
+      document.getElementById('status').textContent = 'Uploaded ' + file.name + ' (' + file.size + ' bytes)';
+    });
+  }
+  document.getElementById('doc').addEventListener('change', function (e) {
+    if (e.target.files[0]) send('input', e.target.files[0]);
+  });
+  var hidden = document.getElementById('hidden-file');
+  document.getElementById('choose').addEventListener('click', function () { hidden.click(); });
+  hidden.addEventListener('change', function () {
+    if (!hidden.files[0]) return;
+    document.getElementById('chosen').textContent = hidden.files[0].name;
+    send('button', hidden.files[0]);
+  });
+})();
+</script>
+</body>
+</html>

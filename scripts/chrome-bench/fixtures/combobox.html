@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Shipping</title>
+<style>
+body{font:15px/1.5 system-ui,sans-serif;margin:24px;max-width:640px}
+.combo{position:relative;width:320px}
+.combo input{width:100%;padding:6px;box-sizing:border-box}
+ul[role=listbox]{position:absolute;left:0;right:0;top:100%;margin:0;padding:0;list-style:none;border:1px solid #999;background:#fff;z-index:5}
+li[role=option]{padding:6px 8px;cursor:pointer}
+li[role=option]:hover{background:#def}
+.sizes{margin-top:40px;position:relative;width:220px}
+</style></head>
+<body>
+<main>
+<h1>Shipping</h1>
+<label for="country">Country</label>
+<div class="combo">
+  <input id="country" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="country-list"
+         autocomplete="off" placeholder="Start typing a country">
+  <ul id="country-list" role="listbox" aria-label="Countries" hidden></ul>
+</div>
+<p>Selected country: <span id="picked">none</span></p>
+<div class="sizes">
+  <span id="size-label">Size</span>
+  <button id="size" type="button" aria-haspopup="listbox" aria-expanded="false" aria-labelledby="size-label size-value"><span id="size-value">Medium</span></button>
+  <ul id="size-list" role="listbox" aria-labelledby="size-label" hidden>
+    <li role="option" data-v="S">Small</li>
+    <li role="option" data-v="M" aria-selected="true">Medium</li>
+    <li role="option" data-v="L">Large</li>
+  </ul>
+</div>
+<p><button id="save" type="button">Save shipping</button></p>
+<div id="status" role="status"></div>
+</main>
+<script>
+(function () {
+  var input = document.getElementById('country'), list = document.getElementById('country-list');
+  var picked = { country: '', size: 'M' }, timer = null, seq = 0;
+  function closeList() { list.hidden = true; input.setAttribute('aria-expanded', 'false'); }
+  // Search as you type: 150 ms debounce, then the server answers after 400 ms.
+  input.addEventListener('input', function () {
+    clearTimeout(timer);
+    var q = input.value.trim();
+    if (!q) { closeList(); return; }
+    timer = setTimeout(function () {
+      var mine = ++seq;
+      fetch('/api/suggest?q=' + encodeURIComponent(q)).then(function (r) { return r.json(); }).then(function (j) {
+        if (mine !== seq) return;
+        list.innerHTML = '';
+        j.options.forEach(function (o) {
+          var li = document.createElement('li');
+          li.setAttribute('role', 'option');
+          li.textContent = o.name;
+          li.addEventListener('mousedown', function (e) { e.preventDefault(); });
+          li.addEventListener('click', function () {
+            input.value = o.name;
+            picked.country = o.code;
+            document.getElementById('picked').textContent = o.name + ' (' + o.code + ')';
+            closeList();
+          });
+          list.appendChild(li);
+        });
+        list.hidden = j.options.length === 0;
+        input.setAttribute('aria-expanded', String(!list.hidden));
+      });
+    }, 150);
+  });
+  // A custom dropdown (not a native select): a button that opens an ARIA listbox.
+  var sizeBtn = document.getElementById('size'), sizeList = document.getElementById('size-list');
+  sizeBtn.addEventListener('click', function () {
+    sizeList.hidden = !sizeList.hidden;
+    sizeBtn.setAttribute('aria-expanded', String(!sizeList.hidden));
+  });
+  Array.prototype.forEach.call(sizeList.querySelectorAll('[role=option]'), function (li) {
+    li.addEventListener('click', function () {
+      picked.size = li.getAttribute('data-v');
+      document.getElementById('size-value').textContent = li.textContent;
+      Array.prototype.forEach.call(sizeList.children, function (x) { x.setAttribute('aria-selected', String(x === li)); });
+      sizeList.hidden = true;
+      sizeBtn.setAttribute('aria-expanded', 'false');
+    });
+  });
+  document.getElementById('save').addEventListener('click', function () {
+    fetch('/api/submit/combobox', { method: 'POST', body: JSON.stringify(picked) })
+      .then(function (r) { return r.json(); })
+      .then(function (j) { document.getElementById('status').textContent = 'Saved shipping #' + j.n; });
+  });
+})();
+</script>
+</body>
+</html>

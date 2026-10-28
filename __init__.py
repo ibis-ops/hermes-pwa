@@ -243,3 +243,11 @@ def register(ctx: Any) -> None:
     ctx.register_hook("post_approval_response", _on_post_approval_response)
     ctx.register_hook("post_llm_call", _on_post_llm_call)
     ctx.register_hook("pre_llm_call", _on_pre_llm_call)
+    # The Chrome connector's tools; each one shows only in a profile with <HERMES_HOME>/chrome/connector.json.
+    if hasattr(ctx, "register_tool"):
+        try:
+            from .chrome_connector import register_tools as register_chrome_tools
+
+            register_chrome_tools(ctx)
+        except Exception as exc:  # pragma: no cover - defensive: the rest of the plugin must load regardless
+            logger.warning("Hermes PWA Chrome connector tools not registered: %s", exc)

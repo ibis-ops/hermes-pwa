@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Newsletter</title>
+<style>
+body{font:15px/1.5 system-ui,sans-serif;margin:24px;max-width:640px}
+.cookie{position:fixed;left:0;right:0;top:35%;height:30%;background:rgba(30,30,30,.94);color:#fff;z-index:50;padding:24px;box-sizing:border-box}
+.cookie button{margin-right:10px}
+#backdrop{position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:100}
+#modal{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);background:#fff;padding:20px;border-radius:8px;z-index:101;min-width:320px}
+#modal label{display:block;margin:8px 0 4px}
+</style></head>
+<body>
+<main>
+<h1>Newsletter</h1>
+<section>
+  <h2>Profile</h2>
+  <label for="main-display">Display name</label> <input id="main-display" value="Original Name">
+  <button id="edit" type="button">Edit profile</button>
+</section>
+<div style="height:900px"></div>
+<section>
+  <h2>Stay in touch</h2>
+  <button id="sub" type="button">Subscribe</button>
+  <p id="sub-status" role="status"></p>
+</section>
+<div style="height:900px"></div>
+</main>
+<div id="cookie" class="cookie" role="region" aria-label="Cookie consent">
+  <p>We use cookies to improve this site.</p>
+  <button id="accept" type="button">Accept all</button><button id="reject" type="button">Reject</button>
+</div>
+<div id="backdrop" hidden></div>
+<div id="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title" hidden>
+  <h2 id="modal-title">Edit profile</h2>
+  <label for="modal-display">Display name</label><input id="modal-display" value="Original Name">
+  <p><button id="save" type="button">Save changes</button> <button id="cancel" type="button">Cancel</button></p>
+</div>
+<script>
+(function () {
+  function $(id) { return document.getElementById(id); }
+  function report(obj) { return fetch('/api/submit/overlay', { method: 'POST', body: JSON.stringify(obj) }); }
+  function hideCookie() { $('cookie').remove(); }
+  $('accept').addEventListener('click', function () { hideCookie(); report({ cookie: 'accepted' }); });
+  $('reject').addEventListener('click', function () { hideCookie(); report({ cookie: 'rejected' }); });
+  $('sub').addEventListener('click', function (e) {
+    $('sub-status').textContent = 'Subscribed';
+    report({ subscribed: true, trusted: e.isTrusted });
+  });
+  function modal(open) { $('modal').hidden = !open; $('backdrop').hidden = !open; }
+  $('edit').addEventListener('click', function () { modal(true); $('modal-display').focus(); });
+  $('cancel').addEventListener('click', function () { modal(false); });
+  $('save').addEventListener('click', function () {
+    report({ display: $('modal-display').value, main: $('main-display').value });
+    modal(false);
+  });
+})();
+</script>
+</body>
+</html>

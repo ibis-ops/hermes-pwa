@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Sign in (two steps)</title>
+<style>body{font:15px/1.5 system-ui,sans-serif;margin:24px;max-width:420px}label{display:block;margin-top:10px}</style></head>
+<body>
+<main>
+<h1>Sign in</h1>
+<div id="step1">
+  <label for="em">Email address</label><input id="em" type="email" autocomplete="username">
+  <p><button id="next" type="button">Next</button></p>
+</div>
+<div id="step2" hidden>
+  <label for="pw">Password</label><input id="pw" type="password" autocomplete="current-password">
+  <p><button type="button">Sign in</button></p>
+</div>
+</main>
+<script>
+// Like Google or Microsoft: the password field appears only after the email step.
+document.getElementById('next').addEventListener('click', function () {
+  document.getElementById('step1').hidden = true;
+  document.getElementById('step2').hidden = false;
+});
+</script>
+</body>
+</html>

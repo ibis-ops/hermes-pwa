@@ -1,0 +1,189 @@
+# Chrome connector bench
+
+A test bench for the speed, accuracy and reliability of the Chrome connector
+(`chrome_connector.py` and `chrome_connector.js`). Three runners:
+
+| Runner | What it drives | Ground truth | Results file |
+| --- | --- | --- | --- |
+| A `runner_a.py` | `chrome_tool` directly, local fixture site | what the fixture server received, file bytes, generated data | `/tmp/hermes-work/bench/round-<N>-direct.json` |
+| B `runner_b.py` | `chrome_tool` directly, live public sites (read-only) | exact values or patterns on the live page | `/tmp/hermes-work/bench/round-<N>-live.json` |
+| C `runner_c.py` | the bot itself (LLM + its own Chrome) via `hermes -z` | the final answer against a pattern | `/tmp/hermes-work/bench/round-<N>-bot.json` |
+
+`scripts/` is never shipped, so none of this reaches the plugin package.
+
+## Isolation and safety
+
+- Runners A and B set `HERMES_HOME=/tmp/hermes-work/cx-bench-home` before importing the connector.
+  That home holds `chrome/connector.json` (`{"port": 9334, "headless": true}`) and its own Chrome
+  profile `chrome/profile` (it starts empty). `common.guard()` stops the run unless the loaded
+  settings say port 9334 inside that home, so the bench never touches port 9333 or Sean's connector
+  (`~/.hermes/profiles/kahunas-connector`). The cold-start pass stops only the Chrome that listens on
+  9334 with the bench profile.
+- The bench Chrome stays up between runs, like the real connector. `--stop` stops it at the end.
+- Live sites are read-only: no logins, purchases, posts, votes or messages. Only the automation demos
+  are typed into (the-internet.herokuapp.com, which also receives one small text file on its upload
+  page, and the Playwright TodoMVC demo).
+- A live page that walls the browser off (a bot check, a login wall) is recorded as **blocked**. The
+  bench never tries to get past it; blocked tasks are listed but not scored.
+- Runner C reads the bot's `state.db` read-only (`mode=ro`) and keeps only counts and the final
+  answer, never tool outputs or the system prompt.
+
+## Running
+
+Use Hermes's Python (it has `websockets`):
+
+```sh
+PY=/Users/seanwoodward/.hermes/installs/a054e8eb893639fa/environments/144c13c0849643c59ebdb1c3c7f7f488/venv/bin/python
+cd ~/Developer/hermes-pwa/scripts/chrome-bench
+```
+
+A full Runner A run (3 runs plus the cold-start pass) takes about 2 minutes and Runner B about 1.5
+minutes; Runner C takes from seconds to minutes per prompt. A remote shell may time out after about
+60 s while the run keeps going, so start long runs in the background and read the log:
+
+```sh
+nohup $PY runner_a.py --round 2 --baseline 1 > /tmp/hermes-work/bench/logs/round-2-direct.log 2>&1 &
+tail -f /tmp/hermes-work/bench/logs/round-2-direct.log
+```
+
+### Runner A (fixtures, no LLM)
+
+```sh
+$PY runner_a.py                          # all tests x3, then the cold-start pass; next free round number
+$PY runner_a.py --round 2 --baseline 1   # numbered round, compared with round 1
+$PY runner_a.py --only spa_nowait,stale_refs --repeat 1 --no-cold   # a quick look at a few tests
+$PY runner_a.py --list                   # test names and what each covers
+```
+
+It starts `fixture_server.py` on a free port of 127.0.0.1 (pages in `fixtures/`, generated pages and
+JSON endpoints with deliberate delays) and runs each test on a fresh tab. Every page reports what the
+browser did to the server, so checks do not trust what the connector read back. Coverage: plain text,
+a 45k-character article, tables (a rule over 60 rows; the second table by caption), a form with every
+common field type (text, email, number, date, textarea, native select, checkboxes, radios, checkboxes
+hidden behind their labels), radio by group label, `chrome_history` verify, a React-like controlled
+input and a change-only framework, a search-as-you-type combobox (with and without a wait, and a
+`wait option:<name>` role target), a custom ARIA dropdown (by clicks and with `select`), a SPA that
+fetches its list 300 to 900 ms after load and paginates, `read api`, confirm/alert/prompt, a cookie banner covering a button, a modal dialog, `target=_blank` and
+`window.open` tabs, same-origin and cross-origin iframes, nested open shadow roots (click, pointerdown,
+typing), a file input and a script-opened file picker, downloads (attachment link, URL, blob), infinite
+scroll, sign-in detection (one and two steps; passwords never echoed or typed), controls re-rendered
+with new nodes (stale refs), slow images and scripts, `each`, tabs, back/forward/reload, a bare
+`localhost:port` address and a hover menu.
+
+Passes: every test runs `--repeat` times (default 3) as full passes; pass 1 is the accuracy pass and all
+passes together are the stability pass. Then the cold-start pass stops the bench Chrome before each of
+`text_plain`, `form_fields` and `spa_list`, so their first call includes the Chrome launch
+(`--no-cold` skips it).
+
+### Runner B (live sites, no LLM)
+
+```sh
+$PY runner_b.py                          # all live tasks x3
+$PY runner_b.py --only hn_front,books_product --repeat 1
+```
+
+Tasks are in `live_tasks.py`: Wikipedia (article, search box), Hacker News, GitHub trending, MDN
+search, BBC News, Google Flights (no booking), Amazon search (no cart), YouTube search,
+old.reddit.com, books.toscrape.com (product page), catalog.data.gov search, the-internet.herokuapp.com
+(dynamic loading, iframe, JS alerts, upload, download) and the Playwright TodoMVC demo. Live pages
+change: when a task fails, read its stored output before blaming the connector, and update the task
+if the page changed.
+
+### Runner C (the bot, with its LLM)
+
+```sh
+$PY runner_c.py --smoke                  # one prompt (books_product)
+$PY runner_c.py --tasks hn_front,wiki_article --round 2
+$PY runner_c.py --all --profile kahunas-connector
+$PY runner_c.py --reanalyze 2            # rescore round 2 from state.db with the current rules, no bot calls
+```
+
+Each prompt (the `prompt=` of a live task plus "Use your browser to check the live page; do not
+answer from memory.") runs as
+`env -u NODE_ENV -u HERMES_HOME hermes -p <profile> -z "<prompt>" --usage-file <file>` from the empty
+folder `/tmp/hermes-work/run` (the runner refuses to start if that folder holds files). Then it reads the
+bot's session from `~/.hermes/profiles/<profile>/state.db` (tables `sessions` and `messages`; the
+session id comes from the usage file, else the newest oneshot session) and records: wall time, model
+turns (assistant messages) and API calls, tool calls by tool name, chrome calls, steps per chrome
+call, failed chrome calls, tokens, cost and the usage file. A prompt **passes** when the final answer
+matches the task's `answer=` pattern **and** the bot made at least one chrome call: some answers are in
+the model's training data (the first smoke run answered the book price from memory in one turn), and
+such a run says nothing about the connector (`--allow-no-browser` counts it anyway). Input tokens are
+the full prompt size from the usage file; `state.db`'s `input_tokens` counts only the uncached part
+and is kept as `uncached_input_tokens`. The bot uses its own connector Chrome.
+
+### Other tools
+
+- `probe.py 'go https://example.com' auto`: one chrome call on the bench home, printed in full (to look
+  at a page while writing or fixing a test). `--fixtures` starts the fixture server and fills `{base}`.
+- `fixture_server.py [port]`: the fixture site on its own, to click through the pages by hand.
+- `--connector DIR` (all runners except C, and `probe.py --connector=DIR`): test a copy of
+  `chrome_connector.py` and `.js` in DIR instead of the repo's, to try a change before applying it.
+  The round file records which copy ran.
+
+## The scorecard
+
+Round 1 of Runner A (the connector as it was on 2026-10-27), plus the `blocked` line of Runner B:
+
+```
+accuracy    33/46 = 71.7% passed on run 1 (all 3 runs: 71.7%)
+stability   100.0% of tests gave the same result on all 3 runs
+time        median 0.606s, p90 1.219s per test (wall); tool-reported median 0.6s
+output      median 317.5 chars per test (token proxy); run 1 total 28542 chars
+steps       median 3.0 per test
+cold start  3/3 passed, first call median 1.14s (includes the Chrome launch), test median 1.14s
+blocked     amazon_search, reddit_old: the site walled the browser off on run 1 (not scored)
+```
+
+- **accuracy**: tests that passed on run 1, out of the scored tests (blocked ones are left out). This
+  is the number the improvement rounds push up. "all runs" is the pass rate over every run.
+- **stability**: tests whose result (P, F or B) was the same on every run. Below 100% means a flaky
+  test: the connector (or the site) behaves differently from run to run, a reliability problem even
+  when the pass rate looks fine. Flaky tests are named.
+- **time**: wall time per test (the sum of its chrome calls, measured by the bench), median and 90th
+  percentile over every run; "tool-reported" is the time the connector prints in its own header line.
+- **output**: characters of everything the connector returned in a test, a stand-in for the tokens the
+  model would read. Lower is better at the same accuracy.
+- **steps**: steps per test (the scripts are fixed, so this changes only when the bench changes).
+- **cold start**: the same tests with Chrome stopped first; the first call includes the launch.
+- **over budget**: tests with a time budget (`slow_assets`: the page text is ready long before its slow
+  image and script) that took longer than it.
+- **blocked** (Runner B): sites that showed a bot check or login wall; not scored.
+- **BENCH ERRORS**: an exception in a test's own code. Fix the bench, not the connector.
+
+Below that: one row per test with its result on each run (`PPF` = passed, passed, failed), median time,
+median characters and steps, then every failure with its check message and the connector's FAILED lines.
+`--baseline N` adds the change against round N: accuracy, stability, times, characters, and which tests
+started or stopped passing.
+
+Times depend on what else the Mac is doing. Medians over 3 runs absorb most of it, but check a
+surprising slowdown with a second round (or `probe.py` on one page with and without `--connector`)
+before acting on it: one round of the fix copy showed 1 to 2 s outliers from machine load that another
+round of the same code did not.
+
+## Result files
+
+`round-<N>-direct.json` and `round-<N>-live.json` hold `summary` (the scorecard numbers, per-test
+results), `tests` (one record per test run: pass, blocked, detail, wall_s, tool_s, first_call_s,
+steps, calls, chars, failures, and for failed runs the full connector outputs, cut at 6000 characters
+per call), `cold` (Runner A) and `connector` (hashes of the two connector files and the repo HEAD).
+`round-<N>-bot.json` holds one record per prompt and a summary.
+
+Connector bugs the bench finds go to `/tmp/hermes-work/bench/findings.md` (file, function, the failing
+test and the smallest suggested change); that list feeds the improvement rounds.
+
+## Adding a test
+
+Runner A: add a page to `fixtures/` (have it POST what happened to `/api/submit/<key>`), then a function
+in `runner_a.py`:
+
+```python
+@test("my_case", "what it covers", budget=None)
+def _(t):
+    out = t.call(f"go {t.base}/my.html\nclick Save")       # timed and recorded
+    got = t.state.last("my-key")                           # what the page reported
+    return C.check(got == {"ok": True}, "what should have happened", got or out[-400:])
+```
+
+Runner B: add a `@task(...)` with `prompt=` and `answer=` to `live_tasks.py` and return
+`verdict(out, ok, what, got)`, which reports a walled page as blocked.

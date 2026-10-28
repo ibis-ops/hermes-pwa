@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Controlled inputs</title>
+<style>body{font:15px/1.5 system-ui,sans-serif;margin:24px;max-width:640px}label{display:block;margin-top:12px}</style></head>
+<body>
+<main>
+<h1>Settings</h1>
+<div id="app"></div>
+<p>nickname state: <span id="nick-state"></span> | city state: <span id="city-state"></span></p>
+<button id="save" type="button">Save settings</button>
+<div id="status" role="status"></div>
+</main>
+<script>
+// Nickname: a React-like controlled input. State changes only through input events whose value
+// differs from what the value tracker last saw (like React's inputValueTracking); a re-render every
+// 250 ms puts the state back into the DOM, so a value set from script without events is undone.
+// City: a framework that listens to change only (Knockout or old Angular style).
+(function () {
+  var state = { nickname: 'guest', city: '' };
+  var proto = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value');
+  var app = document.getElementById('app');
+  app.innerHTML = '<label for="nick">Nickname</label><input id="nick" autocomplete="off">' +
+    '<label for="city">City</label><input id="city" autocomplete="off">';
+  var nick = document.getElementById('nick');
+  var city = document.getElementById('city');
+  var tracked = '';
+  Object.defineProperty(nick, 'value', {
+    configurable: true,
+    get: function () { return proto.get.call(this); },
+    set: function (v) { tracked = String(v); proto.set.call(this, v); }
+  });
+  function show(id, v) { var el = document.getElementById(id); if (el.textContent !== v) el.textContent = v; }
+  function render() {
+    if (proto.get.call(nick) !== state.nickname) nick.value = state.nickname;
+    show('nick-state', state.nickname);
+    show('city-state', state.city);
+  }
+  nick.addEventListener('input', function () {
+    var now = proto.get.call(nick);
+    if (now === tracked) return;
+    tracked = now;
+    state.nickname = now;
+    render();
+  });
+  city.addEventListener('change', function () { state.city = city.value; render(); });
+  setInterval(render, 250);
+  document.getElementById('save').addEventListener('click', function () {
+    fetch('/api/submit/controlled', { method: 'POST', body: JSON.stringify(state) })
+      .then(function (r) { return r.json(); })
+      .then(function (j) { document.getElementById('status').textContent = 'Saved settings #' + j.n; });
+  });
+  render();
+})();
+</script>
+</body>
+</html>

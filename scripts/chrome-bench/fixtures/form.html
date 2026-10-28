@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Profile form</title>
+<style>
+body{font:15px/1.5 system-ui,sans-serif;margin:24px;max-width:640px}
+label{display:block;margin-top:10px}
+fieldset label{display:inline-block;margin-right:14px}
+.fancy{position:relative;display:inline-flex;align-items:center;gap:8px;cursor:pointer;margin-top:14px}
+.fancy input{position:absolute;opacity:0;width:1px;height:1px;margin:0}
+.fancy .box{width:18px;height:18px;border:2px solid #555;border-radius:4px;display:inline-block}
+.fancy input:checked + .box{background:#2a6}
+.switch{display:inline-block;padding:4px 12px;border:1px solid #888;border-radius:12px;cursor:pointer}
+#marketing:checked + .switch{background:#2a6;color:#fff}
+</style></head>
+<body>
+<main>
+<h1>Edit profile</h1>
+<form id="f" novalidate>
+  <label for="name">Full name</label><input id="name" name="name" type="text" autocomplete="off">
+  <label for="email">Email</label><input id="email" name="email" type="email" autocomplete="off">
+  <label for="age">Age</label><input id="age" name="age" type="number" min="0" max="130">
+  <label for="start">Start date</label><input id="start" name="start" type="date">
+  <label for="notes">Notes</label><textarea id="notes" name="notes" rows="3"></textarea>
+  <label for="plan">Plan</label>
+  <select id="plan" name="plan">
+    <option value="">Choose a plan</option><option value="m">Monthly</option>
+    <option value="y">Yearly</option><option value="l">Lifetime</option>
+  </select>
+  <fieldset><legend>Interests</legend>
+    <label><input type="checkbox" name="interests" value="news"> Newsletter</label>
+    <label><input type="checkbox" name="interests" value="beta"> Beta features</label>
+  </fieldset>
+  <fieldset><legend>Contact by</legend>
+    <label><input type="radio" name="contact" value="email"> Email me</label>
+    <label><input type="radio" name="contact" value="phone"> Phone</label>
+    <label><input type="radio" name="contact" value="post"> Post</label>
+  </fieldset>
+  <label class="fancy"><input type="checkbox" id="terms" name="terms"><span class="box"></span> I accept the terms</label>
+  <div style="margin-top:12px"><input type="checkbox" id="marketing" name="marketing" style="display:none"><label for="marketing" class="switch">Marketing emails</label></div>
+  <p><button type="submit">Save profile</button></p>
+</form>
+<div id="status" role="status"></div>
+</main>
+<script>
+(function () {
+  function $(id) { return document.getElementById(id); }
+  $('f').addEventListener('submit', function (e) {
+    e.preventDefault();
+    var data = {
+      name: $('name').value, email: $('email').value, age: $('age').value, start: $('start').value,
+      notes: $('notes').value, plan: $('plan').value,
+      interests: Array.prototype.map.call(document.querySelectorAll('input[name=interests]:checked'), function (x) { return x.value; }),
+      contact: (document.querySelector('input[name=contact]:checked') || {}).value || '',
+      terms: $('terms').checked, marketing: $('marketing').checked
+    };
+    fetch('/api/submit/form', { method: 'POST', body: JSON.stringify(data) })
+      .then(function (r) { return r.json(); })
+      .then(function (j) { $('status').textContent = 'Saved profile #' + j.n; });
+  });
+})();
+</script>
+</body>
+</html>

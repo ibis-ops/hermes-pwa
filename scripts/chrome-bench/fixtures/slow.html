@@ -1,0 +1,15 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Slow assets</title>
+<style>body{font:15px/1.5 system-ui,sans-serif;margin:24px;max-width:640px}</style></head>
+<body>
+<main>
+<h1>Slow assets</h1>
+<p id="marker">SLOW-PAGE-READY</p>
+<p><img src="/slow/2500/pixel.png" alt="slow image" width="40" height="40"></p>
+<p id="late">late script has not run</p>
+</main>
+<!-- The text is ready at once; an image and an async script take 2.5 s, so load fires late. -->
+<script async src="/slow/2500/late.js"></script>
+</body>
+</html>

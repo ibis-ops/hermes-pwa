@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Live board</title>
+<style>body{font:15px/1.5 system-ui,sans-serif;margin:24px;max-width:640px}</style></head>
+<body>
+<main>
+<h1>Live board</h1>
+<div id="board"></div>
+<p>Count: <span id="count">0</span></p>
+</main>
+<script>
+// Every render replaces the controls with new nodes and new random ids: on each click and on its
+// own every second (a live board). A ref taken from an earlier map points at a node that is gone.
+(function () {
+  var count = 0;
+  function rid() { return 'n' + Math.random().toString(36).slice(2, 9); }
+  function render() {
+    document.getElementById('board').innerHTML =
+      '<div class="toolbar" id="' + rid() + '">' +
+      '<button type="button" id="' + rid() + '" data-act="add">Add one</button> ' +
+      '<button type="button" id="' + rid() + '" data-act="reset">Reset</button> ' +
+      '<span id="' + rid() + '">updated ' + new Date().toISOString().slice(11, 19) + '</span></div>';
+  }
+  document.getElementById('board').addEventListener('click', function (e) {
+    var act = e.target && e.target.getAttribute && e.target.getAttribute('data-act');
+    if (!act) return;
+    count = act === 'add' ? count + 1 : 0;
+    document.getElementById('count').textContent = String(count);
+    fetch('/api/submit/stale', { method: 'POST', body: JSON.stringify({ count: count }) });
+    render();
+  });
+  render();
+  setInterval(render, 1000);
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Shop menu</title>
+<style>
+body{font:15px/1.5 system-ui,sans-serif;margin:24px;max-width:640px}
+.menu{position:relative;display:inline-block}
+.menu .sub{display:none;position:absolute;top:100%;left:0;background:#fff;border:1px solid #999;padding:6px 10px;min-width:150px;z-index:3}
+.menu:hover .sub{display:block}
+.sub a{display:block;padding:4px 0}
+</style></head>
+<body>
+<main>
+<h1>Shop</h1>
+<nav>
+  <div class="menu">
+    <button type="button">Products</button>
+    <div class="sub"><a href="#laptops">Laptops</a><a href="#phones">Phones</a><a href="#tablets">Tablets</a></div>
+  </div>
+</nav>
+<p id="picked" role="status">nothing picked</p>
+</main>
+<script>
+// The submenu shows only while the mouse is over "Products" (CSS :hover).
+Array.prototype.forEach.call(document.querySelectorAll('.sub a'), function (a) {
+  a.addEventListener('click', function (e) {
+    e.preventDefault();
+    document.getElementById('picked').textContent = 'picked ' + a.textContent;
+    fetch('/api/submit/menu', { method: 'POST', body: JSON.stringify({ picked: a.textContent }) });
+  });
+});
+</script>
+</body>
+</html>

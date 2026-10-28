@@ -1,0 +1,15 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Links</title>
+<style>body{font:15px/1.5 system-ui,sans-serif;margin:24px;max-width:640px}</style></head>
+<body>
+<main>
+<h1>Links</h1>
+<p><a id="rep" href="/report.html" target="_blank">Open report</a> (opens in a new tab)</p>
+<p><button id="pop" type="button">Open popup</button> (window.open from script)</p>
+</main>
+<script>
+document.getElementById('pop').addEventListener('click', function () { window.open('/report.html?via=script', '_blank'); });
+</script>
+</body>
+</html>

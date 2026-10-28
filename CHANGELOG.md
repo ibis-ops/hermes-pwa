@@ -5,6 +5,38 @@ All notable changes are documented here. The format follows
 
 ## Unreleased
 
+### Chrome connector: a bot drives its own Chrome fast, in batches, and can audit every change
+
+- **Why.** The Kahunas bot drove Sean's own Chrome with AppleScript, Python and screenshots: 126
+  tool calls and 22 screenshots for one task, while Chrome kept jumping to the front. A bot with a
+  connector now gets two tools instead, `chrome` and `chrome_history`, shown only in a profile that
+  has `<HERMES_HOME>/chrome/connector.json` (port, headless). Today that is Kahunas.
+- **Its own Chrome.** The real Google Chrome binary on a separate profile folder (a copy of Sean's,
+  so sites stay signed in), headless by default, on a fixed local port. It starts on first use (1.3 s)
+  and stays up between tasks; Sean's own Chrome is never touched or quit. `browser show` opens a
+  visible window when Sean needs to watch or sign in; `browser hide` goes back to headless.
+- **One call, many steps.** Steps go one per line (`go`, `click`, `type e5 = text`, `fill A = 1 ; B = 2`,
+  `select`, `check`, `press`, `wait text:Saved`, `read table`, `upload`, `download`, tabs, dialogs) and
+  run in order on one persistent DevTools connection. The answer says what each step did, every
+  change with its value before and after (read back from the page) and a short map of the page with
+  refs (`e12`) for the next call; after the first map only what changed comes back. Waits end when
+  the page has been quiet for 250 ms with no request in flight, not after fixed sleeps, and a target
+  that is still loading gets up to 3 s. Big reads go to a file with a summary. On the bench of 46
+  local scenarios and 16 live sites the first version passed 72% and 88%; after the fixes it found
+  (shadow DOM, late lists, stale refs, radio groups, custom dropdowns), 98% and 100%, at a median of
+  0.6 s per scenario.
+- **Faster ways to get data.** `read api` shows the JSON a page loaded from its own server and `api`
+  asks that server directly with the page's session (same site only); `each` reads many pages in
+  parallel tabs; `fast on` skips images, fonts, video and trackers; recipes save steps that worked and
+  replay them without thinking. `auto` (Jev picks each click, like Jev Ultrafast) and `ask` (a small
+  model answers from a long page) are built but stay off until zero data retention is settled: the
+  Vercel team is on Hobby, which refuses it, and they send nothing from the page without it.
+- **Safe by design.** It never types into a password field or returns a password: `login` signs in
+  with Hermes's vault, which fills the page without the model seeing the password. Every change is
+  logged per session in `chrome/history/`, and `chrome_history` (with `verify`) lets the bot audit its
+  work before it reports. Uploads come only from Sean's usual folders; `eval` cannot touch cookies,
+  storage or the network; page text is marked as content, never instructions.
+
 ### Obsidian: Notes from Sean, written and edited from the phone
 
 - **A section for Sean's own notes.** The Obsidian tab has a switch at the top: Bot notes (the

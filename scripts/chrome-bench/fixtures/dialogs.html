@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Dialogs</title>
+<style>body{font:15px/1.5 system-ui,sans-serif;margin:24px;max-width:640px}button{margin-right:8px}</style></head>
+<body>
+<main>
+<h1>Dialogs</h1>
+<p>
+  <button id="del" type="button">Delete item</button>
+  <button id="alert" type="button">Show alert</button>
+  <button id="rename" type="button">Rename</button>
+</p>
+<p id="out" role="status"></p>
+</main>
+<script>
+(function () {
+  function report(obj) {
+    document.getElementById('out').textContent = JSON.stringify(obj);
+    return fetch('/api/submit/dialogs', { method: 'POST', body: JSON.stringify(obj) });
+  }
+  document.getElementById('del').addEventListener('click', function () {
+    var ok = confirm('Delete item #42? This cannot be undone.');
+    report({ confirm: ok ? 'deleted' : 'kept' });
+  });
+  document.getElementById('alert').addEventListener('click', function () {
+    alert('Heads up: this is the alert fixture.');
+    report({ alert: 'closed' });
+  });
+  document.getElementById('rename').addEventListener('click', function () {
+    var v = prompt('New name for the item?', 'Untitled');
+    report({ prompt: v });
+  });
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Catalog</title>
+<style>body{font:15px/1.5 system-ui,sans-serif;margin:24px;max-width:640px}.item{padding:4px 0;border-bottom:1px solid #eee}</style></head>
+<body>
+<main>
+<h1>Catalog</h1>
+<p id="loading">Loading products...</p>
+<ul id="list"></ul>
+<nav aria-label="Pages">
+  <button id="prev" type="button" disabled>Previous</button>
+  <span id="pager"></span>
+  <button id="next" type="button" disabled>Next</button>
+</nav>
+</main>
+<script>
+// The list arrives by fetch 300 to 900 ms after the page loads (?delay=ms fixes it), and Next/Previous
+// fetch the next page and push a new URL, like a single-page app.
+(function () {
+  var params = new URLSearchParams(location.search);
+  var delay = params.has('delay') ? +params.get('delay') : 300 + Math.floor(Math.random() * 600);
+  var page = 1, pages = 1;
+  function load(p, push) {
+    document.getElementById('loading').hidden = false;
+    return fetch('/api/items?page=' + p).then(function (r) { return r.json(); }).then(function (j) {
+      page = j.page; pages = j.pages;
+      var ul = document.getElementById('list');
+      ul.innerHTML = '';
+      j.items.forEach(function (it) {
+        var li = document.createElement('li');
+        li.className = 'item';
+        li.textContent = it.name + ' - $' + it.price.toFixed(2);
+        ul.appendChild(li);
+      });
+      document.getElementById('pager').textContent = 'Page ' + page + ' of ' + pages;
+      document.getElementById('prev').disabled = page <= 1;
+      document.getElementById('next').disabled = page >= pages;
+      document.getElementById('loading').hidden = true;
+      if (push) history.pushState({ page: page }, '', '?page=' + page);
+    });
+  }
+  document.getElementById('next').addEventListener('click', function () { load(page + 1, true); });
+  document.getElementById('prev').addEventListener('click', function () { load(page - 1, true); });
+  setTimeout(function () { load(1, false); }, delay);
+})();
+</script>
+</body>
+</html>

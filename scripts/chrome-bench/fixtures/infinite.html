@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Activity feed</title>
+<style>body{font:15px/1.5 system-ui,sans-serif;margin:24px;max-width:640px}.feed-item{height:44px;border-bottom:1px solid #eee}</style></head>
+<body>
+<main>
+<h1>Activity feed</h1>
+<ol id="feed"></ol>
+<div id="sentinel">Loading more...</div>
+</main>
+<script>
+// 20 items at a time; the next 20 load (300 ms server delay) when the sentinel scrolls into view.
+(function () {
+  var offset = 0, busy = false, done = false;
+  var feed = document.getElementById('feed'), sentinel = document.getElementById('sentinel');
+  function more() {
+    if (busy || done) return;
+    busy = true;
+    fetch('/api/feed?offset=' + offset + '&limit=20').then(function (r) { return r.json(); }).then(function (j) {
+      j.items.forEach(function (it) {
+        var li = document.createElement('li');
+        li.className = 'feed-item';
+        li.textContent = it.title;
+        feed.appendChild(li);
+      });
+      offset += j.items.length;
+      busy = false;
+      if (j.next == null) { done = true; sentinel.textContent = 'No more items'; }
+    });
+  }
+  new IntersectionObserver(function (entries) {
+    if (entries.some(function (e) { return e.isIntersecting; })) more();
+  }).observe(sentinel);
+})();
+</script>
+</body>
+</html>
