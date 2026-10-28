@@ -104,6 +104,32 @@ class RecipeTests(unittest.TestCase):
             self.assertIn("a call that worked", str(err.exception))
 
 
+class SeenRefTests(unittest.TestCase):
+    """A ref from a map of a page that was opened again (refs restart on every load) is found by role and name."""
+
+    class FakeTab:
+        def __init__(self, url: str) -> None:
+            self.url = url
+            self.seen_refs: dict = {}
+
+        def evaluate(self, _expr: str) -> str:
+            return self.url
+
+    def test_ref_becomes_role_and_name_with_its_row(self) -> None:
+        tab = self.FakeTab("https://x.y/list#top")
+        cc._remember_refs(tab, {"url": "https://x.y/list", "els": [
+            ["e3", "button", "Delete", {"row": "Jane Doe"}], ["e4", "select", "Plan", {}], ["e5", "clickable", "Card", {}]]})
+        self.assertEqual(cc._ref_by_name(tab, "e3"), "button:Delete in Jane Doe")
+        self.assertEqual(cc._ref_by_name(tab, "e4"), "select:Plan")
+        self.assertEqual(cc._ref_by_name(tab, "e5"), "clickable:Card")
+        self.assertIsNone(cc._ref_by_name(tab, "e9"))
+
+    def test_other_pages_do_not_lend_their_refs(self) -> None:
+        tab = self.FakeTab("https://x.y/other")
+        cc._remember_refs(tab, {"url": "https://x.y/list", "els": [["e3", "button", "Delete", {}]]})
+        self.assertIsNone(cc._ref_by_name(tab, "e3"))
+
+
 class PlaceholderTests(unittest.TestCase):
     def test_fills_nested_strings_only(self) -> None:
         steps = [{"go": "x.y/{client}"}, {"fill": {"Name": "{client}"}}, {"wait": 5}]

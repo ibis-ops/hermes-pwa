@@ -3,10 +3,10 @@ and skills), for Runner C. `hermes -z` goes through a local gateway surface whos
 plugin tools out, so it cannot test the connector; this goes through hermes_cli.oneshot._run_agent.
 
 Runner C starts it under Hermes's own runtime with HERMES_HOME set to the bot's profile:
-    bot_turn.py "<prompt>" [--json out.json] [--model M] [--reasoning low|medium|high]
+    bot_turn.py "<prompt>" [--json out.json] [--model M] [--reasoning low|medium|high] [--toolsets a,b]
 It prints the final answer, then one line: STATS {"seconds", "api_calls", "tools", "session_id", ...}.
---model and --reasoning override the profile for this one turn only (to measure a setting without
-changing the bot's config)."""
+--model, --reasoning and --toolsets override the profile for this one turn only (to measure a setting
+without changing the bot's config)."""
 import json
 import os
 import sys
@@ -15,7 +15,7 @@ from contextlib import redirect_stderr, redirect_stdout
 
 args = sys.argv[1:]
 opts = {}
-for flag in ("--json", "--model", "--reasoning"):
+for flag in ("--json", "--model", "--reasoning", "--toolsets"):
     if flag in args:
         i = args.index(flag)
         opts[flag] = args[i + 1]
@@ -29,8 +29,9 @@ error = ""
 response, result = "", {}
 with open(os.devnull, "w") as devnull, redirect_stdout(devnull), redirect_stderr(devnull):
     try:
+        toolsets = [x.strip() for x in opts.get("--toolsets", "").split(",") if x.strip()] or None
         response, result = oneshot._run_agent(prompt, model=opts.get("--model"), reasoning=opts.get("--reasoning"),
-                                               ledger=True)
+                                               toolsets=toolsets, ledger=True)
     except Exception as exc:  # report it; the runner counts it as a crash
         error = f"{type(exc).__name__}: {exc}"
 took = time.monotonic() - t0

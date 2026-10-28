@@ -481,6 +481,26 @@ def _(t):
     return C.check(ok, "Escape pressed in #keys and read back, Login clicked, One way picked, abc typed", f"{got}; {out[-400:]}")
 
 
+@test("frameset_text", "nested frameset page: read text and read css=frame[name=middle] give the frames' text")
+def _(t):
+    out = t.call(f"go {t.base}/fs.html\nread text\nread css=frame[name=middle]")
+    items = C.read_items(out, "css=frame[name=middle]")
+    ok = all(k in out for k in ("LEFT-2D7Q", "MIDDLE-9F3K", "BOTTOM-4H8M")) and items == [["MIDDLE-9F3K"]]
+    return C.check(ok, "the three frames' text in read text, MIDDLE-9F3K from the middle frame", f"{items}; {out[-400:]}")
+
+
+@test("ref_after_reopen", "a ref from the map of a page used after the page is opened again (refs restart)")
+def _(t):
+    out1 = t.call(f"go {t.base}/targets.html", map="full")
+    ref = C.find_ref(out1, "button", "Login")
+    if not ref:
+        return C.check(False, "a ref for Login in the first map", out1[-400:])
+    out2 = t.call(f"go {t.base}/targets.html\nclick {ref}")
+    got = t.state.last("targets")
+    return C.check(isinstance(got, dict) and got.get("login") is True, f"Login clicked through the old ref {ref}",
+                   f"{got}; {out2[-300:]}")
+
+
 @test("target_drag_card", "drag Card A = Card B on cards named A and B")
 def _(t):
     out = t.call(f"go {t.base}/targets.html\ndrag Card A = Card B")

@@ -56,7 +56,7 @@ def hermes_python() -> str:
     return m.group(1)
 
 
-def turn_cmd(prompt: str, out_json: Path, model: str = "", reasoning: str = "") -> list[str]:
+def turn_cmd(prompt: str, out_json: Path, model: str = "", reasoning: str = "", toolsets: str = "") -> list[str]:
     boot = ("import os, sys, runpy; os.environ.pop('PYTHONHOME', None); os.environ.pop('PYTHONPATH', None); "
             "os.environ.pop('VIRTUAL_ENV', None); sys.path.insert(0, %r); sys._hermes_pin_default_home = True; "
             "import hermes_bootstrap; sys.argv = [sys.argv[1]] + sys.argv[2:]; runpy.run_path(sys.argv[0], run_name='__main__')"
@@ -66,6 +66,8 @@ def turn_cmd(prompt: str, out_json: Path, model: str = "", reasoning: str = "") 
         cmd += ["--model", model]
     if reasoning:
         cmd += ["--reasoning", reasoning]
+    if toolsets:
+        cmd += ["--toolsets", toolsets]
     return cmd
 
 
@@ -170,7 +172,7 @@ def history_entries(profile: str, session_id: str, since: float) -> list[dict]:
 
 
 def run_task(task: T.BotTask, profile: str, n: int, run_no: int, timeout: int, truth: Any, model: str,
-             reasoning: str, tag: str = "") -> dict:
+             reasoning: str, tag: str = "", toolsets: str = "") -> dict:
     out_json = C.OUT_DIR / "logs" / f"round-{n}-bot{tag}-{task.name}-r{run_no}.turn.json"
     out_json.parent.mkdir(parents=True, exist_ok=True)
     out_json.unlink(missing_ok=True)
@@ -180,7 +182,7 @@ def run_task(task: T.BotTask, profile: str, n: int, run_no: int, timeout: int, t
     t0 = time.monotonic()
     code: Any = 0
     try:
-        proc = subprocess.run(turn_cmd(task.prompt, out_json, model, reasoning), cwd=RUN_DIR, capture_output=True,
+        proc = subprocess.run(turn_cmd(task.prompt, out_json, model, reasoning, toolsets), cwd=RUN_DIR, capture_output=True,
                               text=True, timeout=timeout, env=env)
         code, stdout, stderr = proc.returncode, proc.stdout, proc.stderr
     except subprocess.TimeoutExpired as exc:
@@ -357,6 +359,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--timeout", type=int, default=420, help="seconds per task")
     ap.add_argument("--model", default="", help="model for these turns only (the profile is not changed)")
     ap.add_argument("--reasoning", default="", help="reasoning effort for these turns only")
+    ap.add_argument("--toolsets", default="", help="comma-separated toolsets for these turns only (default: the profile's)")
     ap.add_argument("--tag", default="", help="suffix of the results kind: round-N-bot<tag>.json")
     ap.add_argument("--list", action="store_true")
     args = ap.parse_args(argv)
@@ -411,7 +414,7 @@ def main(argv: list[str] | None = None) -> int:
                     chain = queue.pop(0)
                 for t in chain:
                     rec = run_task(t, args.profile, n, run_no, args.timeout, truths.get(t.name), args.model,
-                                   args.reasoning, args.tag)
+                                   args.reasoning, args.tag, args.toolsets)
                     with lock:
                         records.append(rec)
                         print(f"[run {run_no}] {'PASS' if rec['pass'] else 'FAIL'} {t.name:<18} {rec['wall_s']:>6}s "
@@ -428,6 +431,7 @@ def main(argv: list[str] | None = None) -> int:
     records.sort(key=lambda r: (r["run"], order.get(r["name"], 99)))
     core = {t.name for t in T.TASKS if t.group == "core"}
     data = {"runner": "bot", "round": n, "profile": args.profile, "model": args.model, "reasoning": args.reasoning,
+            "toolsets": args.toolsets,
             "started": started, "finished": C.now(),
             "connector": {**C.fingerprint(), "installed": installed_head(args.profile)},
             "truths": truths, "summary": summarize(records), "prompts": records}

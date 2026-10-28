@@ -506,6 +506,7 @@ class Tab(_Scripted):
         self.last_frames: list[str] = []
         self.auto_wait = 3.0  # how long a missing target may take to appear (shorter for a ?-step)
         self.drag_data: Optional[dict] = None  # an HTML5 drag Chrome held back for us (drag step)
+        self.seen_refs: dict[str, dict] = {}  # page address -> {ref: [role, name, row]} from the maps shown
 
     # -- plumbing ------------------------------------------------------------------------------
     def send(self, method: str, params: Optional[dict] = None, timeout: float = STEP_TIMEOUT_S) -> dict:
@@ -931,7 +932,10 @@ def locate(tab: Tab, target: str, timeout: Optional[float] = None) -> tuple[Any,
             raise ConnectorError(f"frame f{m.group(1)} is not on the page any more; use the newest map")
         return view, m.group(2)
     if re.match(r"^e\d+$", target):
-        return tab, target
+        alt = None if _found(tab, target) else _ref_by_name(tab, target)
+        if not alt:
+            return tab, target
+        target = alt  # a ref from a map of this page before it was opened again: find it by role and name
     if timeout is None:
         timeout = getattr(tab, "auto_wait", AUTO_WAIT_S)
     t0 = time.monotonic()
@@ -949,6 +953,36 @@ def locate(tab: Tab, target: str, timeout: Optional[float] = None) -> tuple[Any,
         if time.monotonic() - t0 >= timeout or _hopeless(tab, t0):
             return tab, target  # the action itself reports what is missing
         time.sleep(0.1)
+
+
+_ROLE_WORDS = {"button", "link", "textbox", "searchbox", "checkbox", "radio", "switch", "select", "combobox", "tab",
+               "menuitem", "option", "password", "slider", "spinbutton", "file", "treeitem", "clickable"}
+
+
+def _remember_refs(tab: Any, m: Any) -> None:
+    """Keep the refs a map showed, by page address: a model that opens the page again and uses a ref from
+    the earlier map (refs restart on every page load) still reaches that control by its role and name."""
+    if not isinstance(m, dict) or not m.get("url"):
+        return
+    names = tab.seen_refs.setdefault(str(m["url"]).split("#")[0], {})
+    for e in m.get("els") or []:
+        if isinstance(e, list) and len(e) >= 3 and e[2]:
+            st = e[3] if len(e) > 3 and isinstance(e[3], dict) else {}
+            names[str(e[0])] = [str(e[1]), str(e[2]), str(st.get("row") or "")]
+    while len(tab.seen_refs) > 20:
+        tab.seen_refs.pop(next(iter(tab.seen_refs)))
+
+
+def _ref_by_name(tab: Any, ref: str) -> Optional[str]:
+    try:
+        url = str(tab.evaluate("location.href")).split("#")[0]
+    except ConnectorError:
+        return None
+    hit = (getattr(tab, "seen_refs", {}).get(url) or {}).get(ref)
+    if not hit:
+        return None
+    role, name, row = hit
+    return (f"{role}:" if role in _ROLE_WORDS else "") + name + (f" in {row}" if row else "")
 
 
 def _ref(view: Any, ref: Any) -> Any:
@@ -1762,6 +1796,8 @@ class Run:
         if spec == "api" or spec.startswith("api:"):
             return self._read_api(spec)
         opts = {"limit": int(step.get("limit", 60000))}
+        if re.match(r"^e\d+$", spec) and not _found(self.tab, spec):
+            spec = _ref_by_name(self.tab, spec) or spec  # a ref from a map of this page before it was reopened
         fm = _FRAME_REF.match(spec)
         if fm:  # read f1:e3: a control the map listed inside a cross-origin frame
             view = self.tab.frame_view(int(fm.group(1)))
@@ -2127,12 +2163,14 @@ class Run:
         if mode == "brief":
             # Not kept as the last map: the next map on this page still compares with the last full one.
             m = tab.hcx("map", {"limit": BRIEF_LIMIT, "text": 0})
+            _remember_refs(tab, m)
             return format_brief(m) if isinstance(m, dict) else "(the page did not answer)"
         full = mode == "full"
         m = tab.hcx("map", {"limit": 400 if full else MAP_LIMIT, "text": 0 if mode in ("none", "controls") else
                             (8000 if mode == "text" else MAP_TEXT), "full": full})
         if not isinstance(m, dict):
             return "(the page did not answer)"
+        _remember_refs(tab, m)
         frames = frame_sections(tab)
         if frames:
             m["frames"] = []  # reached now: listed with their controls below instead
@@ -2575,7 +2613,7 @@ steps: one per line (short form) or a list of objects. Targets: visible text or 
   click Sign in | dblclick e12 | rightclick e12 | hover Products | drag Task 3 = Done (drag and drop)
   type Search = blue shoes (replaces) | append e5 = more | press Enter | press Ctrl+A
   fill Email = a@b.co ; Plan = Yearly ; Notify client = on   (text, lists, checkboxes and radio groups in one step)
-  select Size = Large | check Remember me | uncheck e9
+  select Size = Large | check Remember me | uncheck e9 (they set the state you want and leave one already set alone: no need to look first)
   scroll down/up/top/bottom/e30 | wait text:Saved | wait gone:Loading | wait css=.row | wait url:/done | wait 500
   read text | read section:Shipping | read Price (the value next to a label, or the text under a heading) | read table | read table:Totals | read form | read links | read css=.price | read e12
   read api (JSON the page loaded from its server) | read api:3 | api /x (GET on this site) | api /x POST = {"a":1}

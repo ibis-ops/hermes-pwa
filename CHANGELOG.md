@@ -74,7 +74,10 @@ All notable changes are documented here. The format follows
   and the reply says `[1 of 2 matches]`; `read list` reads the page's main list. A page counts as
   settled after 150 ms without changes instead of 250 ms (fixture tests 30% faster, none lost).
   `save_recipe name = what it does` keeps the steps that just worked, `"vary": {"client": "Jane Doe"}`
-  turns that value into `{client}`, and `recipe` replays it in one step.
+  turns that value into `{client}`, and `recipe` replays it in one step. `read text` on a frameset
+  page gives each frame's text under its name (it gave nothing), `read css=frame[name=middle]` reads
+  that frame, and a ref from the map of a page the bot opens again (refs restart on every load) still
+  reaches its control by role, name and row.
 - **Safe by design.** It never types into a password field or returns a password: `login` signs in
   with Hermes's vault, which fills the page without the model seeing the password. Every change is
   logged per session in `chrome/history/`, and `chrome_history` (with `verify`) lets the bot audit its

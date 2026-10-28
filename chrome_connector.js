@@ -5,7 +5,7 @@
 // CDP, so pages see real events. Password values are never returned.
 (function () {
   'use strict';
-  var VERSION = 10;
+  var VERSION = 11;
   if (window.__hcx && window.__hcx.version >= VERSION) return;
 
   // ---- activity tracking for settle detection ----------------------------------------------
@@ -337,6 +337,13 @@
 
   function fullText(el, max) {
     if (!el) return '';
+    if (el.tagName === 'IFRAME' || el.tagName === 'FRAME') {
+      // A frame from this site reads as its page ("read css=frame[name=middle]").
+      var fd = null;
+      try { fd = el.contentDocument; } catch (e) { fd = null; }
+      if (!fd || !fd.body) return '';
+      return fd.body.tagName === 'FRAMESET' ? frameTexts(fd, 1, max || 200000).join('\n') : fullText(fd.body, max);
+    }
     var shadow = !!el.shadowRoot;
     if (!shadow && el.querySelectorAll) {
       var all = el.querySelectorAll('*');
@@ -374,13 +381,38 @@
     return out.join('');
   }
 
+  // The text of this site's frames in a document, each under its name: a frameset page has no text of
+  // its own, and some pages keep their content in a frame.
+  function frameTexts(doc, depth, cap) {
+    var out = [];
+    if (depth > 3) return out;
+    var fs = doc.querySelectorAll('frame,iframe');
+    for (var i = 0; i < fs.length; i++) {
+      var f = fs[i], d = null;
+      try { d = f.contentDocument; } catch (e) { d = null; }
+      if (!d || !d.body || (f.tagName === 'IFRAME' && !visible(f))) continue;
+      if (d.body.tagName === 'FRAMESET') { out = out.concat(frameTexts(d, depth + 1, cap)); continue; }
+      var name = f.getAttribute('name') || f.getAttribute('title') || f.id || ('frame ' + (i + 1));
+      var t = blockText(fullText(d.body, cap));
+      if (t) out.push('[frame ' + cut(name, 40) + ']\n' + t);
+      out = out.concat(frameTexts(d, depth + 1, cap));
+    }
+    return out;
+  }
+
   function mainText(limit) {
+    if (document.body && document.body.tagName === 'FRAMESET') {
+      var ft = frameTexts(document, 0, limit * 2).join('\n');
+      return ft.length > limit ? ft.slice(0, limit) + '\n[... ' + (ft.length - limit) + ' more characters]' : ft;
+    }
     var main = document.querySelector('main,[role=main]');
     // MDN's main is display:contents (no box of its own), so a main counts when it is rendered and has text.
     var root = main && getComputedStyle(main).display !== 'none' && (main.innerText || '').trim() ? main : document.body;
     if (!root) return '';
     var t = fullText(root, limit * 2 + 2000);
     t = t.replace(/[ \t ]+/g, ' ').replace(/\n\s*\n+/g, '\n').trim();
+    // Little text of its own: what this site's frames show comes after it.
+    if (t.length < 500) { var more = frameTexts(document, 0, limit).join('\n'); if (more) t = (t ? t + '\n' : '') + more; }
     return t.length > limit ? t.slice(0, limit) + '\n[... ' + (t.length - limit) + ' more characters; read with {"read": "text"}]' : t;
   }
 
