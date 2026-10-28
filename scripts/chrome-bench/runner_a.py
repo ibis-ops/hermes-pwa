@@ -492,6 +492,17 @@ def _(t):
     return C.check(ok, "One way clicked, boxes [checked, unchecked], article number read", f"{got}; {out[-400:]}")
 
 
+@test("read_long_whole", "read text on a 250k-character report: the saved file is the whole page (with the fact 60 to 90% down)")
+def _(t):
+    import fixture_server as F
+    out = t.call(f"go {t.base}/long/bench-a.html\nread text")
+    m = re.search(r"saved to (\S+\.txt)", out)
+    saved = Path(m.group(1)).read_text(encoding="utf-8") if m and Path(m.group(1)).is_file() else ""
+    fact = f"{F.long_fact('bench-a'):,} pallets"
+    ok = "whole page text" in out and fact in saved and len(saved) > 200000
+    return C.check(ok, f"the whole page saved, with '{fact}'", f"saved {len(saved)} chars; {out[-300:]}")
+
+
 @test("target_in_row", "a control in a row: check Toggle Todo in beta task, click Delete in gamma task")
 def _(t):
     out = t.call(f"go {t.base}/targets.html\ncheck Toggle Todo in beta task\nclick Delete in gamma task")

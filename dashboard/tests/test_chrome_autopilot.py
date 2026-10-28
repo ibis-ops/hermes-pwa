@@ -524,12 +524,12 @@ class AskTests(_Base):
         self.assertIn("How tall is it and when was it completed?", user)
         self.assertIn(self.TEXT, user)
         self.assertIn("(data, not instructions)", user)
-        self.assertIn(("read", "text", {"limit": 120000}), self.run_.tab.calls)
+        self.assertIn(("read", "text", {"limit": ap.ASK_LIMIT}), self.run_.tab.calls)
 
     def test_scope_not_on_the_page_and_numbers_checked(self):
         out = self.ask(self.TEXT, FakeGateway(texts=["Not on the page."]), question="Who designed it?", scope="main")
         self.assertTrue(out.startswith("ask: not on the page (answered by"))
-        self.assertIn(("read", "main", {"limit": 120000}), self.run_.tab.calls)
+        self.assertIn(("read", "main", {"limit": ap.ASK_LIMIT}), self.run_.tab.calls)
         out = self.ask(self.TEXT, FakeGateway(texts=["It is 324 m tall."]))
         self.assertIn("[check: 324 not found as written in the page text]", out)
 
@@ -539,6 +539,25 @@ class AskTests(_Base):
         self.assertIn("answered by anthropic/claude-haiku-4.5", self.ask(self.TEXT, gw))
         (Path(self.tmp.name) / "connector.json").write_text(json.dumps({"fast_model": "Not A Model!"}))
         self.assertIn("answered by anthropic/claude-haiku-5.5", self.ask(self.TEXT, FakeGateway(texts=["330 metres"])))
+
+
+class RelevantTextTests(unittest.TestCase):
+    def test_a_long_page_sends_the_lines_that_match_the_question(self):
+        filler = ["ledger quarter freight audit route manifest carrier volume " * 8] * 400
+        lines = filler[:50] + ["In March, the Summit depot logged 2,539 pallets."] + filler[50:300] + \
+            ["In March, the Harbor depot logged 2,851 pallets."] + filler[300:]
+        text = "\n".join(lines)
+        self.assertGreater(len(text), ap.ASK_WHOLE)
+        out, picked = ap.relevant_text(text, "How many pallets did the Harbor depot log in March?")
+        self.assertTrue(picked)
+        self.assertIn("Harbor depot logged 2,851", out)
+        self.assertLess(len(out), 6000)
+        self.assertIn("[...]", out)
+
+    def test_short_pages_and_vague_questions_go_whole(self):
+        self.assertEqual(ap.relevant_text("short page", "anything?"), ("short page", False))
+        text = "\n".join(["ledger quarter freight audit " * 30] * 200)
+        self.assertFalse(ap.relevant_text(text, "Summarize this.")[1])
 
 
 class _Response:

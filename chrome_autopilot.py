@@ -54,7 +54,7 @@ WAIT_MS = 100
 JEV_TIMEOUT_S = 6.0
 TEXT_TIMEOUT_S = 10.0
 ASK_TIMEOUT_S = 45.0
-ASK_LIMIT = 120000
+ASK_LIMIT = 600000  # about 150k tokens: a 250k-character report fits whole (round 25)
 ANSWER_CAP = 2000
 TEXT_CAP = 1000
 SELECT_OPTIONS = 100
@@ -972,6 +972,54 @@ def run_auto(run: Any, step: dict, goal: str, *, post: Optional[Poster] = None) 
 # ask
 # ---------------------------------------------------------------------------------------------
 
+# A long page is not sent whole: a small model given 250k characters took the first "March" figure on the page
+# instead of the Harbor depot's (round 25). Above ASK_WHOLE characters, ask sends the lines that share the most
+# words with the question, each with its neighbours, in page order, up to ASK_PICKED characters.
+ASK_WHOLE = 60000
+ASK_PICKED = 24000
+_STOP = frozenset("""the and for that this with from what which who whom whose how many much does did was were are
+is its into onto over under about there their them they then than when where why your you our has have had not
+tell me give show find page reply only number name value please""".split())
+
+
+def _terms(question: str) -> list:
+    words = re.findall(r"[a-z0-9]+", question.lower())
+    return sorted({w[:5] for w in words if len(w) >= 3 and w not in _STOP})
+
+
+def relevant_text(text: str, question: str) -> tuple:
+    """(text to send, True when it is a selection of the page)."""
+    if len(text) <= ASK_WHOLE:
+        return text, False
+    terms = _terms(question)
+    lines = text.split("\n")
+    if len(terms) < 2 or len(lines) < 3:
+        return text[:ASK_LIMIT], False
+    scores = []
+    for line in lines:
+        stems = {w[:5] for w in re.findall(r"[a-z0-9]+", line.lower())}
+        scores.append(sum(1 for t in terms if t in stems))
+    best = max(scores)
+    if best < 2:
+        return text[:ASK_LIMIT], False
+    order = sorted(range(len(lines)), key=lambda i: (-scores[i], i))
+    keep, size = set(), 0
+    for i in order:
+        if scores[i] < max(2, best - 1) or size > ASK_PICKED:
+            break
+        for j in (i - 1, i, i + 1):
+            if 0 <= j < len(lines) and j not in keep:
+                keep.add(j)
+                size += len(lines[j]) + 1
+    out, last = [], -2
+    for i in sorted(keep):
+        if i != last + 1:
+            out.append("[...]")
+        out.append(lines[i])
+        last = i
+    return "\n".join(out)[:ASK_PICKED * 2], True
+
+
 def page_text_of(res: dict) -> str:
     """Any shape ``read`` answers with, as plain text."""
     if "text" in res:
@@ -1012,7 +1060,13 @@ def ask(run: Any, step: dict, question: str, *, post: Optional[Poster] = None) -
         raise ConnectorError(f"{why}, so the page was not sent to {model}. Read the page yourself (read text)")
     t0 = time.monotonic()
     scope = str(step.get("scope") or "text")
-    text = page_text_of(_check(run.tab.hcx("read", scope, {"limit": ASK_LIMIT})))[:ASK_LIMIT]
+    text = page_text_of(_check(run.tab.hcx("read", scope, {"limit": ASK_LIMIT})))
+    cut = re.search(r"\n\[\.\.\. \d+ more characters[^\]]*\]$", text)
+    if cut:
+        text = text[:cut.start()]
+    text = text[:ASK_LIMIT]
+    whole = len(text)
+    text, picked = relevant_text(text, question)
     if not text.strip():
         return f"ask: not on the page (there is no text in {scope})"
     budget = run.deadline - time.monotonic() - 1.0
@@ -1036,4 +1090,8 @@ def ask(run: Any, step: dict, question: str, *, post: Optional[Poster] = None) -
     check = f" [check: {', '.join(missing)} not found as written in the page text]" if missing else ""
     ms = int((time.monotonic() - t0) * 1000)
     answer = answer.replace("\n", "\n   ")
-    return f"ask: {answer}{check} (answered by {model} from {len(text)} characters of page text in {ms} ms)"
+    part = (f"the first {whole:,} characters of page text (the page has more; not on the page means not "
+            f"in that part)" if cut else f"{whole:,} characters of page text")
+    if picked:
+        part = f"the {len(text):,} characters that match the question, of {part}"
+    return f"ask: {answer}{check} (answered by {model} from {part} in {ms} ms)"

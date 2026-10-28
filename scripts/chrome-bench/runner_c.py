@@ -205,7 +205,10 @@ def run_task(task: T.BotTask, profile: str, n: int, run_no: int, timeout: int, t
     sess = found["session"] if found else {}
     answer = str(turn.get("response") or "").strip() or (stdout or "").split("STATS ")[0].strip()
     stale = isinstance(truth, dict) and truth.get("stale")
-    ok, why = task.check(answer, truth) if not stale else (False, f"stale task: {truth['stale']}")
+    try:
+        ok, why = task.check(answer, truth) if not stale else (False, f"stale task: {truth['stale']}")
+    except Exception as exc:  # a broken check must not lose the turn (or the worker thread with it)
+        ok, why = False, f"bench error in the check: {type(exc).__name__}: {exc}"
     hist_ok, hist_why = True, ""
     if task.history is not None and ok:
         hist_ok, hist_why = task.history(history_entries(profile, sid, since))

@@ -351,8 +351,8 @@ def _seeded(fn_name: str, task: str, what: str):
         want = [getattr(F, fn_name)(f"{task}-r{r}") for r in (1, 2, 3)]  # the check does not know the run
         forms = {str(w) for w in want} | {f"{w:,}" for w in want if isinstance(w, int)}
         got = _norm(answer)
-        ok = any(f in got for f in forms)
-        return ok, what, got[:200]
+        ok = any(re.search(r"(?<![\w.,])" + re.escape(f) + r"(?!\w|[.,]\d)", got) for f in forms)
+        return ok, what if ok else f"expected {what}"
     return check
 
 
