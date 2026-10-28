@@ -131,6 +131,10 @@ that change something (checkboxes, dropdown, upload, download), the bot's chrome
 - `probe.py 'go https://example.com' auto`: one chrome call on the bench home, printed in full (to look
   at a page while writing or fixing a test). `--fixtures` starts the fixture server and fills `{base}`.
 - `fixture_server.py [port]`: the fixture site on its own, to click through the pages by hand.
+- `analyze.py fails|split|overhead|big N` looks inside Runner C round N (the bot's sessions, read-only):
+  FAILED steps and other tools with the calls that made them, chrome time against model time, chrome
+  calls whose time is outside their steps, the biggest replies; `analyze.py trend 2 16` prints the A, B
+  and bot scorecards per round.
 - `--connector DIR` (all runners except C, and `probe.py --connector=DIR`): test a copy of
   `chrome_connector.py` and `.js` in DIR instead of the repo's, to try a change before applying it.
   The round file records which copy ran.
