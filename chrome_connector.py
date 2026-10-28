@@ -64,10 +64,10 @@ MAP_TEXT = 1200
 VALUE_CAP = 300
 READ_INLINE = 6000
 EACH_MAX = 40
-# auto and ask (chrome_autopilot.py) send page content to Jev and a small model only with zero data
-# retention, which the Vercel Hobby plan refuses, so they fail closed; they are left out of the tool
-# description (fewer tokens, no wasted turns) until that is settled.
-AUTOPILOT_LISTED = False
+# auto and ask (chrome_autopilot.py) send page content to Jev and a small model. A bot whose connector.json
+# says "zero_data_retention": false sends it without that guarantee (Sean, 2026-10-28; the Vercel Hobby
+# plan refuses it); any other bot still fails closed with one line.
+AUTOPILOT_LISTED = True
 
 CHROME_FLAGS = (
     "--no-first-run", "--no-default-browser-check", "--disable-sync", "--disable-extensions",
