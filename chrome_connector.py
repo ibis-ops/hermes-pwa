@@ -51,6 +51,7 @@ JS_PATH = Path(__file__).with_name("chrome_connector.js")
 STEP_TIMEOUT_S = 30.0
 CALL_BUDGET_S = 150.0
 SETTLE_QUIET_MS = 250
+NET_SETTLE_MS = 150  # after the last response, before a page counts as quiet (its data is still being drawn)
 SETTLE_MAX_S = 4.0
 NAV_TIMEOUT_S = 30.0
 WAIT_TIMEOUT_S = 10.0
@@ -468,7 +469,7 @@ class FrameView(_Scripted):
     def send(self, method: str, params: Optional[dict] = None, timeout: float = STEP_TIMEOUT_S) -> dict:
         if self.frame.closed:
             raise ConnectorError("the frame went away (the page changed); use the newest map")
-        if method == "Input.dispatchMouseEvent":
+        if method in ("Input.dispatchMouseEvent", "Input.dispatchDragEvent"):
             p = dict(params or {})
             if p.get("type") == "mouseMoved":
                 self._offset = None  # each click or hover starts with a move: the frame may have scrolled
@@ -504,6 +505,7 @@ class Tab(_Scripted):
         self.frame_count = 0
         self.last_frames: list[str] = []
         self.auto_wait = 3.0  # how long a missing target may take to appear (shorter for a ?-step)
+        self.drag_data: Optional[dict] = None  # an HTML5 drag Chrome held back for us (drag step)
 
     # -- plumbing ------------------------------------------------------------------------------
     def send(self, method: str, params: Optional[dict] = None, timeout: float = STEP_TIMEOUT_S) -> dict:
@@ -575,6 +577,8 @@ class Tab(_Scripted):
         elif method == "Page.fileChooserOpened":
             self.file_chooser = params.get("backendNodeId")
             self.file_chooser_event.set()
+        elif method == "Input.dragIntercepted":
+            self.drag_data = params.get("data")
         elif method == "Target.attachedToTarget":
             info = params.get("targetInfo") or {}
             sid = params.get("sessionId")
@@ -835,9 +839,12 @@ def settle(tab: Tab, max_s: float = SETTLE_MAX_S, *, nav_before: Optional[int] =
                 state = tab.hcx("busy", timeout=5)
             except ConnectorError:
                 state = None  # the document is being replaced
-        # Ready once the DOM is parsed and quiet: images, fonts and ads may still be loading.
+        # Ready once the DOM is parsed and quiet: images, fonts and ads may still be loading. A response that
+        # just came back is still being read and drawn (a fetch resolves before its JSON is parsed and the
+        # page updates), so it counts as quiet only NET_SETTLE_MS later.
         if isinstance(state, dict) and state.get("ready") in ("interactive", "complete") \
-                and (state.get("inflight", 0) == 0 or state.get("net", 0) >= 1500):
+                and ((state.get("inflight", 0) == 0 and state.get("net", 1e9) >= NET_SETTLE_MS)
+                     or state.get("net", 0) >= 1500):
             if state.get("quiet", 0) >= SETTLE_QUIET_MS and now - t0 >= min_s:
                 return now - t0, True
             # A page that never stops animating: no requests for a second is good enough.
@@ -1106,6 +1113,59 @@ def hover(tab: Tab, target: str) -> dict:
     return {"what": _where(view, p.get("what")), "ref": _ref(view, p.get("ref")), "took": took}
 
 
+def right_click(tab: Tab, target: str) -> dict:
+    """A right click (context menu) where a person would make it."""
+    view, target = locate(tab, target)
+    p = _check(view.hcx("point", target))
+    view.send("Input.dispatchMouseEvent", {"type": "mouseMoved", "x": p["x"], "y": p["y"]})
+    view.send("Input.dispatchMouseEvent", {"type": "mousePressed", "x": p["x"], "y": p["y"], "button": "right", "clickCount": 1})
+    view.send("Input.dispatchMouseEvent", {"type": "mouseReleased", "x": p["x"], "y": p["y"], "button": "right", "clickCount": 1})
+    took, _ = settle(view, 2.0)
+    return {"what": _where(view, p.get("what")), "ref": _ref(view, p.get("ref")), "took": took}
+
+
+def drag(tab: Tab, source: str, target: str) -> dict:
+    """Drag one thing onto another as a person would: press, move in steps, release. Chrome holds back
+    an HTML5 drag (draggable elements) and it is dropped on the target with its data; lists that follow
+    the pointer (sortable rows, boards) get the plain moves."""
+    view, source = locate(tab, source)
+    view_t, target = locate(tab, target)
+    if getattr(view, "frame", None) is not getattr(view_t, "frame", None):
+        raise ConnectorError("drag works within one page or one frame")
+    a = _check(view.hcx("point", source))
+    b = _check(view_t.hcx("where", target))
+    if not b.get("inView"):
+        raise ConnectorError(f"{b.get('what', target)} is not on screen next to {a.get('what', source)}; scroll so both show, then drag")
+    tab.drag_data = None
+    tab.send("Input.setInterceptDrags", {"enabled": True})
+    try:
+        view.send("Input.dispatchMouseEvent", {"type": "mouseMoved", "x": a["x"], "y": a["y"]})
+        view.send("Input.dispatchMouseEvent", {"type": "mousePressed", "x": a["x"], "y": a["y"], "button": "left",
+                                               "buttons": 1, "clickCount": 1})
+        for i in range(1, 9):
+            x, y = a["x"] + (b["x"] - a["x"]) * i / 8, a["y"] + (b["y"] - a["y"]) * i / 8
+            view.send("Input.dispatchMouseEvent", {"type": "mouseMoved", "x": x, "y": y, "button": "left", "buttons": 1})
+            time.sleep(0.02)
+            if tab.drag_data is not None:
+                break
+        html5 = tab.drag_data is not None
+        if html5:
+            for kind in ("dragEnter", "dragOver", "drop"):
+                view.send("Input.dispatchDragEvent", {"type": kind, "x": b["x"], "y": b["y"], "data": tab.drag_data,
+                                                      "modifiers": 0})
+        view.send("Input.dispatchMouseEvent", {"type": "mouseReleased", "x": b["x"], "y": b["y"], "button": "left",
+                                               "clickCount": 1})
+    finally:
+        tab.drag_data = None
+        try:
+            tab.send("Input.setInterceptDrags", {"enabled": False})
+        except ConnectorError:
+            pass
+    took, _ = settle(view_t, 2.0)
+    return {"what": _where(view, a.get("what")), "ref": _ref(view, a.get("ref")), "to": b.get("what"),
+            "html5": html5, "took": took}
+
+
 def wait_for(tab: Tab, spec: Any, timeout: float = WAIT_TIMEOUT_S) -> dict:
     t0 = time.monotonic()
     if isinstance(spec, (int, float)) and not isinstance(spec, bool):
@@ -1364,7 +1424,7 @@ def change_line(e: dict) -> str:
 # Steps
 # ---------------------------------------------------------------------------------------------
 
-ACTIONS = ("go", "click", "dblclick", "type", "fill", "select", "check", "uncheck", "press", "hover", "scroll",
+ACTIONS = ("go", "click", "dblclick", "rightclick", "drag", "type", "fill", "select", "check", "uncheck", "press", "hover", "scroll",
            "wait", "read", "eval", "screenshot", "upload", "download", "tab", "back", "forward", "reload",
            "dialog", "fast", "browser", "api", "each", "recipe", "save_recipe", "recipes", "login", "map",
            "auto", "ask")
@@ -1514,6 +1574,27 @@ class Run:
 
     def do_dblclick(self, step: dict, target: Any) -> str:
         return self._click(step, target, True)
+
+    def do_rightclick(self, step: dict, target: Any) -> str:
+        tab = self.tab
+        url = self.url()
+        dialogs_before = len(tab.dialogs)
+        r = right_click(tab, str(target))
+        dialogs = tab.dialogs[dialogs_before:]
+        self.record({"kind": "click", "what": f"right click {r.get('what')} {r.get('ref') or ''}".strip(), "url": url,
+                     "dialog": "; ".join(dialogs)})
+        return (f"right click {r.get('what')} {r.get('ref') or ''}".rstrip() + f" ({_secs(r['took'])})"
+                + (f" [dialog: {'; '.join(dialogs)}]" if dialogs else ""))
+
+    def do_drag(self, step: dict, source: Any) -> str:
+        to = step.get("to")
+        if not to:
+            raise ConnectorError("drag needs a target: drag Card A = Done column (or {\"drag\": \"A\", \"to\": \"B\"})")
+        url = self.url()
+        r = drag(self.tab, str(source), str(to))
+        self.record({"kind": "drag", "what": f"{r.get('what')} {r.get('ref') or ''}".strip(), "url": url,
+                     "detail": f"onto {r.get('to')}"})
+        return f"drag {r.get('what')} {r.get('ref') or ''} onto {r.get('to')} ({_secs(r['took'])})".replace("  ", " ")
 
     def _adopt(self, opened: dict) -> str:
         tid = opened.get("target")
@@ -2148,7 +2229,11 @@ def parse_line(line: str) -> dict:
                 step = {"fill": fields}
         elif verb == "select":
             step = {"select": target, "option": value or ""}
-        elif verb in ("check", "uncheck", "click", "dblclick", "hover", "download", "map", "login",
+        elif verb == "drag":
+            if value is None:
+                raise ConnectorError(f"write it as: drag <what> = <onto>  ({line[:60]})")
+            step = {"drag": target, "to": value.strip()}
+        elif verb in ("check", "uncheck", "click", "dblclick", "rightclick", "hover", "download", "map", "login",
                       "auto", "ask", "eval", "screenshot", "recipe", "recipes"):
             step = {verb: rest or True}
         elif verb == "upload":
@@ -2446,7 +2531,7 @@ FASTEST: put every step you already know into ONE call; do not spend a call just
 
 steps: one per line (short form) or a list of objects. Targets: visible text or label (Save, Email), role:text (button:Save, link:Next, checkbox:Remember me), css=selector, or a ref (e12) from a map you have already seen. A page has no refs until you see its map: in the call that opens a page, target by text.
   go example.com/pricing | back | forward | reload
-  click Sign in | dblclick e12 | hover Products
+  click Sign in | dblclick e12 | rightclick e12 | hover Products | drag Card A = Done (drag and drop)
   type Search = blue shoes (replaces) | append e5 = more | press Enter | press Ctrl+A
   fill Email = a@b.co ; Plan = Yearly ; Notify client = on   (text, lists, checkboxes and radio groups in one step)
   select Size = Large | check Remember me | uncheck e9
@@ -2505,12 +2590,34 @@ HISTORY_SCHEMA = {
 }
 
 
+_OTHER_BROWSER = re.compile(r"^browser_(?!vault)")
+
+
+def redirect_browser_tools(tool_name: str = "", args: Any = None, **_: Any) -> Optional[dict]:
+    """pre_tool_call hook: in a profile with a Chrome connector, a call to the built-in browser_* tools is
+    turned back to chrome with one line on how. They drive whichever tab of the same Chrome is in front
+    (another session's, in a busy bot), cannot batch and keep no change history; the bench saw one such run
+    take 17 calls and 80 s. The vault tools stay: chrome's login step uses them."""
+    if not tool_name or not _OTHER_BROWSER.match(str(tool_name)):
+        return None
+    try:
+        if load_settings() is None:
+            return None
+    except Exception:
+        return None
+    return {"action": "block", "message": (
+        f"{tool_name} is not used in this bot: use the chrome tool for web pages. One call can open, act and read, "
+        "e.g. steps: \"go example.com/list\\nclick Next\\nread text\".")}
+
+
 def register_tools(ctx: Any) -> None:
     """Called from the plugin's register(): the tools show only in profiles with a connector."""
     ctx.register_tool(name=TOOL, toolset="browser", schema=CHROME_SCHEMA, handler=chrome_tool,
                       check_fn=tools_available, description="Drive the bot's own Chrome fast", emoji="🧭")
     ctx.register_tool(name=HISTORY_TOOL, toolset="browser", schema=HISTORY_SCHEMA, handler=chrome_history_tool,
                       check_fn=tools_available, description="Audit the Chrome changes of this session", emoji="📜")
+    if hasattr(ctx, "register_hook"):
+        ctx.register_hook("pre_tool_call", redirect_browser_tools)
 
 
 def prewarm_all(hermes_root: Optional[Path] = None) -> list[str]:

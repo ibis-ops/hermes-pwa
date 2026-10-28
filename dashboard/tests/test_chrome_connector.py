@@ -44,6 +44,13 @@ class ParseLineTests(unittest.TestCase):
     def test_lines_skip_comments_and_blanks(self) -> None:
         self.assertEqual(cc.parse_lines("go a.b\n\n# note\nclick e1"), [{"go": "a.b"}, {"click": "e1"}])
 
+    def test_drag_and_right_click(self) -> None:
+        self.assertEqual(cc.parse_line("drag Card A = Done column"), {"drag": "Card A", "to": "Done column"})
+        self.assertEqual(cc.parse_line("rightclick e5"), {"rightclick": "e5"})
+        with self.assertRaises(cc.ConnectorError) as err:
+            cc.parse_line("drag Card A")
+        self.assertIn("drag <what> = <onto>", str(err.exception))
+
     def test_dialog_answer_forms(self) -> None:
         want = {"dialog": "accept", "text": "hermes"}
         self.assertEqual(cc.parse_line("dialog accept = hermes"), want)
@@ -161,6 +168,21 @@ class GateTests(unittest.TestCase):
                     os.environ.pop("HERMES_HOME", None)
                 else:
                     os.environ["HERMES_HOME"] = old
+
+    def test_browser_tools_are_turned_back_to_chrome_only_with_a_connector(self) -> None:
+        from unittest import mock
+
+        with tempfile.TemporaryDirectory() as tmp:
+            with mock.patch.dict(os.environ, {"HERMES_HOME": tmp}):
+                self.assertIsNone(cc.redirect_browser_tools(tool_name="browser_navigate"))  # no connector here
+                (Path(tmp) / "chrome").mkdir()
+                (Path(tmp) / "chrome" / "connector.json").write_text("{}")
+                out = cc.redirect_browser_tools(tool_name="browser_navigate", args={"url": "x"})
+                self.assertEqual(out["action"], "block")
+                self.assertIn("use the chrome tool", out["message"])
+                self.assertIsNone(cc.redirect_browser_tools(tool_name="browser_vault"))  # login uses the vault
+                self.assertIsNone(cc.redirect_browser_tools(tool_name="chrome"))
+                self.assertIsNone(cc.redirect_browser_tools(tool_name="web_extract"))
 
     def test_register_tools_registers_both_with_the_gate(self) -> None:
         seen = []

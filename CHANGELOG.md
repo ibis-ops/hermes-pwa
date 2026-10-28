@@ -55,6 +55,15 @@ All notable changes are documented here. The format follows
   captchas are left out of the map). A page that walls the browser off (a bot check, an access block)
   says `BLOCKED ... tell Sean` at once instead of waiting 3 s for a target that will never come. Tabs
   ask sites for reduced motion, so animated pages go quiet sooner.
+- **Waits that end when nothing is coming, drag and right click.** A missing target or an empty read
+  stops waiting once the page is loaded, still and idle for 1.2 s (a wrong selector on GitHub: 4.7 s to
+  1.9 s), and a `?` step waits 1 s; settling waits 150 ms after the last response, so a page has drawn
+  what it fetched before the next step (an infinite list once lost a load to this). `drag Card A =
+  Done` drags and drops (HTML5 drags are caught and dropped with their data; lists that follow the
+  pointer get the moves), `rightclick e5` opens a context menu, draggable elements are in the map, and a
+  one- or two-letter target ("A", "OK") matches a whole word only. In a bot with a connector, a call to
+  the built-in browser_* tools is turned back to chrome with one line on how (they drive whichever tab
+  of the same Chrome is in front; one bench run spent 17 calls and 80 s on them).
 - **Safe by design.** It never types into a password field or returns a password: `login` signs in
   with Hermes's vault, which fills the page without the model seeing the password. Every change is
   logged per session in `chrome/history/`, and `chrome_history` (with `verify`) lets the bot audit its

@@ -34,6 +34,7 @@ class BotTask:
     history: Optional[Callable[[list], tuple]] = None
     after: str = ""
     about: str = ""
+    group: str = "core"  # core: the 14 tasks since round 3; extra: added in round 8 (hover, windows, drag...)
 
 
 def _get_json(url: str) -> Any:
@@ -107,6 +108,25 @@ def _upload_history(entries: list) -> tuple:
 def _download_history(entries: list) -> tuple:
     downs = [e for e in entries if e.get("kind") == "download"]
     return bool(downs), "download in the history" if downs else "no download through chrome (curl or similar instead)"
+
+
+def _kind_history(kind: str, what: str = ""):
+    def check(entries: list) -> tuple:
+        hits = [e for e in entries if e.get("kind") == kind and what.lower() in str(e.get("what", "")).lower()]
+        return bool(hits), (f"{kind} {what} in the history" if hits else f"no {kind} {what} in the chrome history").strip()
+    return check
+
+
+def _pizza_check(answer: str, _truth: Any) -> tuple:
+    a = _norm(answer).lower()
+    ok = "medium" in a and "cheese" in a and "onion" in a and "bacon" not in a
+    return ok, "medium with cheese and onion" if ok else "expected size medium, toppings cheese and onion"
+
+
+def _pizza_history(entries: list) -> tuple:
+    kinds = {e.get("kind") for e in entries}
+    ok = {"type", "check"} <= kinds or ("type" in kinds and "click" in kinds)
+    return ok, "typed and ticked in the history" if ok else "the form was not filled through chrome"
 
 
 # ---- GitHub: stars and the latest release ------------------------------------------------------------
@@ -206,4 +226,40 @@ TASKS: list[BotTask] = [
             "Using Google Flights, what is the cheapest one-way fare shown from London to Paris on 15 December "
             "2026? Do not book anything. Reply with the price only.",
             _has(r"[$£€]\s?\d|\d\s?(USD|GBP|EUR)", "a fare with its currency"), about="travel search form, read-only"),
+    # ---- added in round 8: more kinds of interaction (the 14 above all passed from round 4 on) ----
+    BotTask("heroku_hovers",
+            "On the-internet.herokuapp.com/hovers, hover over the second picture and tell me the user name it "
+            "shows. Reply with the name only.",
+            _has(r"\buser2\b", "user2"), about="hover reveals a caption", group="extra"),
+    BotTask("heroku_windows",
+            "On the-internet.herokuapp.com/windows, click the 'Click Here' link and tell me the heading of the page "
+            "that opens. Reply with the heading only.",
+            _has(r"^\W*New Window\W*$", "New Window"), about="a link that opens a new window", group="extra"),
+    BotTask("heroku_tables",
+            "On the-internet.herokuapp.com/tables, sort the first table by Last Name by clicking that column's "
+            "header, then tell me the email address in its first row. Reply with the email only.",
+            _has(r"fbach@yahoo\.com", "fbach@yahoo.com"), history=_kind_history("click", "Last Name"),
+            about="sort a table by its header", group="extra"),
+    BotTask("heroku_keys",
+            "On the-internet.herokuapp.com/key_presses, click into the input box, press the Escape key and tell me "
+            "what the page reports. Reply with the text only.",
+            _has(r"You entered: ESCAPE", "You entered: ESCAPE"), about="a key press", group="extra"),
+    BotTask("heroku_drag",
+            "On the-internet.herokuapp.com/drag_and_drop, drag box A onto box B, then tell me which letter is now "
+            "in the left box. Reply with the letter only.",
+            _has(r"^\W*B\W*$", "B"), history=_kind_history("drag"), about="HTML5 drag and drop", group="extra"),
+    BotTask("heroku_context",
+            "On the-internet.herokuapp.com/context_menu, right-click the box and tell me the text of the alert "
+            "that appears. Reply with the text only.",
+            _has(r"You selected a context menu", "You selected a context menu"), about="right click, alert",
+            group="extra"),
+    BotTask("httpbin_form",
+            "On httpbin.org/forms/post (a test form), fill in the pizza order: customer name Hermes Bench, size "
+            "Medium, toppings Cheese and Onion, delivery instructions ring twice; then submit the order. What size "
+            "and toppings does the response show? Reply like: size, toppings.",
+            _pizza_check, history=_pizza_history, about="a whole form, submit, read the response", group="extra"),
+    BotTask("heroku_frames",
+            "On the-internet.herokuapp.com/nested_frames, what text is shown in the middle frame? Reply with the "
+            "text only.",
+            _has(r"^\W*MIDDLE\W*$", "MIDDLE"), about="nested frames", group="extra"),
 ]

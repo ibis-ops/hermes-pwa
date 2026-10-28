@@ -292,6 +292,11 @@ def print_scorecard(data: dict) -> None:
           f"FAILED steps {s['failed_steps']}; screenshots {s['screenshots']}")
     if s["stale"]:
         print(f"stale       {', '.join(s['stale'])} (the live page changed under the task; not scored)")
+    k = data.get("core_summary")
+    if k:
+        print(f"core 14     accuracy {k['passed']}/{k['tasks']} = {k['accuracy']}%, stable {k['stability']}%, median "
+              f"{k['median_s']}s, p90 {k['p90_s']}s, model calls {k['median_api_calls']}, chrome output "
+              f"{k['median_chrome_chars']}, input tokens {k['median_input_tokens']}, FAILED steps {k['failed_steps']}")
     print("-" * 100)
     for r in data["prompts"]:
         print(f"{'PASS' if r['pass'] else 'FAIL'} {r['name']:<18} r{r['run']} {r['wall_s']:>6}s calls {r.get('api_calls')} "
@@ -313,16 +318,21 @@ def print_compare(data: dict, base_round: int, kind: str = "bot") -> None:
     except (OSError, ValueError):
         print(f"no baseline {p}")
         return
-    a, b = base["summary"], data["summary"]
-    print(f"compared with round {base_round} ({base['started']}):")
-    for key in ("accuracy", "stability", "median_s", "p90_s", "median_api_calls", "median_chrome_calls",
-                "steps_per_chrome_call", "median_chrome_chars", "median_input_tokens", "median_output_tokens",
-                "median_cost_usd", "failed_steps"):
-        va, vb = a.get(key), b.get(key)
-        if isinstance(va, (int, float)) and isinstance(vb, (int, float)):
-            print(f"  {key:<22} {va:>10} -> {vb:<10} ({vb - va:+.3g})")
-    fa, fb = set(a.get("failed", [])), set(b.get("failed", []))
-    print(f"  now passing: {', '.join(sorted(fa - fb)) or 'none'}; now failing: {', '.join(sorted(fb - fa)) or 'none'}")
+    pairs = []
+    if bool(base.get("core_summary")) == bool(data.get("core_summary")):
+        pairs.append(("all tasks", base["summary"], data["summary"]))
+    if data.get("core_summary"):
+        pairs.append(("core 14", base.get("core_summary") or base["summary"], data["core_summary"]))
+    for label, a, b in pairs:
+        print(f"compared with round {base_round} ({base['started']}), {label}:")
+        for key in ("accuracy", "stability", "median_s", "p90_s", "median_api_calls", "median_chrome_calls",
+                    "steps_per_chrome_call", "median_chrome_chars", "median_input_tokens", "median_output_tokens",
+                    "median_cost_usd", "failed_steps"):
+            va, vb = a.get(key), b.get(key)
+            if isinstance(va, (int, float)) and isinstance(vb, (int, float)):
+                print(f"  {key:<22} {va:>10} -> {vb:<10} ({vb - va:+.3g})")
+        fa, fb = set(a.get("failed", [])), set(b.get("failed", []))
+        print(f"  now passing: {', '.join(sorted(fa - fb)) or 'none'}; now failing: {', '.join(sorted(fb - fa)) or 'none'}")
 
 
 def installed_head(profile: str) -> str:
@@ -338,7 +348,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--profile", default="kahunas-connector")
     group = ap.add_mutually_exclusive_group()
     group.add_argument("--tasks", default="", help="comma-separated task names from bot_tasks.py")
-    group.add_argument("--all", action="store_true", help="every task")
+    group.add_argument("--all", action="store_true", help="every core task (with --extra, the extra ones too)")
+    ap.add_argument("--extra", action="store_true", help="with --all: also the tasks added in round 8")
     ap.add_argument("--repeat", type=int, default=1)
     ap.add_argument("--workers", type=int, default=2, help="bot turns at a time (each has its own tab)")
     ap.add_argument("--round", type=int, default=0)
@@ -354,7 +365,7 @@ def main(argv: list[str] | None = None) -> int:
             print(f"{t.name:<18}{t.about}")
         return 0
     if args.all:
-        tasks = list(T.TASKS)
+        tasks = [t for t in T.TASKS if t.group == "core" or args.extra]
     elif args.tasks:
         want = [x.strip() for x in args.tasks.split(",") if x.strip()]
         unknown = [w for w in want if w not in {t.name for t in T.TASKS}]
@@ -415,10 +426,14 @@ def main(argv: list[str] | None = None) -> int:
             th.join()
     order = {t.name: i for i, t in enumerate(T.TASKS)}
     records.sort(key=lambda r: (r["run"], order.get(r["name"], 99)))
+    core = {t.name for t in T.TASKS if t.group == "core"}
     data = {"runner": "bot", "round": n, "profile": args.profile, "model": args.model, "reasoning": args.reasoning,
             "started": started, "finished": C.now(),
             "connector": {**C.fingerprint(), "installed": installed_head(args.profile)},
             "truths": truths, "summary": summarize(records), "prompts": records}
+    if any(r["name"] not in core for r in records):
+        # The 14 core tasks alone, comparable with the rounds before the extra tasks were added.
+        data["core_summary"] = summarize([r for r in records if r["name"] in core])
     path = C.write_round(kind, n, data)
     print_scorecard(data)
     if args.baseline:

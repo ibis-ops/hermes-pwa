@@ -88,7 +88,7 @@
     '[contenteditable=true]', '[role=button]', '[role=link]', '[role=checkbox]', '[role=radio]', '[role=switch]',
     '[role=tab]', '[role=menuitem]', '[role=menuitemcheckbox]', '[role=menuitemradio]', '[role=option]',
     '[role=combobox]', '[role=textbox]', '[role=searchbox]', '[role=spinbutton]', '[role=slider]', '[role=treeitem]',
-    '[onclick]', '[tabindex]:not([tabindex="-1"])'
+    '[onclick]', '[tabindex]:not([tabindex="-1"])', '[draggable=true]'
   ].join(',');
   var DIALOG_SEL = 'dialog[open],[role=dialog],[role=alertdialog],[aria-modal=true]';
   var ROLE_WORDS = /^(button|link|textbox|searchbox|checkbox|radio|switch|select|combobox|tab|menuitem|option|password|slider|spinbutton|file|treeitem|clickable)\s*:\s*(.+)$/i;
@@ -550,6 +550,11 @@
       if (el.tagName === 'SELECT' && el.selectedIndex >= 0 && el.options[el.selectedIndex]) alt += '|' + low(el.options[el.selectedIndex].text);
       var score = 0;
       if (n === w) score = 100;
+      else if (w.length <= 2) {
+        // A one- or two-letter target ("A", "OK") is a whole word, never a piece of another name.
+        if (new RegExp('(^|[^a-z0-9])' + w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '($|[^a-z0-9])').test(n)) score = 60;
+        else return;
+      }
       else if (n.indexOf(w) === 0) score = 70;
       else if (n.indexOf(w) > 0) score = 50;
       else if (alt.indexOf(w) >= 0) score = 40;
@@ -944,6 +949,14 @@
     wall: wallOf,
     scroll: scroll,
     point: function (t) { return withTarget(t, point); },
+    // Where a target is now, without scrolling it (the drop end of a drag).
+    where: function (t) {
+      return withTarget(t, function (el) {
+        var r = (proxyOf(el) || el).getBoundingClientRect();
+        var inView = r.bottom > 0 && r.top < innerHeight && r.right > 0 && r.left < innerWidth;
+        return { x: r.left + r.width / 2, y: r.top + r.height / 2, what: describe(el), inView: inView };
+      });
+    },
     prepareType: function (t, clear) { return withTarget(t, function (el) { return prepareType(el, clear); }); },
     finishType: function (t, text, clear) { return withTarget(t, function (el) { return finishType(el, text, clear); }); },
     select: function (t, want) { return withTarget(t, function (el) { return selectOption(el, want); }); },
