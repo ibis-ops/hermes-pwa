@@ -5,6 +5,23 @@ All notable changes are documented here. The format follows
 
 ## Unreleased
 
+### Router: asks for what Sean asked and trusts the answer
+
+- **Handoffs ask for what Sean asked.** Tested on the Mac: "how many events are on my calendar
+  tomorrow? just the count" went to Google Calander as "count them, include every calendar Sean
+  has, and list times and titles", and the bot spent three extra tool calls on the extras. The
+  router note now says to add no checks or scope Sean did not ask for and to keep his format
+  ("just the count" means a number).
+- **No rechecking a bot's answer.** The router reopened a bot's log, or redid its search, before
+  it replied, which added 4 to 10 seconds to every handoff. It now passes the answer on in Sean's
+  format and looks closer only when a bot failed, came back empty or contradicts itself; for
+  anything sent, created or changed it says only what the bot's result confirms.
+- **Quick checks on the Mac stay with the router.** Free disk space, a screenshot or what is
+  running are now part of the router's own share, so Jev picks the router for them with
+  confidence instead of wavering between it and the default bot (45% sure before).
+- **What each teammate does.** A bot that runs a team or can hand work on now sees each of those
+  bots' roles from the team map, not just their names.
+
 ### Router: team jobs, follow-ups and spend
 
 - **Team jobs work with flat delegation.** Hermes lets only the top of a delegation hand work on

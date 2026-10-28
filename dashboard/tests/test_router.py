@@ -394,6 +394,33 @@ class DirectiveTests(unittest.TestCase):
         for text in (answer, hand, unsure, nested, off):
             self.assertNotIn("\u2014", text)
 
+    def test_asks_for_what_sean_asked_and_trusts_the_answer(self):
+        # Seen on the Mac: a "just the count" calendar question went out with extra calendars and titles
+        # to fetch, and the router reopened bots' logs to recheck answers, slowing every handoff.
+        options = pwa_router.candidates("router", ROUTER_ON_TOP, ROUTES)
+        hand = pwa_router.directive("router", {"route": "gmail-connector", "source": "jev", "confidence": 0.97, "options": options}, False)
+        unsure = pwa_router.directive("router", {"route": None, "guess": "manager", "confidence": 0.4, "source": "router", "options": options}, False)
+        for text in (hand, unsure):
+            self.assertIn("add no extra checks or scope", text)
+            self.assertIn('"just the count" means a number', text)
+            self.assertIn("do not reopen its log or redo its work to check it", text)
+            self.assertIn("say only what its result confirms", text)
+        decision = pwa_router.decide("Plan my week across email and calendar", bot="router", settings=ON, graph=ROUTER_ON_TOP,
+                                     routes=ROUTES, key="k", post=jev_answer("manager", 0.95))
+        split = pwa_router.directive("router", decision, False)
+        self.assertIn("add no extra checks or scope", split)
+        self.assertIn("without reopening their logs or redoing their work unless one failed", split)
+        for text in (hand, unsure, split):
+            self.assertNotIn("\u2014", text)
+
+    def test_quick_read_only_checks_on_the_mac_are_the_routers_own(self):
+        post = jev_answer("answer", 0.9)
+        pwa_router.decide("How much free disk space do I have?", bot="router", settings=ON, graph=ROUTER_ON_TOP,
+                          routes=ROUTES, key="k", post=post)
+        own = post.calls[0]["body"]["questions"]["route"]["criteria"]["answer"]
+        self.assertIn("a quick read-only check on the Mac itself (free disk space, a screenshot, what is running)", own)
+        self.assertIn("nothing to send, schedule or change", own)
+
     def test_a_bot_the_router_cannot_reach_is_explained_not_rerouted(self):
         decision = pwa_router.decide("Anything new on Signal?", bot="router", settings=ON, graph=ROUTER_ON_TOP, routes=ROUTES,
                                      key="k", post=jev_answer("signal-connector", 0.9))

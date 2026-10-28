@@ -400,9 +400,10 @@ def _criteria(bot: str, options: dict[str, str]) -> dict[str, str]:
     criteria = {
         SELF: (
             f"{bot_graph.bot_label(bot)} answers on its own, at once, in a few lines: a quick fact or "
-            "definition, a calculation, a short rewrite or translation, small talk, a simple how-to, or a "
-            "follow-up about its own last answer. Nothing to look up in Sean's accounts, files or notes, "
-            "nothing to send, schedule or change."
+            "definition, a calculation, a short rewrite or translation, small talk, a simple how-to, a quick "
+            "read-only check on the Mac itself (free disk space, a screenshot, what is running), or a follow-up "
+            "about its own last answer. Nothing to look up in Sean's accounts, files or notes, nothing to send, "
+            "schedule or change."
         )
     }
     for name, description in options.items():
@@ -719,6 +720,20 @@ _NO_WORKAROUNDS = (
     "If a bot cannot do its part, tell Sean what it was missing; do not do that part yourself with another "
     "bot's access (no looking for tokens or keys, no pointing HERMES_HOME at another bot)."
 )
+# Seen on the Mac: "how many events tomorrow? just the count" went out as "count them, include every
+# calendar Sean has, list times and titles", and the bot spent three extra tool calls on the extras.
+_AS_ASKED = (
+    "Ask for what Sean asked and no more: add no extra checks or scope, and keep his answer format "
+    "(\"just the count\" means a number)."
+)
+# Seen on the Mac: after a bot answered, the router reopened the bot's log or redid its search to
+# check it, which added 4 to 10 seconds to every handoff.
+_RELAY = (
+    "When the answer comes back, pass it on in Sean's format, in a line or two unless he asked for more. "
+    "It comes from the bot's own tools, so do not reopen its log or redo its work to check it; look closer "
+    "only when it failed, came back empty or contradicts itself, and for anything sent, created or changed, "
+    "say only what its result confirms."
+)
 
 
 def _names(parts: list[str]) -> str:
@@ -776,14 +791,15 @@ def _directive(bot: str, decision: dict[str, Any], orchestration: bool) -> str:
                 f"{picked}: a job for {label}'s team. Bots you hand work to cannot hand it on from here, so do "
                 f"{label}'s part yourself: give each piece to the bot whose job covers it with delegate_task, one task "
                 "per bot and all in one call so they work side by side, each goal with Sean's own words and everything "
-                f"that bot needs. {_NAME_THE_PROFILE} Then put their answers together for Sean in a few lines. "
+                f"that bot needs. {_NAME_THE_PROFILE} {_AS_ASKED} Then put their answers together for Sean in a few "
+                "lines, without reopening their logs or redoing their work unless one failed or came back empty. "
                 f"{_NO_WORKAROUNDS} {label}'s team: {roster}."
             )
         return (
             f"{picked}. Hand it over with delegate_task, profile \"{route}\". Put everything it needs in the goal: "
             "Sean's message in his own words, the names, dates and details he gave, and what to send back. The bot "
-            "does not see this chat, so when this follows up something earlier, put that in the goal too. When it "
-            f"finishes, give Sean the result in a few lines. {_NO_WORKAROUNDS}"
+            "does not see this chat, so when this follows up something earlier, put that in the goal too. "
+            f"{_AS_ASKED} {_RELAY} {_NO_WORKAROUNDS}"
         )
     roster = _roster(options)
     if decision.get("guess"):
@@ -797,8 +813,8 @@ def _directive(bot: str, decision: dict[str, Any], orchestration: bool) -> str:
     )
     return (
         f"{head} {why} Decide yourself: answer quick things directly; hand real work to the bot whose job "
-        f"covers it with delegate_task and its profile name.{flat} {_NAME_THE_PROFILE} {_NO_WORKAROUNDS} "
-        f"Your team: {roster}."
+        f"covers it with delegate_task and its profile name.{flat} {_NAME_THE_PROFILE} {_AS_ASKED} {_RELAY} "
+        f"{_NO_WORKAROUNDS} Your team: {roster}."
     )
 
 

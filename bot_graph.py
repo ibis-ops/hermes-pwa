@@ -199,6 +199,11 @@ def context_for(name: str, graph: dict[str, Any]) -> str | None:
         lines.append("Keep bot-to-bot messages within these lines unless Sean asks otherwise.")
     else:
         lines.append("You do not message other bots; bring anything you need to Sean.")
+    # Names alone left a manager guessing which bot owns what; the roles Sean wrote say it.
+    described = [n for n in dict.fromkeys(team + can_message) if (nodes.get(n) or {}).get("role")]
+    if described:
+        lines.append("What they do:")
+        lines.extend(f"- {bot_label(n)} (@{n}): {nodes[n]['role']}" for n in described)
     return "\n".join(lines)
 
 

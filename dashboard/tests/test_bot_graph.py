@@ -98,6 +98,21 @@ class StorageAndContextTests(TempHermesHome):
         self.assertIn("nothing is blocked", connector)
         self.assertIsNone(bot_graph.context_for("not-on-map", graph))
 
+    def test_names_what_each_teammate_does_when_sean_wrote_it(self):
+        graph = bot_graph.validate({"nodes": {
+            "manager": {"reportsTo": None, "canMessage": ["gmail-connector", "signal-connector"], "role": "Runs the team."},
+            "gmail-connector": {"reportsTo": "manager", "canMessage": ["manager"], "role": "Sean's Gmail."},
+            "signal-connector": {"reportsTo": "manager", "canMessage": [], "role": ""},
+        }})
+        manager = bot_graph.context_for("manager", graph)
+        self.assertIn("What they do:\n- Gmail Connector (@gmail-connector): Sean's Gmail.", manager)
+        self.assertNotIn("- Signal Connector", manager)  # no role written, so no line
+        self.assertEqual(manager.count("Gmail Connector (@gmail-connector):"), 1)  # on the team and messageable: once
+        connector = bot_graph.context_for("gmail-connector", graph)
+        self.assertIn("- Manager (@manager): Runs the team.", connector)
+        quiet = bot_graph.context_for("signal-connector", graph)
+        self.assertNotIn("What they do", quiet)
+
     def test_hook_says_it_once_per_chat_and_again_after_a_change(self):
         self.assertIsNone(bot_graph.hook_context("s-1", bot="manager"))
         bot_graph.save(MANAGER_ON_TOP)
