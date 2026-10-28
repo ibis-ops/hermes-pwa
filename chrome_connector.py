@@ -58,6 +58,7 @@ MAX_TABS = 8
 TAB_IDLE_S = 30 * 60
 MAX_STEPS = 60
 MAP_LIMIT = 120
+BRIEF_LIMIT = 25  # controls on screen listed after a call that ends with a read
 MAP_TEXT = 1200
 VALUE_CAP = 300
 READ_INLINE = 6000
@@ -995,6 +996,11 @@ def upload(tab: Tab, target: str, files: list) -> dict:
             raise ConnectorError(err)
         paths.append(str(p.resolve()))
     res = tab.hcx("fileInput", target)
+    if isinstance(res, dict) and "nothing on the page matches" in str(res.get("error", "")):
+        only = tab.hcx("onlyFileInput")  # "upload Choose File = ...": the page has one file input
+        if isinstance(only, dict) and only.get("ref"):
+            target = only["ref"]
+            res = tab.hcx("fileInput", target)
     if isinstance(res, dict) and not res.get("error"):
         obj = tab.send("Runtime.evaluate", {"expression": "window.__hcx.uploadEl()"})
         object_id = (obj.get("result") or {}).get("objectId")
@@ -1775,7 +1781,7 @@ class Run:
         tab = self.tab
         if mode == "brief":
             # Not kept as the last map: the next map on this page still compares with the last full one.
-            m = tab.hcx("map", {"limit": 1, "text": 0})
+            m = tab.hcx("map", {"limit": BRIEF_LIMIT, "text": 0})
             return format_brief(m) if isinstance(m, dict) else "(the page did not answer)"
         full = mode == "full"
         m = tab.hcx("map", {"limit": 400 if full else MAP_LIMIT, "text": 0 if mode in ("none", "controls") else
@@ -1949,7 +1955,7 @@ def _el_line(e: list, mark: str = "") -> str:
         bits.append("on" if st["checked"] else "off")
     if st.get("options"):
         bits.append("[" + " | ".join(st["options"]) + (f" | +{st['more']}" if st.get("more") else "") + "]")
-    flags = [k for k in ("disabled", "required", "readonly", "invalid", "current", "offscreen", "behind") if st.get(k)]
+    flags = [k for k in ("disabled", "required", "readonly", "invalid", "current", "behind") if st.get(k)]
     if "expanded" in st:
         flags.append("expanded" if st["expanded"] else "collapsed")
     if flags:
@@ -1989,7 +1995,8 @@ def format_map(m: dict) -> str:
 
 
 def format_brief(m: dict) -> str:
-    """The page line after a call that ended with a read: where it is, what is open, no control list."""
+    """After a call that ended with a read: where the page is, what is open, and only the controls on
+    screen (no links' addresses); the full list comes with a map step."""
     out = [f"Page: {_q(m.get('title', ''))} {m.get('url', '')}" + ("" if m.get("ready") == "complete" else " (still loading)")]
     if m.get("login"):
         out.append("Sign-in form on this page: use {\"login\": \"auto\"} (the vault fills the password).")
@@ -1997,7 +2004,13 @@ def format_brief(m: dict) -> str:
         out.append(f"Open dialog: {_q(m['dialog'])}")
     if m.get("notices"):
         out.append("Notices: " + " | ".join(m["notices"]))
-    out.append(f"({m.get('total', 0)} controls; target them by visible text, or add a map step to list them with refs)")
+    els = [e for e in m.get("els") or [] if not (e[3] or {}).get("offscreen") and not (e[3] or {}).get("behind")]
+    total = m.get("total", len(els))
+    if els:
+        out.append(f"On screen ({len(els)} of {total} controls; a map step lists all, text targets work without it):")
+        out.extend(_el_line([e[0], e[1], e[2], {k: v for k, v in (e[3] or {}).items() if k != "href"}]) for e in els)
+    else:
+        out.append(f"({total} controls; target them by visible text, or add a map step to list them with refs)")
     return "\n".join(out)
 
 
@@ -2155,7 +2168,7 @@ def _verify(settings: Settings, key: str, entries: list) -> str:
 
 CHROME_DESCRIPTION = """Your web browser for EVERY site (any site, not only Kahunas): this bot's own Google Chrome, headless, always running, signed in to Sean's sites. Use it to open, search, click, fill forms, answer dialogs, upload, download and read live data. Do not use web_extract (it can return an old cached copy), curl or wget, or the browser_* tools for web pages.
 
-FASTEST: put every step you already know into ONE call. The reply says what each step did, every change with its value before and after (read back from the page), and a map of the page with refs (e12) for the next call; after the first map only what changed, and after a call that ends with a read just the page line.
+FASTEST: put every step you already know into ONE call. The reply says what each step did, every change with its value before and after (read back from the page), and a map of the page with refs (e12) for the next call; after the first map only what changed, and after a call that ends with a read just the page line and the controls on screen.
 
 steps: one per line (short form) or a list of objects. Targets: visible text or label (Save, Email), role:text (button:Save, link:Next, checkbox:Remember me), css=selector, or a ref (e12) from a map you have already seen. A page has no refs until you see its map: in the call that opens a page, target by text.
   go example.com/pricing | back | forward | reload

@@ -108,13 +108,18 @@ class SummaryTests(unittest.TestCase):
         self.assertNotIn("B3", out)
         self.assertIn("Nothing changed", cc.format_diff(prev, self._map(els)))
 
-    def test_brief_map_after_a_read_names_the_page_not_the_controls(self) -> None:
-        m = self._map([["e1", "button", "Save", {}]], total=57, notices=["Saved"])
+    def test_brief_map_after_a_read_lists_only_what_is_on_screen(self) -> None:
+        m = self._map([["e1", "button", "Save", {}], ["e2", "link", "Help", {"href": "/help"}],
+                       ["e3", "link", "Terms", {"offscreen": True, "href": "/terms"}]], total=57, notices=["Saved"])
         out = cc.format_brief(m)
         self.assertIn('Page: "T" https://x.y/', out)
         self.assertIn("Notices: Saved", out)
-        self.assertIn("57 controls", out)
-        self.assertNotIn("e1", out)
+        self.assertIn("2 of 57 controls", out)
+        self.assertIn('e1 button "Save"', out)
+        self.assertIn('e2 link "Help"', out)
+        self.assertNotIn("/help", out)  # no addresses
+        self.assertNotIn("e3", out)  # not on screen
+        self.assertIn("57 controls", cc.format_brief(self._map([], total=57)))
 
     def test_shared_names_carry_their_row(self) -> None:
         line = cc._el_line(["e6", "checkbox", "Toggle Todo", {"checked": False, "row": "milk"}])

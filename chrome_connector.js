@@ -243,7 +243,7 @@
     if (el.required || el.getAttribute('aria-required') === 'true') s.required = true;
     if (el.readOnly) s.readonly = true;
     if (el.getAttribute('aria-invalid') === 'true') s.invalid = true;
-    if (role === 'link') { var h = relHref(el.getAttribute('href')); if (h) s.href = cut(h, 90); }
+    if (role === 'link') { var h = relHref(el.getAttribute('href')); if (h) s.href = cut(h, 70); }
     return s;
   }
 
@@ -423,6 +423,17 @@
       if (el.querySelector && el.querySelector(SEL)) return false;
       return nameOf(el).length <= 80;
     });
+    // A destination is listed once (a product card links its picture and its title to the same page);
+    // text targets still reach every copy.
+    var seenHref = {};
+    els = els.filter(function (el) {
+      if (el.tagName !== 'A') return true;
+      var key = relHref(el.getAttribute('href'));
+      if (!key || key.charAt(0) === '#') return true;
+      if (seenHref[key]) return false;
+      seenHref[key] = 1;
+      return true;
+    });
     var first = [], rest = [];
     els.forEach(function (el) {
       if (dialog && !dialog.contains(el)) rest.push(el); else first.push(el);
@@ -500,7 +511,10 @@
     var best = null, bestScore = -1, names = [];
     candidates().forEach(function (el) {
       var r = roleOf(el);
-      if (role && r !== role && !(role === 'textbox' && /^(searchbox|password|spinbutton)$/.test(r)) &&
+      // Fields a person types into are one kind: a search box is often a combobox (MDN, Google), a text box
+      // a searchbox or spinbutton.
+      var typed = /^(textbox|searchbox|combobox|spinbutton)$/;
+      if (role && r !== role && !(role === 'textbox' && r === 'password') && !(typed.test(role) && typed.test(r)) &&
           !(role === 'select' && r === 'combobox') && !(role === 'button' && r === 'clickable')) return;
       var n = low(nameOf(el));
       var alt = low(el.getAttribute('placeholder') || '') + '|' + low(el.getAttribute('title') || '') + '|' + low(el.getAttribute('name') || '');
@@ -754,6 +768,16 @@
       if (s > score) { best = h; score = s; }
     });
     if (!best) {
+      // Not a heading: a label cell or term with that text ("section:Born"), then a box whose id, class or
+      // label is that word ("section:infobox").
+      var cell = labelCell(want), pt = cell && pairedText(cell, limit);
+      if (pt) return { what: describe(cell), value: pt, ref: refOf(cell), block: pt.indexOf('\n') >= 0 };
+      var box = null;
+      try {
+        var esc = CSS.escape(norm(want));
+        box = deepQueryAll('#' + esc + ',.' + esc + ',[aria-label="' + norm(want).replace(/"/g, '') + '" i]').filter(visible)[0];
+      } catch (e) { box = null; }
+      if (box) return { what: describe(box), value: clip(blockText(fullText(box)), limit), ref: refOf(box), block: true };
       return { error: 'no heading named "' + want + '". Headings: ' +
         heads.slice(0, 20).map(function (h) { return cut(h.innerText, 40); }).join(' | ') };
     }
@@ -933,6 +957,15 @@
         el.setAttribute('data-hcx-upload', '1');
         return { what: describe(el) };
       });
+    },
+    // The page's one file input, for "upload Choose File = ..." (Chrome draws that button; the input is
+    // usually named by its name attribute, or hidden behind a styled button).
+    onlyFileInput: function () {
+      var all = deepQueryAll('input[type=file]');
+      var shown = all.filter(visible);  // libraries such as Dropzone add a hidden one of their own
+      var pick = shown.length === 1 ? shown[0] : all.length === 1 ? all[0] : null;
+      if (!pick) return { error: all.length + ' file inputs on the page' };
+      return { ref: refOf(pick), what: describe(pick) };
     },
     uploadEl: function () {
       var e = deepQueryAll('[data-hcx-upload]')[0];
