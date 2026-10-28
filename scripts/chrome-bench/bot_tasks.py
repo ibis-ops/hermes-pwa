@@ -341,3 +341,29 @@ TASKS += [
             _has(r"\bRefreshed\b", "Refreshed (a page that keeps a request open)"),
             about="a page with a request that never finishes", group="trouble"),
 ]
+
+
+# ---- round 25: a very long page and a vague goal over several pages (fixture site; answers seeded per run,
+# so they cannot come from memory). Where auto (Jev) and ask (small model) should beat hand-written steps.
+def _seeded(fn_name: str, task: str, what: str):
+    def check(answer: str, _truth: Any) -> tuple:
+        import fixture_server as F
+        want = [getattr(F, fn_name)(f"{task}-r{r}") for r in (1, 2, 3)]  # the check does not know the run
+        forms = {str(w) for w in want} | {f"{w:,}" for w in want if isinstance(w, int)}
+        got = _norm(answer)
+        ok = any(f in got for f in forms)
+        return ok, what, got[:200]
+    return check
+
+
+TASKS += [
+    BotTask("long_report",
+            "Open {base}/long/{token}.html (a very long report) and tell me how many pallets the Harbor depot "
+            "logged in March. Reply with the number only.",
+            _seeded("long_fact", "long_report", "the Harbor depot's March figure from a 250k-character page"),
+            about="one fact in a 250k-character page, with decoys", group="long"),
+    BotTask("shop_vague",
+            "On {base}/shop/{token} find the cheapest blue item that is in stock. Reply with its name only.",
+            _seeded("shop_answer", "shop_vague", "the cheapest blue in-stock item over 4 pages"),
+            about="a vague goal over 4 catalogue pages", group="long"),
+]

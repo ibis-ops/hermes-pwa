@@ -929,6 +929,19 @@
       var ch = deepQueryAll(want), cv = ch.filter(function (h) { return visible(h) || proxyOf(h); });
       if (cv.length) return { el: cv[0], count: cv.length, loose: true };
     }
+    if (!depth) {
+      // "checkbox1", "checkbox 2", "button_3": the Nth of that kind (after a real id of that name).
+      var kn = /^([a-z]+)[\s_-]?(\d{1,2})$/i.exec(want);
+      if (kn && KIND_SEL[kn[1].toLowerCase()]) {
+        var kp = kindPool(kn[1].toLowerCase()), kpick = kp[+kn[2] - 1];
+        if (kpick) return { el: kpick, count: kp.length, loose: true };
+      }
+      // "one-way" for "One way": hyphens as spaces, for plain names only (not selectors).
+      if (/[A-Za-z]-[A-Za-z]/.test(want) && /^[\w\s'-]+$/.test(want)) {
+        var hy = resolve(want.replace(/-/g, ' '), kind, depth + 1);
+        if (hy.el) { hy.loose = true; return hy; }
+      }
+    }
     if (depth) return { error: 'no match' };
     var wm = wordMatch(w, role, dialog);
     if (wm) return { el: wm, count: 1, loose: true };
@@ -1393,7 +1406,13 @@
     var hits = deepQueryAll('th,dt,' + HEAD_SEL + ',summary,legend,label,b,strong,dt *,th *').filter(function (x) {
       return !(x.tagName === 'LABEL' && x.control) && low(x.innerText || x.textContent).replace(/\s*:$/, '') === w && visible(x);
     });
-    if (!hits.length) return null;
+    if (!hits.length) {
+      // A label in plain text ("<span>Article number</span><span>002.638.50</span>").
+      hits = deepQueryAll('span,div,p,td,dt').filter(function (x) {
+        return x.childElementCount <= 1 && low(x.innerText || x.textContent).replace(/\s*:$/, '') === w && visible(x);
+      });
+      if (!hits.length) return null;
+    }
     var h = hits[0];
     // A link or span inside a th/dt names the cell itself.
     var up = h.closest && h.closest('th,dt');

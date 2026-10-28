@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Phrasing</title>
+<style>body{font:15px/1.5 system-ui,sans-serif;margin:24px} .trip button{margin-right:6px} .spec{display:flex;gap:12px}</style></head>
+<body>
+<main>
+<h1>Phrasing</h1>
+<!-- Forms the bot wrote in round 22 that missed: "one-way" for "One way", "checkbox1" for an unlabelled
+     checkbox with no id, and "section:Article number" for a label in plain spans. -->
+<div class="trip"><button type="button">Round trip</button><button type="button">One way</button></div>
+<form id="checkboxes"><input type="checkbox"> checkbox 1<br><input type="checkbox" checked> checkbox 2</form>
+<div class="spec"><span>Article number</span><span>002.638.50</span></div>
+<p id="status">Trip: none</p>
+</main>
+<script>
+var S = { trip: '', boxes: [] };
+function post() { fetch('/api/submit/phrasing', { method: 'POST', body: JSON.stringify(S) }); }
+document.querySelectorAll('.trip button').forEach(function (b) {
+  b.addEventListener('click', function () { S.trip = b.textContent; document.getElementById('status').textContent = 'Trip: ' + b.textContent; post(); });
+});
+document.querySelectorAll('#checkboxes input').forEach(function (c) {
+  c.addEventListener('change', function () {
+    S.boxes = Array.prototype.map.call(document.querySelectorAll('#checkboxes input'), function (x) { return x.checked; }); post();
+  });
+});
+</script>
+</body>
+</html>

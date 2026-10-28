@@ -146,6 +146,79 @@ def _page(title: str, body: str) -> bytes:
             f"{_STYLE}</head><body>{body}</body></html>").encode()
 
 
+# ---- round 25: a very long report and a paged shop, both seeded by the task's token -----------------
+_WORDS = ("ledger quarter freight audit depot inbound route manifest carrier volume region schedule transfer "
+          "dock count review season forecast intake outbound storage turnover pallet shift crew yard").split()
+DEPOTS = ["Harbor", "Ridge", "Valley", "Summit", "Canyon", "Prairie"]
+MONTHS = ["January", "February", "March", "April", "May", "June"]
+
+
+def long_fact(token: str) -> int:
+    """Pallets the Harbor depot logged in March (the one fact the long report's question asks for)."""
+    return 1000 + int(hashlib.sha256(f"long:{token}".encode()).hexdigest()[:6], 16) % 8000
+
+
+def long_report_html(token: str) -> bytes:
+    rng = random.Random(f"long:{token}")
+    sections, answer = [], long_fact(token)
+    target = rng.randrange(36, 54)
+    for i in range(60):
+        paras = []
+        for _ in range(8):
+            paras.append(" ".join(rng.choice(_WORDS) for _ in range(70)).capitalize() + ".")
+        if i % 3 == 0 or i == target:
+            depot, month = rng.choice(DEPOTS), rng.choice(MONTHS)
+            if i == target:
+                depot, month, n = "Harbor", "March", answer
+            else:
+                if (depot, month) == ("Harbor", "March"):
+                    month = "February"
+                n = rng.randrange(1000, 9000)
+            paras.insert(rng.randrange(1, 8), f"In {month}, the {depot} depot logged {n:,} pallets through its "
+                                              f"inbound docks.")
+        body = "".join(f"<p>{html.escape(x)}</p>" for x in paras)
+        sections.append(f"<h2>Section {i + 1}: {rng.choice(_WORDS).title()} {rng.choice(_WORDS)}</h2>{body}")
+    return (f"<!doctype html><html lang=en><head><meta charset=utf-8><title>Annual operations report</title></head>"
+            f"<body><main><h1>Annual operations report</h1>{''.join(sections)}</main></body></html>").encode()
+
+
+COLOURS = ["blue", "red", "green", "black", "white", "blue"]
+
+
+def shop_items(token: str) -> list[dict]:
+    rng = random.Random(f"shop:{token}")
+    nouns = ["Mug", "Lamp", "Scarf", "Bottle", "Notebook", "Cushion", "Planter", "Clock", "Tray", "Basket"]
+    out = []
+    for i in range(40):
+        out.append({"name": f"{rng.choice(['Nordic', 'Coastal', 'Urban', 'Rustic', 'Studio'])} {rng.choice(nouns)} "
+                            f"{100 + i}",
+                    "colour": rng.choice(COLOURS), "price": round(rng.uniform(6, 90), 2),
+                    "stock": rng.random() > 0.35})
+    # The cheapest blue item overall is out of stock, so the answer needs the stock column too.
+    blue = sorted((x for x in out if x["colour"] == "blue"), key=lambda x: x["price"])
+    blue[0]["stock"] = False
+    if not any(x["stock"] for x in blue):
+        blue[1]["stock"] = True
+    return out
+
+
+def shop_answer(token: str) -> str:
+    return min((x for x in shop_items(token) if x["colour"] == "blue" and x["stock"]), key=lambda x: x["price"])["name"]
+
+
+def shop_html(token: str, page: int) -> bytes:
+    items = shop_items(token)[(page - 1) * 10:page * 10]
+    rows = "".join(f"<li class=item><span class=name>{html.escape(x['name'])}</span> <span class=colour>"
+                   f"{x['colour']}</span> <span class=price>${x['price']:.2f}</span> <span class=stock>"
+                   f"{'In stock' if x['stock'] else 'Sold out'}</span></li>" for x in items)
+    nav = "".join(f" <a href='/shop/{token}?page={n}'>{'Page ' + str(n) if n != page else '[' + str(n) + ']'}</a>"
+                  for n in range(1, 5))
+    nxt = f" <a href='/shop/{token}?page={page + 1}'>Next page</a>" if page < 4 else ""
+    return (f"<!doctype html><html lang=en><head><meta charset=utf-8><title>Home goods, page {page}</title></head>"
+            f"<body><main><h1>Home goods</h1><p>Page {page} of 4</p><ul>{rows}</ul><nav>{nav}{nxt}</nav></main>"
+            f"</body></html>").encode()
+
+
 def article_html() -> bytes:
     parts = ["<main><article><h1>The Lighthouse Keepers Almanac</h1>",
              "<p>A long article for the bench: thirty sections of filler with two markers in it.</p>"]
@@ -256,6 +329,14 @@ class Handler(BaseHTTPRequestHandler):
 
         if path in ("/", "/index.html"):
             return self._send(200, index_html(), "text/html; charset=utf-8")
+        if path.startswith("/long/") and path.endswith(".html"):
+            return self._send(200, long_report_html(path[6:-5]), "text/html; charset=utf-8")
+        if path.startswith("/shop/"):
+            try:
+                page = min(4, max(1, int((q.get("page") or ["1"])[0])))
+            except ValueError:
+                page = 1
+            return self._send(200, shop_html(path[6:], page), "text/html; charset=utf-8")
         if path == "/article.html":
             return self._send(200, article_html(), "text/html; charset=utf-8")
         if path == "/table.html":
