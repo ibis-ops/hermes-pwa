@@ -80,7 +80,9 @@ All notable changes are documented here. The format follows
   reaches its control by role, name and row. A row action that shows only while the mouse is over its
   row (`click Archive in John Roe`) is revealed by moving the mouse there first, `read table:2` reads
   the second table, and `role:searchbox` prefers a real search field, then the Search button that
-  opens one.
+  opens one. `click first product result`, `click second result`, `click last item` pick that entry of
+  the page's main result list (the biggest group of repeated cards or rows with a link, outside the
+  header, menus, filters and footer); on IKEA's search page that is the first product.
 - **No more leaked tabs.** Every one-shot run of a connector bot (a cron job, `hermes -z`, a bench
   turn) left its tab open, because only the process that made a tab closed it; after a few hundred
   runs the bot's Chrome held hundreds of tabs and about 13 GB. Now a process that connects closes the

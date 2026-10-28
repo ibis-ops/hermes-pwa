@@ -524,6 +524,16 @@ def _(t):
     return C.check(ok, "table 2 sorted (Bach first), table 1 as it was (Smith first)", f"{[x[:2] for x in tables]}; {out[-300:]}")
 
 
+@test("target_nth_result", "click first result / second product / last item: entries of the page's main result list")
+def _(t):
+    out = t.call(f"go {t.base}/results.html\nclick first result\nread css=h1\nback\nclick second product\nread css=h1\n"
+                 "back\nclick last item\nread css=h1")
+    items = C.read_items(out, "css=h1")
+    want = [["Page 1: alpha"], ["Page 2: bravo"], ["Page 16: hotel"]]
+    return C.check(items == want, "pages 1, 2 and 16 (the result cards, not the menus, filters or related links)",
+                   items or out[-400:])
+
+
 @test("target_drag_card", "drag Card A = Card B on cards named A and B")
 def _(t):
     out = t.call(f"go {t.base}/targets.html\ndrag Card A = Card B")

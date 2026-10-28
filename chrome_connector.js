@@ -5,7 +5,7 @@
 // CDP, so pages see real events. Password values are never returned.
 (function () {
   'use strict';
-  var VERSION = 12;
+  var VERSION = 13;
   if (window.__hcx && window.__hcx.version >= VERSION) return;
 
   // ---- activity tracking for settle detection ----------------------------------------------
@@ -724,6 +724,37 @@
     return out;
   }
 
+  // "first result", "the second product", "3rd item", "first product result", "last video": an entry of the
+  // page's main list of results, found as the biggest group of repeated boxes (cards, rows, list items, all
+  // with the same tag and class) that hold a link, outside the header, menus, filters and footer.
+  var ORDINAL = { first: 1, '1st': 1, second: 2, '2nd': 2, third: 3, '3rd': 3, fourth: 4, '4th': 4, fifth: 5, '5th': 5, last: -1 };
+  var ORDINAL_RE = /\b(first|second|third|fourth|fifth|1st|2nd|3rd|4th|5th|last)\s+(?:(?:search|product|video|news)\s+)?(?:result|product|item|link|video|article|listing|match|entry|card|hit|post|repo|repository|book|story)s?\b/i;
+  function nthResult(n) {
+    var groups = [], keys = [];
+    deepQueryAll('a[href]').forEach(function (a) {
+      var h = a.getAttribute('href') || '';
+      if (!h || h.charAt(0) === '#' || /^javascript:/i.test(h) || !visible(a) || norm(nameOf(a)).length < 3) return;
+      if (a.closest('nav,header,footer,aside,form,[role=navigation],[role=banner],[role=contentinfo],[role=menu],[role=search]')) return;
+      var node = a;
+      for (var hops = 0; node.parentElement && hops < 8; hops++) {
+        var same = 0;
+        for (var c = node.parentElement.firstElementChild; c && same < 3; c = c.nextElementSibling) {
+          if (c.tagName === node.tagName && c.className === node.className) same++;
+        }
+        if (same >= 3) break;
+        node = node.parentElement;
+      }
+      if (!node.parentElement || node === document.body) return;
+      var i = keys.indexOf(node.parentElement);
+      if (i < 0) { keys.push(node.parentElement); groups.push({ cards: [], links: [] }); i = keys.length - 1; }
+      if (groups[i].cards.indexOf(node) < 0) { groups[i].cards.push(node); groups[i].links.push(a); }
+    });
+    var best = null;
+    groups.forEach(function (g) { if (g.cards.length >= 3 && (!best || g.cards.length > best.cards.length)) best = g; });
+    if (!best) return null;
+    return n < 0 ? best.links[best.links.length - 1] : best.links[n - 1] || null;
+  }
+
   function resolve(target, kind, depth) {
     target = norm(target);
     depth = depth || 0;
@@ -785,6 +816,11 @@
         var r2 = resolve(forms[i], kind, depth + 1);
         if (r2.el) { r2.loose = true; return r2; }
       }
+    }
+    var om = !depth && ORDINAL_RE.exec(want);
+    if (om) {
+      var nr = nthResult(ORDINAL[om[1].toLowerCase()]);
+      if (nr) return { el: nr, count: 1, loose: true };
     }
     if (/^[#.][A-Za-z_-]|^\[[A-Za-z_-]|^[a-z][a-z0-9-]*[#.\[]|\s>\s/.test(want)) {
       var ch = deepQueryAll(want), cv = ch.filter(function (h) { return visible(h) || proxyOf(h); });
