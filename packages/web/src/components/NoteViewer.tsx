@@ -1,12 +1,12 @@
 import { createElement, useEffect, useMemo, useState, type AnchorHTMLAttributes, type MouseEvent } from 'react';
-import ReactMarkdown from 'react-markdown';
-import { obsidianOpenUrl, parseObsidianNote, type ObsidianNote, type ObsidianNoteContent, type RestClient } from '@hermes-pwa/core';
+import { obsidianOpenUrl, type ObsidianNote, type ObsidianNoteContent, type RestClient } from '@hermes-pwa/core';
 import { BottomSheet } from './BottomSheet';
 import { Icon } from './Icon';
-import { MARKDOWN_COMPONENTS, REHYPE_PLUGINS, REMARK_PLUGINS } from './MessageBubble.helpers';
+import { MARKDOWN_COMPONENTS } from './MessageBubble.helpers';
+import { NoteText } from './NoteText';
 import { formatClockTime, formatDayLabel } from '../lib/chatTime';
 import { SkeletonRows } from './Skeleton';
-import { linkifyWikilinks, wikilinkCandidates, wikilinkTarget } from '../lib/wikilinks';
+import { wikilinkCandidates, wikilinkTarget } from '../lib/wikilinks';
 
 interface NoteViewerProps {
   rest: RestClient;
@@ -57,8 +57,6 @@ export function NoteViewer({ rest, note: initialNote, linkVault, onClose }: Note
     };
   }, [rest, note.vault, note.path]);
 
-  const parsed = useMemo(() => (content ? parseObsidianNote(content.text) : undefined), [content]);
-  const body = useMemo(() => (parsed ? linkifyWikilinks(parsed.body) : ''), [parsed]);
   const modified = content?.modifiedAt;
 
   const followLink = async (target: string) => {
@@ -159,23 +157,7 @@ export function NoteViewer({ rest, note: initialNote, linkVault, onClose }: Note
         </div>
       ) : null}
       {!content && !error ? <SkeletonRows rows={5} kind="chat" label="Loading note" /> : null}
-      {parsed && parsed.properties.length > 0 ? (
-        <dl className="hm-note-view__props" data-testid="note-properties">
-          {parsed.properties.map((property) => (
-            <div key={property.key} className="hm-note-view__prop">
-              <dt>{property.key}</dt>
-              <dd>{property.value || '(empty)'}</dd>
-            </div>
-          ))}
-        </dl>
-      ) : null}
-      {parsed ? (
-        <div className="hm-message__text hm-note-view__body" data-testid="note-body">
-          <ReactMarkdown remarkPlugins={REMARK_PLUGINS} rehypePlugins={REHYPE_PLUGINS} components={components}>
-            {body}
-          </ReactMarkdown>
-        </div>
-      ) : null}
+      {content ? <NoteText text={content.text} components={components} linkWikilinks /> : null}
     </BottomSheet>
   );
 }

@@ -47,7 +47,8 @@ export type IconName =
   | 'more'
   | 'sun'
   | 'speaker'
-  | 'stopSquare';
+  | 'stopSquare'
+  | 'compose';
 
 interface IconProps extends Omit<SVGProps<SVGSVGElement>, 'ref'> {
   name: IconName;
@@ -168,6 +169,8 @@ const ICONS: Record<IconName, IconPart[]> = {
   logout: ['M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4', 'M16 17l5-5-5-5', 'M21 12H9'],
   speaker: ['M4 9.5h3.2L12 5.5v13l-4.8-4H4z', 'M15.5 9.2a4 4 0 0 1 0 5.6', 'M18.2 6.6a7.6 7.6 0 0 1 0 10.8'],
   stopSquare: [['rect', { x: 6.5, y: 6.5, width: 11, height: 11, rx: 2.2 }]],
+  // A square with a pencil over its corner: write a new note, as in Notes.
+  compose: ['M11 4H6a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-5', 'M18.4 3.6a2 2 0 0 1 2.8 2.8L12 15.6l-3.6.8.8-3.6z'],
 };
 
 function renderPart(part: IconPart, index: number) {

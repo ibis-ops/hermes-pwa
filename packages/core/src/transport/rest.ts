@@ -25,6 +25,7 @@ import { toEnvVar } from '../domain/env';
 import type { MessagingOverview } from '../domain/messaging';
 import { toMessagingOverview } from '../domain/messaging';
 import { toObsidianActivity, toObsidianNoteContent, type ObsidianActivity, type ObsidianNoteContent } from '../domain/obsidian';
+import { toMyNoteContent, toMyNotes, type MyNoteContent, type MyNotes } from '../domain/my-notes';
 import {
   toProfileRoutes,
   toRouterDecision,
@@ -63,6 +64,8 @@ import type { ActionItem } from '../domain/activity';
 import { toActionItem } from '../domain/activity';
 
 const AUDIO_HTTP_TIMEOUT_MS = 2 * 60_000;
+/** A note can be up to 1 MB, sent from a phone on a slow connection. */
+const NOTE_SAVE_TIMEOUT_MS = 30_000;
 
 interface RawStatus {
   auth_required?: boolean;
@@ -388,6 +391,14 @@ export interface RestClient {
   obsidianNote(vault: string, path: string): Promise<ObsidianNoteContent>;
   /** Open Obsidian on the Mac if it is closed, so Obsidian Sync moves the vault both ways. */
   obsidianSync(): Promise<VaultSyncResult>;
+  /** Sean's own notes: the "Notes from Sean" folder of the vault on the Mac, newest first. */
+  myNotes(): Promise<MyNotes>;
+  /** One of those notes by file name, with the version an edit must send back. */
+  myNote(name: string): Promise<MyNoteContent>;
+  /** Write a new note into that folder; the Mac names the file from the title and never replaces one. */
+  createMyNote(title: string, text: string): Promise<MyNoteContent>;
+  /** Save an edit. Refused with 409 when the note changed on the Mac after `version` was read. */
+  saveMyNote(name: string, text: string, version: string): Promise<MyNoteContent>;
   /** The router bot's settings, whether Jev has a key on the Mac, and its newest decisions. */
   routerStatus(): Promise<RouterStatus>;
   /** Where a message would go: Jev is asked, but nothing is sent to a bot or logged. */
@@ -1030,6 +1041,38 @@ export function makeRestClient(http: Http): RestClient {
         timeoutMs: 30_000,
       });
       return { available: raw?.available === true, running: raw?.running === true, started: raw?.started === true };
+    },
+
+    async myNotes(): Promise<MyNotes> {
+      return toMyNotes(await http<unknown>('/api/plugins/hermes-pwa/obsidian/my-notes', MAC_WIDE));
+    },
+
+    async myNote(name: string): Promise<MyNoteContent> {
+      return toMyNoteContent(
+        await http<unknown>(`/api/plugins/hermes-pwa/obsidian/my-notes/note?name=${encodeURIComponent(name)}`, MAC_WIDE),
+      );
+    },
+
+    async createMyNote(title: string, text: string): Promise<MyNoteContent> {
+      return toMyNoteContent(
+        await http<unknown>('/api/plugins/hermes-pwa/obsidian/my-notes', {
+          method: 'POST',
+          body: JSON.stringify({ title, text }),
+          skipProfile: true,
+          timeoutMs: NOTE_SAVE_TIMEOUT_MS,
+        }),
+      );
+    },
+
+    async saveMyNote(name: string, text: string, version: string): Promise<MyNoteContent> {
+      return toMyNoteContent(
+        await http<unknown>('/api/plugins/hermes-pwa/obsidian/my-notes/note', {
+          method: 'PUT',
+          body: JSON.stringify({ name, text, version }),
+          skipProfile: true,
+          timeoutMs: NOTE_SAVE_TIMEOUT_MS,
+        }),
+      );
     },
 
     async routerStatus(): Promise<RouterStatus> {

@@ -119,7 +119,7 @@ export function obsidianOpenUrl(vaultName: string | undefined, notePath: string)
  * The vault name to put in links for one note: the person's own choice first,
  * then what the Mac detected as the phone's copy, then the Mac vault's name.
  */
-export function resolveLinkVault(note: ObsidianNote, override: string | undefined): string | undefined {
+export function resolveLinkVault(note: Pick<ObsidianNote, 'phoneVault' | 'vault'>, override: string | undefined): string | undefined {
   if (override !== undefined) return override.trim() || undefined;
   return note.phoneVault ?? note.vault;
 }

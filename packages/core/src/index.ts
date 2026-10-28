@@ -101,6 +101,8 @@ export type { MessagingPlatform, MessagingPlatformState, MessagingOverview } fro
 export { sortMessagingPlatforms, messagingStateLabel, toMessagingOverview } from './domain/messaging';
 export type { ObsidianActivity, ObsidianNote, ObsidianVault, ObsidianNoteAction, ObsidianDayGroup, ObsidianNoteContent, ParsedNote } from './domain/obsidian';
 export { toObsidianActivity, toObsidianNoteContent, obsidianOpenUrl, resolveLinkVault, groupNotesByDay, parseObsidianNote, obsidianToMarkdown } from './domain/obsidian';
+export type { MyNote, MyNotes, MyNoteContent, MyNoteProblem } from './domain/my-notes';
+export { MY_NOTES_FOLDER, myNoteTitle, myNoteProblem, toMyNotes, toMyNoteContent } from './domain/my-notes';
 export type { AgentHistory, AgentRun, AgentRunParent, AgentRunStatus, AgentRunDayGroup } from './domain/agent-history';
 export { toAgentHistory, toAgentRun, groupRunsByDay } from './domain/agent-history';
 export type { BotActivity, BotActivityReport, BotWork, BotWorkKind } from './domain/bot-activity';

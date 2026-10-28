@@ -6266,3 +6266,458 @@ button.hm-router-card:active {
   overflow: visible;
   white-space: normal;
 }
+
+/* ------------------------------------------------------------------ */
+/* Obsidian: Notes from Sean, listed as the Notes app lists them       */
+/* ------------------------------------------------------------------ */
+
+.hm-obsidian__switch {
+  margin: 0 0 12px;
+}
+
+/* The notes view fills the screen so its toolbar can sit at the bottom, where a thumb reaches. */
+.hm-obsidian--mine {
+  display: flex;
+  flex-direction: column;
+  padding-bottom: 0;
+}
+
+.hm-my-notes {
+  display: flex;
+  flex: 1 0 auto;
+  flex-direction: column;
+}
+
+.hm-my-notes > * {
+  flex-shrink: 0;
+}
+
+.hm-my-notes__problem,
+.hm-my-notes__error {
+  margin-bottom: 14px;
+}
+
+.hm-my-notes__problem {
+  background: var(--hm-color-warning-bg);
+  color: var(--hm-color-warning-strong);
+}
+
+.hm-my-notes__error {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px 12px;
+}
+
+.hm-my-notes__retry {
+  min-height: 44px;
+  padding: 0 2px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-weight: var(--hm-fw-semibold);
+  text-decoration: underline;
+}
+
+.hm-my-notes__empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 28px 20px;
+  text-align: center;
+}
+
+.hm-my-notes__empty-icon {
+  display: grid;
+  place-items: center;
+  width: 52px;
+  height: 52px;
+  margin-bottom: 8px;
+  border-radius: 14px;
+  background: var(--hm-color-primary-tint);
+  color: var(--hm-color-accent-text);
+}
+
+.hm-my-notes__list {
+  margin: 0 0 16px;
+  padding: 0;
+  list-style: none;
+  border-radius: 12px;
+  background: var(--hm-color-surface);
+  overflow: hidden;
+}
+
+.hm-my-note {
+  position: relative;
+}
+
+/* Hairlines start at the text, as in Notes. */
+.hm-my-note + .hm-my-note::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  right: 0;
+  left: 16px;
+  height: 0.5px;
+  background: var(--hm-color-border);
+}
+
+.hm-my-note__main {
+  display: flex;
+  width: 100%;
+  min-height: 64px;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px 10px 16px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.hm-my-note__main:active {
+  background: var(--hm-color-fill);
+}
+
+.hm-my-note__body {
+  display: flex;
+  min-width: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.hm-my-note__top {
+  display: flex;
+  min-width: 0;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.hm-my-note__title {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--hm-color-text);
+  font-size: var(--hm-fs-body);
+  font-weight: var(--hm-fw-semibold);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hm-my-note__draft {
+  flex: none;
+  padding: 1px 6px;
+  border-radius: 6px;
+  background: var(--hm-color-warning-bg);
+  color: var(--hm-color-warning-strong);
+  font-size: 0.6875rem;
+  font-weight: var(--hm-fw-semibold);
+}
+
+.hm-my-note__sub {
+  display: flex;
+  min-width: 0;
+  gap: 8px;
+  font-size: var(--hm-fs-small);
+}
+
+.hm-my-note__time {
+  flex: none;
+  color: var(--hm-color-text);
+}
+
+.hm-my-note__preview {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--hm-color-text-muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hm-my-note__chevron {
+  flex: none;
+  color: var(--hm-color-text-faint);
+}
+
+/* The Notes toolbar: the count in the middle, New note on the right. It stays at the bottom of
+   the screen while the list scrolls under it. */
+.hm-my-notes__bar {
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  min-height: 52px;
+  margin: auto -16px 0;
+  padding: 4px 12px 4px 16px;
+  border-top: 0.5px solid var(--hm-color-border);
+  background: color-mix(in srgb, var(--hm-color-bg) 88%, transparent);
+  -webkit-backdrop-filter: blur(20px) saturate(1.6);
+  backdrop-filter: blur(20px) saturate(1.6);
+}
+
+.hm-my-notes__count {
+  color: var(--hm-color-text-muted);
+  font-size: var(--hm-fs-label);
+  white-space: nowrap;
+}
+
+.hm-my-notes__compose {
+  justify-self: end;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 44px;
+  padding: 0 4px 0 8px;
+  border: 0;
+  background: transparent;
+  color: var(--hm-color-accent-text);
+  font: inherit;
+  font-size: var(--hm-fs-body);
+  font-weight: var(--hm-fw-semibold);
+  white-space: nowrap;
+}
+
+.hm-my-notes__compose:active {
+  opacity: 0.5;
+}
+
+.hm-my-notes__compose:disabled {
+  color: var(--hm-color-text-faint);
+}
+
+/* One note: read as the note viewer reads it, edited in place. */
+.hm-sheet--my-note .hm-sheet__content {
+  height: 92dvh;
+  max-height: 92dvh;
+}
+
+/* Column flex parent: only the body may shrink, or the title folds to 1px. */
+.hm-sheet--my-note .hm-sheet__handle,
+.hm-sheet--my-note .hm-my-note-sheet__meta,
+.hm-sheet--my-note .hm-my-note-sheet__footer {
+  flex: none;
+}
+
+.hm-my-note-sheet__meta {
+  margin: -6px 0 10px;
+  overflow: hidden;
+  font-size: var(--hm-fs-small);
+  text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hm-my-note-sheet__saved {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 12px;
+  padding: 8px 12px;
+  border-radius: 10px;
+  background: var(--hm-color-success-bg);
+  color: var(--hm-color-success-strong);
+  font-size: var(--hm-fs-small);
+  font-weight: var(--hm-fw-medium);
+}
+
+.hm-my-note-sheet__empty {
+  margin: 20px 0;
+  font-size: var(--hm-fs-small);
+  text-align: center;
+}
+
+.hm-my-note-sheet__banner {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  margin: 0 0 10px;
+  background: var(--hm-color-warning-bg);
+  color: var(--hm-color-warning-strong);
+}
+
+.hm-my-note-sheet__banner p {
+  margin: 0;
+}
+
+.hm-my-note-sheet__banner--quiet {
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--hm-color-fill);
+  color: var(--hm-color-text-muted);
+  font-size: var(--hm-fs-small);
+  line-height: 1.35;
+}
+
+.hm-sheet--my-note .hm-warning-banner--error {
+  flex: none;
+  margin: 0 0 10px;
+}
+
+.hm-my-note-sheet__confirm {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 8px;
+  font-weight: var(--hm-fw-semibold);
+}
+
+.hm-my-note-sheet__confirm-actions {
+  display: flex;
+  gap: 28px;
+}
+
+.hm-my-note-sheet__text-btn {
+  position: relative;
+  min-height: 32px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--hm-color-accent-text);
+  font: inherit;
+  font-weight: var(--hm-fw-semibold);
+}
+
+.hm-my-note-sheet__text-btn--danger {
+  color: var(--hm-color-danger-text);
+}
+
+.hm-my-note-sheet__text-btn::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: max(100%, 44px);
+  height: max(100%, 44px);
+  transform: translate(-50%, -50%);
+}
+
+.hm-my-note-sheet__footer {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 10px;
+  border-top: 0.5px solid var(--hm-color-border);
+}
+
+.hm-my-note-sheet__actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.hm-my-note-sheet__open,
+.hm-my-note-sheet__edit {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 46px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 12px;
+  font: inherit;
+  font-weight: var(--hm-fw-semibold);
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.hm-my-note-sheet__open {
+  background: var(--hm-color-primary-tint);
+  color: var(--hm-color-accent-text);
+}
+
+.hm-my-note-sheet__edit {
+  background: var(--hm-color-primary);
+  color: var(--hm-color-primary-text);
+}
+
+.hm-my-note-sheet__edit:disabled,
+.hm-my-note-sheet__save:disabled {
+  opacity: 0.4;
+}
+
+.hm-my-note-sheet__hint {
+  margin: 0;
+  font-size: var(--hm-fs-label);
+  line-height: 1.4;
+  text-align: center;
+}
+
+.hm-my-note-sheet__save {
+  width: 100%;
+  min-height: 48px;
+  border-radius: 12px;
+  background: var(--hm-color-primary);
+  color: var(--hm-color-primary-text);
+}
+
+.hm-my-note-sheet__limit {
+  margin: 0;
+  color: var(--hm-color-danger-text);
+  font-size: var(--hm-fs-small);
+  text-align: center;
+}
+
+/* Writing: the title as a heading, then the text filling the sheet down to Save. */
+.hm-my-note-edit__title {
+  flex: none;
+  width: 100%;
+  min-height: 44px;
+  padding: 4px 0 8px;
+  border: 0;
+  border-bottom: 0.5px solid var(--hm-color-border);
+  border-radius: 0;
+  background: transparent;
+  color: var(--hm-color-text);
+  font: inherit;
+  font-size: var(--hm-fs-title);
+  font-weight: var(--hm-fw-bold);
+}
+
+.hm-my-note-edit__text {
+  flex: 1 0 auto;
+  width: 100%;
+  min-height: 9em;
+  padding: 10px 0 12px;
+  border: 0;
+  background: transparent;
+  color: var(--hm-color-text);
+  font: inherit;
+  font-size: var(--hm-fs-body);
+  line-height: 1.45;
+  resize: none;
+}
+
+.hm-my-note-edit__title::placeholder,
+.hm-my-note-edit__text::placeholder {
+  color: var(--hm-color-text-faint);
+}
+
+/* As in the chat composer, the caret shows where typing goes; a ring round the whole page would
+   only frame the sheet. */
+.hm-my-note-edit__title:focus-visible,
+.hm-my-note-edit__text:focus-visible {
+  outline: 0;
+}
+
+/* While typing, the sheet ends where the keyboard begins, so the text and Save stay in view. */
+html.hm-keyboard-open .hm-sheet--my-note {
+  bottom: auto;
+  height: var(--hm-visual-height, 100dvh);
+  padding-bottom: 0;
+}
+
+html.hm-keyboard-open .hm-sheet--my-note .hm-sheet__content {
+  height: calc(var(--hm-visual-height, 100dvh) - env(safe-area-inset-top) - 8px);
+  max-height: calc(var(--hm-visual-height, 100dvh) - env(safe-area-inset-top) - 8px);
+  padding-bottom: 8px;
+}

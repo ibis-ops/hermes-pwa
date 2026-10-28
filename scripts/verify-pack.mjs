@@ -39,6 +39,7 @@ const required = [
   'agent_history.py',
   'bot_activity.py',
   'obsidian_activity.py',
+  'my_notes.py',
   'pwa_speech.py',
   'bot_graph.py',
   'pwa_router.py',

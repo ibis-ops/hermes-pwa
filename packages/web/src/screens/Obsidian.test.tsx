@@ -149,6 +149,40 @@ describe('Obsidian', () => {
     expect(rest.obsidianActivity).toHaveBeenCalledTimes(2);
   });
 
+  it('switches to Notes from Sean and opens there next time', async () => {
+    const rest = makeRest();
+    const myNotes = vi.fn().mockResolvedValue({
+      available: true,
+      vault: 'General',
+      phoneVault: 'Vault 1',
+      folder: 'Notes from Sean',
+      exists: true,
+      notes: [{ name: 'Gym ideas.md', title: 'Gym ideas', path: 'Notes from Sean/Gym ideas.md', modifiedAt: today(11), size: 20, preview: 'Leg day' }],
+      total: 1,
+      scannedAt: NOW,
+      maxBytes: 1_048_576,
+      error: undefined,
+      reason: undefined,
+    });
+    (rest as unknown as { myNotes: typeof myNotes }).myNotes = myNotes;
+    const { unmount } = render(<Obsidian rest={rest} />);
+    await waitFor(() => expect(screen.getAllByTestId('obsidian-day')).toHaveLength(2));
+    expect(screen.getByRole('radio', { name: 'Bot notes' })).toHaveAttribute('aria-checked', 'true');
+
+    fireEvent.click(screen.getByRole('radio', { name: 'Notes from Sean' }));
+    expect(await screen.findByText('Gym ideas')).toBeInTheDocument();
+    expect(screen.queryByTestId('obsidian-day')).toBeNull();
+    expect(screen.getByRole('button', { name: /New note/ })).toBeEnabled();
+    expect(window.localStorage.getItem('hermes-pwa.obsidian.view.v1')).toBe('mine');
+    unmount();
+
+    render(<Obsidian rest={rest} />);
+    expect(await screen.findByTestId('my-notes')).toBeInTheDocument();
+    expect(screen.getByRole('radio', { name: 'Notes from Sean' })).toHaveAttribute('aria-checked', 'true');
+    // The bots' list is not fetched while it is not on screen.
+    expect(rest.obsidianActivity).toHaveBeenCalledTimes(1);
+  });
+
   it('explains a missing notes list in words, not the server JSON', async () => {
     const rest = makeRest();
     (rest as unknown as { obsidianActivity: () => Promise<never> }).obsidianActivity = vi

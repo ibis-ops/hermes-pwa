@@ -13,7 +13,7 @@ import {
   useChatStore,
   useProjectsStore,
 } from '@hermes-pwa/core';
-import type { RpcClient, RestClient, Approval, Session, ProfileRoutes, RouterStatus } from '@hermes-pwa/core';
+import type { RpcClient, RestClient, Approval, Session, ProfileRoutes, RouterStatus, MyNoteContent, MyNotes } from '@hermes-pwa/core';
 import type {
   Board,
   BoardDetail,
@@ -231,6 +231,40 @@ let previewRoutes: ProfileRoutes = {
   default: 'default',
 };
 
+// Notes from Sean: kept in memory, so the preview can write and edit them.
+let previewNoteVersion = 3;
+let previewNotes: MyNoteContent[] = [
+  { vault: 'General', phoneVault: 'Vault 1', folder: 'Notes from Sean', name: 'Gym ideas.md', title: 'Gym ideas', path: 'Notes from Sean/Gym ideas.md', text: 'Leg day: squats, then deadlifts.\n\n- [ ] Book the physio\n- [x] New shoes', size: 76, modifiedAt: Date.now() - 20 * 60_000, version: 'v1', editable: true },
+  { vault: 'General', phoneVault: 'Vault 1', folder: 'Notes from Sean', name: 'Trip to Lisbon.md', title: 'Trip to Lisbon', path: 'Notes from Sean/Trip to Lisbon.md', text: '---\ntags: [travel]\n---\n# Trip to Lisbon\n\nFlights on the 14th. Ask Ann about the hotel.', size: 90, modifiedAt: Date.now() - 26 * 3_600_000, version: 'v2', editable: true },
+  { vault: 'General', phoneVault: 'Vault 1', folder: 'Notes from Sean', name: 'Podcast names.md', title: 'Podcast names', path: 'Notes from Sean/Podcast names.md', text: 'Signal and noise\nThe long way round', size: 34, modifiedAt: Date.now() - 4 * 86_400_000, version: 'v3', editable: true },
+];
+
+function previewNotesList(): MyNotes {
+  const notes = [...previewNotes]
+    .sort((a, b) => (b.modifiedAt ?? 0) - (a.modifiedAt ?? 0))
+    .map((note) => ({
+      name: note.name,
+      title: note.title,
+      path: note.path,
+      modifiedAt: note.modifiedAt,
+      size: note.size,
+      // As the Mac makes it: the first line of words that is not the title, without Markdown marks.
+      preview: note.text.replace(/^---\n[\s\S]*?\n---\n/, '').split('\n').map((line) => line.replace(/^\s*(?:#+\s+|[-*]\s+(?:\[[ x]\]\s+)?|>\s*)/, '').trim()).find((line) => line && line !== note.title) ?? '',
+    }));
+  return { available: true, vault: 'General', phoneVault: 'Vault 1', folder: 'Notes from Sean', exists: true, notes, total: notes.length, scannedAt: Date.now(), maxBytes: 1024 * 1024, error: undefined, reason: undefined };
+}
+
+function previewNote(name: string): MyNoteContent {
+  const note = previewNotes.find((entry) => entry.name === name);
+  if (!note) throw new HermesHttpError(404, 'Not Found', '{"detail":"note not found","reason":"gone"}');
+  return note;
+}
+
+function previewStore(note: MyNoteContent): MyNoteContent {
+  previewNotes = [note, ...previewNotes.filter((entry) => entry.name !== note.name)];
+  return note;
+}
+
 const noopRest: RestClient = {
   status:              () => Promise.resolve({ authRequired: false, authProviders: [] }),
   providers:           () => Promise.resolve([]),
@@ -415,6 +449,23 @@ const noopRest: RestClient = {
     error: undefined,
   }),
   obsidianSync:        () => Promise.resolve({ available: true, running: true, started: false }),
+  myNotes:             () => Promise.resolve(previewNotesList()),
+  myNote:              (name) => new Promise((resolve) => resolve(previewNote(name))),
+  createMyNote:        (title, text) => {
+    const base = title.trim() || text.trim().split('\n')[0]?.slice(0, 60) || 'Untitled';
+    let name = `${base}.md`;
+    for (let n = 1; previewNotes.some((entry) => entry.name.toLowerCase() === name.toLowerCase()); n += 1) name = `${base} ${n}.md`;
+    previewNoteVersion += 1;
+    return Promise.resolve(previewStore({ vault: 'General', phoneVault: 'Vault 1', folder: 'Notes from Sean', name, title: name.slice(0, -3), path: `Notes from Sean/${name}`, text, size: text.length, modifiedAt: Date.now(), version: `v${previewNoteVersion}`, editable: true }));
+  },
+  saveMyNote:          (name, text, version) => {
+    const current = previewNote(name);
+    if (current.version !== version) {
+      return Promise.reject(new HermesHttpError(409, 'Conflict', JSON.stringify({ detail: 'the note changed on the Mac after it was opened', reason: 'changed', version: current.version })));
+    }
+    previewNoteVersion += 1;
+    return Promise.resolve(previewStore({ ...current, text, size: text.length, modifiedAt: Date.now(), version: `v${previewNoteVersion}` }));
+  },
   // Routing on, with a router bot the preview does not have yet: the Team view offers the setup.
   routerStatus:        () => Promise.resolve(previewRouter),
   saveRouter:          (patch) => {

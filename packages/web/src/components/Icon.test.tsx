@@ -42,6 +42,7 @@ const NAMES: IconName[] = [
   'logout',
   'speaker',
   'stopSquare',
+  'compose',
 ];
 
 describe('Icon', () => {

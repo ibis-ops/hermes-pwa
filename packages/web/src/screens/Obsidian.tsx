@@ -9,7 +9,9 @@ import {
 } from '@hermes-pwa/core';
 import { BottomSheet } from '../components/BottomSheet';
 import { Icon } from '../components/Icon';
+import { MyNotes } from '../components/MyNotes';
 import { NoteViewer } from '../components/NoteViewer';
+import { VaultSync } from '../components/VaultSync';
 import { formatClockTime, formatDayLabel } from '../lib/chatTime';
 import { SkeletonRows } from '../components/Skeleton';
 
@@ -18,11 +20,31 @@ interface ObsidianProps {
 }
 
 type Filter = 'created' | 'edited' | 'all';
+/** Notes the bots wrote, or Sean's own notes folder. */
+type View = 'bots' | 'mine';
 
 const REFRESH_MS = 30_000;
 const DAYS = 60;
 /** The vault name the phone should open, when the person has set one themselves. */
 const PHONE_VAULT_STORAGE_KEY = 'hermes-pwa.obsidian.phoneVault.v1';
+/** Which view the tab opens on: the last one used. */
+const VIEW_STORAGE_KEY = 'hermes-pwa.obsidian.view.v1';
+
+function readView(): View {
+  try {
+    return window.localStorage.getItem(VIEW_STORAGE_KEY) === 'mine' ? 'mine' : 'bots';
+  } catch {
+    return 'bots';
+  }
+}
+
+function writeView(view: View): void {
+  try {
+    window.localStorage.setItem(VIEW_STORAGE_KEY, view);
+  } catch {
+    // Blocked storage: the tab opens on the bots' notes next time.
+  }
+}
 
 function readPhoneVault(): string | undefined {
   try {
@@ -177,24 +199,59 @@ function notesError(err: unknown): string {
   return err instanceof Error && err.message ? err.message : 'Could not load the Obsidian activity.';
 }
 
-interface SyncNote {
-  tone: 'ok' | 'error';
-  text: string;
-  /** Offer to open Obsidian on this phone, which pulls the latest down. */
-  openPhone?: boolean;
+/**
+ * The Obsidian tab: notes Hermes wrote in the vault, by day, each one
+ * readable with a link into the Obsidian app; and Notes from Sean, the notes
+ * Sean writes and edits himself from the phone.
+ */
+export function Obsidian({ rest }: ObsidianProps) {
+  const [view, setView] = useState<View>(() => readView());
+  const [phoneVault, setPhoneVault] = useState<string | undefined>(() => readPhoneVault());
+
+  const chooseView = (next: View) => {
+    setView(next);
+    writeView(next);
+  };
+
+  return (
+    <div className={`hm-obsidian hm-scroll${view === 'mine' ? ' hm-obsidian--mine' : ''}`}>
+      <div className="hm-segmented hm-obsidian__switch" role="radiogroup" aria-label="Which notes">
+        {(['bots', 'mine'] as const).map((value) => (
+          <button
+            key={value}
+            type="button"
+            role="radio"
+            aria-checked={view === value}
+            className={`hm-segmented__item${view === value ? ' hm-segmented__item--active' : ''}`}
+            onClick={() => chooseView(value)}
+          >
+            {value === 'bots' ? 'Bot notes' : 'Notes from Sean'}
+          </button>
+        ))}
+      </div>
+      {view === 'mine' ? (
+        <MyNotes rest={rest} phoneVault={phoneVault} />
+      ) : (
+        <BotNotes rest={rest} phoneVault={phoneVault} onPhoneVault={setPhoneVault} />
+      )}
+    </div>
+  );
+}
+
+interface BotNotesProps {
+  rest: RestClient;
+  phoneVault: string | undefined;
+  onPhoneVault: (value: string | undefined) => void;
 }
 
 /** Notes Hermes wrote in the Obsidian vault, by day; a tap reads the note, with a link into the Obsidian app. */
-export function Obsidian({ rest }: ObsidianProps) {
+function BotNotes({ rest, phoneVault, onPhoneVault }: BotNotesProps) {
   const [activity, setActivity] = useState<ObsidianActivity | undefined>(undefined);
   const [error, setError] = useState<string | undefined>(undefined);
   const [filter, setFilter] = useState<Filter>('created');
-  const [phoneVault, setPhoneVault] = useState<string | undefined>(() => readPhoneVault());
   const [sheetOpen, setSheetOpen] = useState(false);
   const [openNote, setOpenNote] = useState<ObsidianNote | undefined>(undefined);
   const [nowMs, setNowMs] = useState(() => Date.now());
-  const [syncing, setSyncing] = useState(false);
-  const [syncNote, setSyncNote] = useState<SyncNote | undefined>(undefined);
 
   const load = useCallback(async () => {
     try {
@@ -236,38 +293,8 @@ export function Obsidian({ rest }: ObsidianProps) {
   const vault = activity?.vaults[0];
   const linkVaultLabel = phoneVault ?? vault?.phoneName ?? vault?.name;
 
-  // Obsidian Sync carries the vault between the Mac and this phone, but only
-  // while Obsidian is open on the Mac: Sync opens it there when it is closed.
-  async function sync() {
-    if (syncing) return;
-    setSyncing(true);
-    setSyncNote(undefined);
-    try {
-      const result = await rest.obsidianSync();
-      await load();
-      if (!result.available) {
-        setSyncNote({ tone: 'error', text: 'Obsidian is not installed on your Mac, so there is nothing to sync from there.' });
-      } else if (!result.running) {
-        setSyncNote({ tone: 'error', text: 'Obsidian did not open on your Mac. Open it there once, then try again.' });
-      } else if (result.started) {
-        setSyncNote({ tone: 'ok', text: 'Opened Obsidian on your Mac so Sync can catch up.', openPhone: true });
-      } else {
-        setSyncNote({ tone: 'ok', text: 'Obsidian is open on your Mac and syncing.', openPhone: true });
-      }
-    } catch (err) {
-      if (err instanceof HermesHttpError && err.status === 404) {
-        await load();
-        setSyncNote({ tone: 'ok', text: 'List refreshed. Restart the Hermes dashboard on your Mac to let Sync open Obsidian there.' });
-      } else {
-        setSyncNote({ tone: 'error', text: err instanceof Error && err.message ? err.message : 'Could not reach your Mac.' });
-      }
-    } finally {
-      setSyncing(false);
-    }
-  }
-
   const pickVault = (value: string | undefined) => {
-    setPhoneVault(value);
+    onPhoneVault(value);
     writePhoneVault(value);
     setSheetOpen(false);
   };
@@ -279,35 +306,14 @@ export function Obsidian({ rest }: ObsidianProps) {
   ];
 
   return (
-    <div className="hm-obsidian hm-scroll">
+    <>
       <p className="hm-obsidian__lead hm-muted">
         {vault
           ? `Notes your bots wrote in the ${vault.name} vault over the last ${DAYS} days. Tap one to read it or open it in Obsidian.`
           : 'Notes your bots write in Obsidian show here. Tap one to read it or open it in the Obsidian app.'}
       </p>
 
-      <div className="hm-obsidian__sync">
-        <button type="button" className="hm-obsidian__sync-btn" onClick={() => void sync()} disabled={syncing} data-testid="obsidian-sync">
-          <span className="hm-obsidian__sync-icon" data-spinning={syncing ? 'true' : 'false'} aria-hidden="true">
-            <Icon name="refresh" size={16} />
-          </span>
-          <span>{syncing ? 'Syncing…' : 'Sync vault'}</span>
-        </button>
-        {syncNote ? (
-          <p className={`hm-obsidian__sync-note${syncNote.tone === 'error' ? ' hm-obsidian__sync-note--error' : ''}`} role="status">
-            {syncNote.text}
-            {syncNote.openPhone ? (
-              <>
-                {' '}
-                <a className="hm-obsidian__sync-open" href={`obsidian://open${linkVaultLabel ? `?vault=${encodeURIComponent(linkVaultLabel)}` : ''}`}>
-                  Open Obsidian here
-                </a>{' '}
-                to pull the latest.
-              </>
-            ) : null}
-          </p>
-        ) : null}
-      </div>
+      <VaultSync rest={rest} linkVault={linkVaultLabel} onSynced={load} />
 
       {error ? <div className="hm-warning-banner hm-warning-banner--error">{error}</div> : null}
       {activity && !activity.available ? (
@@ -372,6 +378,6 @@ export function Obsidian({ rest }: ObsidianProps) {
       {openNote ? (
         <NoteViewer rest={rest} note={openNote} linkVault={resolveLinkVault(openNote, phoneVault)} onClose={() => setOpenNote(undefined)} />
       ) : null}
-    </div>
+    </>
   );
 }

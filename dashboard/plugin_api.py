@@ -42,6 +42,7 @@ import pwa_speech  # noqa: E402
 import bot_graph  # noqa: E402
 import pwa_router  # noqa: E402
 import obsidian_sync  # noqa: E402
+import my_notes  # noqa: E402
 from obsidian_activity import (  # noqa: E402
     NoteAccessError,
     cached_activity as obsidian_cached_activity,
@@ -913,13 +914,16 @@ async def push_subscribe(request: Request, profile: str = "default") -> JSONResp
     return _data_response({"ok": True, "subscription": safe, "id": safe["id"]})
 
 
-async def _json_body(request: Request) -> object:
-    """The parsed JSON body, refused with 413 past ``MAX_JSON_BODY_BYTES`` and 400 when malformed."""
+async def _json_body(request: Request, limit: int = MAX_JSON_BODY_BYTES) -> object:
+    """The parsed JSON body, refused with 413 past ``limit`` bytes and 400 when malformed.
+
+    ``limit`` is ``MAX_JSON_BODY_BYTES`` except on routes that carry a note's text.
+    """
     declared = request.headers.get("content-length", "").strip()
-    if declared.isdigit() and int(declared) > MAX_JSON_BODY_BYTES:
+    if declared.isdigit() and int(declared) > limit:
         raise HTTPException(status_code=413, detail="request body too large")
     raw = await request.body()
-    if len(raw) > MAX_JSON_BODY_BYTES:
+    if len(raw) > limit:
         raise HTTPException(status_code=413, detail="request body too large")
     try:
         return json.loads(raw)
@@ -1077,6 +1081,88 @@ def obsidian_note(vault: str = "", path: str = "") -> JSONResponse:
         payload = obsidian_read_note(vault, path)
     except NoteAccessError as exc:
         raise HTTPException(status_code=exc.status, detail=exc.detail) from None
+    return _data_response(payload)
+
+
+def _my_notes_error(exc: my_notes.NotesError) -> JSONResponse:
+    """A refusal as ``{"detail": ...}``, plus what the phone needs to explain it (a conflict's version)."""
+    return _data_response({"detail": exc.detail, **exc.extra}, status_code=exc.status)
+
+
+def _my_notes_failure(action: str, exc: Exception) -> JSONResponse:
+    _file_log.warning("my notes %s failed: %s", action, sanitize_error_text(str(exc)))
+    return _data_response({"detail": f"could not {action} the note"}, status_code=500)
+
+
+@router.get("/obsidian/my-notes", dependencies=[Depends(_require_dashboard_auth)])
+def obsidian_my_notes(limit: int = my_notes.MAX_LIST) -> JSONResponse:
+    """The notes in the "Notes from Sean" folder of the vault on this Mac, newest first.
+
+    Names, times, sizes and a one-line preview each; ``my_notes`` says which
+    vault holds the folder and why.
+    """
+    try:
+        payload = my_notes.list_notes(limit=max(1, min(limit, my_notes.MAX_LIST)))
+    except Exception as exc:  # defensive: an unreadable vault must not 500 the tab
+        _file_log.warning("my notes scan failed: %s", sanitize_error_text(str(exc)))
+        payload = {
+            "available": False,
+            "folder": my_notes.NOTES_FOLDER,
+            "exists": False,
+            "notes": [],
+            "total": 0,
+            "error": "scan failed",
+        }
+    return _data_response(payload)
+
+
+@router.post("/obsidian/my-notes", dependencies=[Depends(_require_dashboard_auth)])
+async def create_my_note(request: Request) -> JSONResponse:
+    """Write a new note, ``{"title", "text"}``, into the folder (made on the first save).
+
+    Never replaces a file: a title that is taken gets the next free name.
+    Answers 201 with the note as the read route gives it.
+    """
+    body = await _json_body(request, limit=my_notes.MAX_REQUEST_BYTES)
+    if not isinstance(body, dict):
+        raise HTTPException(status_code=400, detail="expected a JSON object")
+    try:
+        payload = await run_in_threadpool(my_notes.create_note, body.get("title", ""), body.get("text", ""))
+    except my_notes.NotesError as exc:
+        return _my_notes_error(exc)
+    except Exception as exc:  # defensive: report, never leave the phone guessing
+        return _my_notes_failure("save", exc)
+    return _data_response(payload, status_code=201)
+
+
+@router.get("/obsidian/my-notes/note", dependencies=[Depends(_require_dashboard_auth)])
+def obsidian_my_note(name: str = "") -> JSONResponse:
+    """One note from the folder by file name, with its text and the version an edit must send back."""
+    try:
+        payload = my_notes.read_note(name)
+    except my_notes.NotesError as exc:
+        return _my_notes_error(exc)
+    except Exception as exc:  # defensive
+        return _my_notes_failure("read", exc)
+    return _data_response(payload)
+
+
+@router.put("/obsidian/my-notes/note", dependencies=[Depends(_require_dashboard_auth)])
+async def save_my_note(request: Request) -> JSONResponse:
+    """Replace a note's text, ``{"name", "text", "version"}``.
+
+    Refused with 409 (and the Mac's current version) when the note changed
+    since the phone read it, so a phone edit never overwrites a newer one.
+    """
+    body = await _json_body(request, limit=my_notes.MAX_REQUEST_BYTES)
+    if not isinstance(body, dict):
+        raise HTTPException(status_code=400, detail="expected a JSON object")
+    try:
+        payload = await run_in_threadpool(my_notes.save_note, body.get("name"), body.get("text"), body.get("version"))
+    except my_notes.NotesError as exc:
+        return _my_notes_error(exc)
+    except Exception as exc:  # defensive
+        return _my_notes_failure("save", exc)
     return _data_response(payload)
 
 

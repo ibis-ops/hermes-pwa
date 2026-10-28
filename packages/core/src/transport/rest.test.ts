@@ -550,6 +550,43 @@ describe('makeRestClient', () => {
     await expect(client.speechAudio('x')).rejects.toThrow('Speech response did not include audio.');
   });
 
+  it("lists, reads, writes and edits Sean's own notes on the Mac, never through another bot's plugin copy", async () => {
+    httpMock.mockResolvedValueOnce({ available: true, vault: 'General', folder: 'Notes from Sean', exists: true, notes: [{ name: 'Gym ideas.md', modified_at: 1_761_000_000 }] });
+    const list = await client.myNotes();
+    expect(httpMock).toHaveBeenLastCalledWith('/api/plugins/hermes-pwa/obsidian/my-notes', { skipProfile: true });
+    expect(list.notes.map((note) => note.title)).toEqual(['Gym ideas']);
+
+    const note = { name: 'Gym & Co.md', title: 'Gym & Co', text: 'Leg day', version: 'v1', modified_at: 1_761_000_000 };
+    httpMock.mockResolvedValueOnce(note);
+    expect((await client.myNote('Gym & Co.md')).version).toBe('v1');
+    expect(httpMock).toHaveBeenLastCalledWith('/api/plugins/hermes-pwa/obsidian/my-notes/note?name=Gym%20%26%20Co.md', { skipProfile: true });
+
+    httpMock.mockResolvedValueOnce(note);
+    await client.createMyNote('Gym & Co', 'Leg day');
+    expect(httpMock).toHaveBeenLastCalledWith('/api/plugins/hermes-pwa/obsidian/my-notes', {
+      method: 'POST',
+      body: JSON.stringify({ title: 'Gym & Co', text: 'Leg day' }),
+      skipProfile: true,
+      timeoutMs: 30_000,
+    });
+
+    httpMock.mockResolvedValueOnce({ ...note, text: 'Leg day\nSquats', version: 'v2' });
+    const saved = await client.saveMyNote('Gym & Co.md', 'Leg day\nSquats', 'v1');
+    expect(httpMock).toHaveBeenLastCalledWith('/api/plugins/hermes-pwa/obsidian/my-notes/note', {
+      method: 'PUT',
+      body: JSON.stringify({ name: 'Gym & Co.md', text: 'Leg day\nSquats', version: 'v1' }),
+      skipProfile: true,
+      timeoutMs: 30_000,
+    });
+    expect([saved.text, saved.version]).toEqual(['Leg day\nSquats', 'v2']);
+
+    httpMock.mockRejectedValueOnce(new HermesHttpError(409, 'Conflict', '{"detail":"the note changed on the Mac after it was opened","version":"v3"}'));
+    await expect(client.saveMyNote('Gym & Co.md', 'older', 'v1')).rejects.toMatchObject({
+      status: 409,
+      message: 'the note changed on the Mac after it was opened',
+    });
+  });
+
   it('propagates HermesHttpError', async () => {
     httpMock.mockRejectedValue(new HermesHttpError(500, 'Error', 'boom'));
     await expect(client.status()).rejects.toThrow(HermesHttpError);

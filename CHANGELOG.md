@@ -5,6 +5,30 @@ All notable changes are documented here. The format follows
 
 ## Unreleased
 
+### Obsidian: Notes from Sean, written and edited from the phone
+
+- **A section for Sean's own notes.** The Obsidian tab has a switch at the top: Bot notes (the
+  notes the bots wrote, as before) and Notes from Sean, the notes in the "Notes from Sean" folder of
+  the vault on the Mac. They are listed newest first, as the Notes app lists them: the title, when
+  it was last edited and its first line. A tap reads one the way the note viewer shows notes, with
+  Open in Obsidian next to Edit. The tab opens on whichever side was used last.
+- **Writing and editing.** New note sits at the bottom of the list, where a thumb reaches, and
+  takes a title and text. The Mac turns the title into a readable file name ("Q3/Q4: plan?" is
+  saved as "Q3-Q4 plan.md"), never replaces a file (a taken name becomes "Gym ideas 1.md") and makes
+  the folder on the first save. Edit changes a note in place. While typing, the sheet ends where the
+  keyboard begins, so the text and Save stay in view. Nothing can be deleted from the phone.
+- **No typing is lost, and no edit overwrites the Mac.** What is typed stays on the phone until the
+  Mac has it: after closing the sheet, a dropped connection or iOS closing the app, the text comes
+  back the next time, and the list marks a note with unsaved edits. An edit carries the version of
+  the note it started from; when the note changed on the Mac since, the Mac keeps its copy and the
+  phone offers to save the text as a new note or discard it (discarding asks once more). Notes are
+  capped at 1 MB.
+- **Safe on the Mac.** New plugin routes under `/obsidian/my-notes` (dashboard auth) list, read,
+  create and save notes, and touch only `.md` files directly inside the folder: no paths, hidden
+  files or links, wherever they point. Every write goes to a hidden file in the same folder first
+  and replaces the note in one step. The vault is the one `HERMES_PWA_NOTES_VAULT` names when it is
+  set, else the vault that already has the folder, else the vault Obsidian has open on the Mac.
+
 ### Bots: a list that scrolls, and what each bot is doing
 
 - **The Bots list scrolls.** With Sean's 13 bots the list was cut off at the tab bar with no way to
