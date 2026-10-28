@@ -171,6 +171,34 @@ class OrphanTabTests(unittest.TestCase):
         self.assertEqual(b.cdp.closed_ids, [])
 
 
+class DownloadOwnerTests(unittest.TestCase):
+    """Every process on a Chrome hears every download; only the one whose tab started it names the file."""
+
+    def _browser(self) -> "cc.Browser":
+        from types import SimpleNamespace
+        b = cc.Browser(SimpleNamespace())
+        b.tabs_by_session["s1"] = SimpleNamespace(target_id="T1", frame_ids={"F1"})
+        return b
+
+    def _begin(self, b: "cc.Browser", guid: str, frame: Any) -> None:
+        b._on_event({"method": "Browser.downloadWillBegin",
+                     "params": {"guid": guid, "frameId": frame, "suggestedFilename": "x.txt", "url": "https://x.y/x.txt"}})
+
+    def test_own_page_and_its_frames_only(self) -> None:
+        b = self._browser()
+        self._begin(b, "g1", "T1")
+        self._begin(b, "g2", "F1")
+        self._begin(b, "g3", "OTHER-PROCESS-TAB")
+        self.assertEqual(sorted(b.downloads), ["g1", "g2"])
+
+    def test_no_frame_counts_only_inside_a_download_step(self) -> None:
+        b = self._browser()
+        self._begin(b, "g4", None)
+        b.awaiting_downloads = 1
+        self._begin(b, "g5", None)
+        self.assertEqual(sorted(b.downloads), ["g5"])
+
+
 class PlaceholderTests(unittest.TestCase):
     def test_fills_nested_strings_only(self) -> None:
         steps = [{"go": "x.y/{client}"}, {"fill": {"Name": "{client}"}}, {"wait": 5}]

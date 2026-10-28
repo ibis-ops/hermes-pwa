@@ -339,6 +339,26 @@ def _(t):
     return _download(t, f"{t.base}/download/data.bin", F.DATA_BIN, "bench-data")
 
 
+@test("download_two_processes", "downloads while a second connector process is on the same Chrome (it hears them too)")
+def _(t):
+    import subprocess
+    code = ("import sys, time; sys.path.insert(0, %r); import common as C; cc = C.load_connector(%r); "
+            "cc.chrome_tool({'steps': 'go %s/plain.html'}, session_id='listener'); time.sleep(8)"
+            % (str(Path(__file__).resolve().parent), str(C.CONNECTOR_DIR), t.base))
+    other = subprocess.Popen([sys.executable, "-c", code], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    try:
+        time.sleep(2.0)  # connected and listening
+        paths = []
+        for _i in range(3):
+            out = t.call(f"go {t.base}/download.html\ndownload Download report")
+            m = re.search(r"download saved: (.+?) \((?:\d+ bytes|[\d.]+ MB)", out)
+            paths.append(m.group(1) if m else "")
+    finally:
+        other.wait(timeout=15)
+    ok = all(p and Path(p).exists() and not re.search(r"/[0-9a-f-]{36}$", p) for p in paths)
+    return C.check(ok, "three downloads, each saved under its own name at the path the reply gives", paths)
+
+
 @test("download_blob", "download of a blob the page builds (Export CSV button)")
 def _(t):
     return _download(t, "Export CSV", F.EXPORT_CSV, "export")

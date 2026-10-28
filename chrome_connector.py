@@ -507,6 +507,7 @@ class Tab(_Scripted):
         self.auto_wait = 3.0  # how long a missing target may take to appear (shorter for a ?-step)
         self.drag_data: Optional[dict] = None  # an HTML5 drag Chrome held back for us (drag step)
         self.seen_refs: dict[str, dict] = {}  # page address -> {ref: [role, name, row]} from the maps shown
+        self.frame_ids: set = set()  # frames this tab has shown (a download names the frame that started it)
 
     # -- plumbing ------------------------------------------------------------------------------
     def send(self, method: str, params: Optional[dict] = None, timeout: float = STEP_TIMEOUT_S) -> dict:
@@ -564,6 +565,8 @@ class Tab(_Scripted):
                 self.pending_nav = False
         elif method == "Page.frameNavigated":
             frame = params.get("frame") or {}
+            if frame.get("id") and len(self.frame_ids) < 500:
+                self.frame_ids.add(frame["id"])
             if not frame.get("parentId"):
                 self.pending_nav = False
                 self.nav_seq += 1
@@ -637,6 +640,7 @@ class Browser:
         self.sessions: dict[str, AgentSession] = {}
         self.opened: list[dict] = []
         self.downloads: dict[str, dict] = {}
+        self.awaiting_downloads = 0  # download steps running in this process
         self.lock = threading.RLock()
 
     def connect(self) -> None:
@@ -711,6 +715,12 @@ class Browser:
             if tab is not None:
                 tab.closed = True
         elif method == "Browser.downloadWillBegin":
+            # Every process connected to this Chrome hears every download. Only the one whose tab started it
+            # (or that is waiting in a download step) names the file; two of them racing to rename it left
+            # the bot with a path that no longer existed.
+            fid = params.get("frameId")
+            if not self.owns_frame(fid) and not (not fid and self.awaiting_downloads > 0):
+                return
             self.downloads[params.get("guid", "")] = {"name": params.get("suggestedFilename", "") or "download",
                                                       "url": params.get("url", ""), "state": "started",
                                                       "at": time.monotonic(), "path": "", "bytes": 0}
@@ -725,6 +735,13 @@ class Browser:
                 # Named off the reader thread: Chrome can report completion a moment before the file is there.
                 threading.Thread(target=self._finish_download, args=(guid, d), daemon=True).start()
             d["state"] = state
+
+    def owns_frame(self, fid: Any) -> bool:
+        """A frame of one of this process's tabs (the page itself, a frame in it, a frame from another site)."""
+        for tab in list(self.tabs_by_session.values()):
+            if fid == tab.target_id or fid in tab.frame_ids:
+                return True
+        return any(fr.target_id == fid for fr in list(self.frames_by_session.values()))
 
     def _finish_download(self, guid: str, d: dict) -> None:
         d["path"] = _finish_download(self.settings.downloads_dir, guid, d["name"])
@@ -1386,6 +1403,14 @@ def download(tab: Tab, spec: str, timeout: float = 120.0) -> dict:
     browser = tab.browser
     known = set(browser.downloads)
     spec = spec.strip()
+    browser.awaiting_downloads += 1
+    try:
+        return _download(tab, browser, known, spec, timeout)
+    finally:
+        browser.awaiting_downloads -= 1
+
+
+def _download(tab: Tab, browser: "Browser", known: set, spec: str, timeout: float) -> dict:
     if re.match(r"^https?://", spec, re.I):
         tab.evaluate("(function(u){var a=document.createElement('a'); a.href=u; a.download=''; a.rel='noopener';"
                      "document.body.appendChild(a); a.click(); a.remove();})(%s)" % json.dumps(spec))
@@ -2648,7 +2673,7 @@ CHROME_DESCRIPTION = """Your web browser for EVERY site (any site, not only Kahu
 
 FASTEST: put every step you already know into ONE call; do not spend a call just to look at a page first: open it and act in the same call, and mark steps that may not apply with ? (a missing banner or item is skipped in about a second). The reply says what each step did, every change with its value before and after (read back from the page), and a map of the page with refs (e12) for the next call; after the first map only what changed, and after a call that ends with a read just the page line and the controls on screen.
 
-steps: one per line (short form) or a list of objects. Targets: visible text or label (Save, Email), role:text (button:Save, link:Next, checkbox:Remember me), one of many by its row (Delete in Jane Doe, as the map shows rows), css=selector, or a ref (e12) from a map you have already seen. A page has no refs until you see its map: in the call that opens a page, target by text.
+steps: one per line (short form) or a list of objects. Targets: visible text or label (Save, Email), role:text (button:Save, link:Next, checkbox:Remember me), one of many by its row (Delete in Jane Doe, as the map shows rows) or its place (second Delete, first result), css=selector, or a ref (e12) from a map you have already seen. A page has no refs until you see its map: in the call that opens a page, target by text.
   go example.com/pricing | back | forward | reload
   click Sign in | dblclick e12 | rightclick e12 | hover Products | drag Task 3 = Done (drag and drop)
   type Search = blue shoes (replaces) | append e5 = more | press Enter | press Ctrl+A

@@ -89,7 +89,9 @@ All notable changes are documented here. The format follows
   turn) left its tab open, because only the process that made a tab closed it; after a few hundred
   runs the bot's Chrome held hundreds of tabs and about 13 GB. Now a process that connects closes the
   tabs nobody is attached to any more (headless Chrome only, so a window Sean is using is never
-  touched).
+  touched). Downloads: every process on the same Chrome hears every download, and two of them raced
+  to rename the file, so the bot was sometimes told a path that no longer existed; now only the
+  process whose tab started a download names it.
 - **Safe by design.** It never types into a password field or returns a password: `login` signs in
   with Hermes's vault, which fills the page without the model seeing the password. Every change is
   logged per session in `chrome/history/`, and `chrome_history` (with `verify`) lets the bot audit its
