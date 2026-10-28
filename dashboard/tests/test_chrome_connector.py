@@ -121,6 +121,13 @@ class SummaryTests(unittest.TestCase):
         self.assertNotIn("e3", out)  # not on screen
         self.assertIn("57 controls", cc.format_brief(self._map([], total=57)))
 
+    def test_a_walled_page_says_so_plainly(self) -> None:
+        m = self._map([], wall="a bot check")
+        for out in (cc.format_map(m), cc.format_brief(m), cc.format_diff(self._map([]), m)):
+            self.assertIn("BLOCKED: this site is refusing this browser (a bot check)", out)
+            self.assertIn("tell Sean", out)
+        self.assertNotIn("BLOCKED", cc.format_map(self._map([])))
+
     def test_shared_names_carry_their_row(self) -> None:
         line = cc._el_line(["e6", "checkbox", "Toggle Todo", {"checked": False, "row": "milk"}])
         self.assertEqual(line, 'e6 checkbox "Toggle Todo" in "milk" off')
@@ -165,6 +172,29 @@ class GateTests(unittest.TestCase):
         cc.register_tools(Ctx())
         self.assertEqual([k["name"] for k in seen], ["chrome", "chrome_history"])
         self.assertTrue(all(k["check_fn"] is cc.tools_available and k["toolset"] == "browser" for k in seen))
+
+
+class FrameRefTests(unittest.TestCase):
+    """Cross-origin frames: refs carry their frame (f1:e3) and a frame that went away says so."""
+
+    def test_frame_refs(self) -> None:
+        class FakeFrame:
+            index = 2
+        view = cc.FrameView.__new__(cc.FrameView)
+        view.frame = FakeFrame()
+        self.assertEqual(cc._ref(view, "e3"), "f2:e3")
+        self.assertEqual(cc._where(view, 'button "Pay"'), 'button "Pay" in frame f2')
+        self.assertEqual(cc._ref(object(), "e3"), "e3")
+        self.assertEqual(cc._FRAME_REF.match("f12:e5").groups(), ("12", "e5"))
+        self.assertIsNone(cc._FRAME_REF.match("e5"))
+
+    def test_a_gone_frame_is_named(self) -> None:
+        class FakeTab:
+            def frame_view(self, index):
+                return None
+        with self.assertRaises(cc.ConnectorError) as err:
+            cc.locate(FakeTab(), "f3:e1")
+        self.assertIn("frame f3 is not on the page any more", str(err.exception))
 
 
 class UploadGateTests(unittest.TestCase):

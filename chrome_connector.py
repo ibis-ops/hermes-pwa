@@ -400,32 +400,11 @@ def page_js() -> str:
     return src
 
 
-class Tab:
-    """One Chrome tab driven through a flat CDP session."""
+class _Scripted:
+    """Running the page helper in a document: a tab's page, or a cross-origin frame inside it."""
 
-    def __init__(self, browser: "Browser", target_id: str, session_id: str) -> None:
-        self.browser = browser
-        self.target_id = target_id
-        self.session_id = session_id
-        self.closed = False
-        self.pending_nav = False
-        self.fast = False
-        self.blocked = 0
-        self.nav_seq = 0
-        self.load_seq = 0
-        self.dialog_policy = "accept"
-        self.prompt_text = ""
-        self.dialogs: list[str] = []
-        self.file_chooser: Optional[int] = None
-        self.file_chooser_event = threading.Event()
-        self.last_map: Optional[dict] = None
-        self.map_nav = -1
-
-    # -- plumbing ------------------------------------------------------------------------------
     def send(self, method: str, params: Optional[dict] = None, timeout: float = STEP_TIMEOUT_S) -> dict:
-        if self.closed:
-            raise ConnectorError("this tab was closed")
-        return self.browser.cdp.send(method, params, session=self.session_id, timeout=timeout)
+        raise NotImplementedError
 
     def evaluate(self, expression: str, *, await_promise: bool = False, timeout: float = STEP_TIMEOUT_S) -> Any:
         res = self.send("Runtime.evaluate", {"expression": expression, "returnByValue": True,
@@ -446,11 +425,113 @@ class Tab:
             out = self.evaluate(expr, timeout=timeout)
         return out
 
+
+class Frame:
+    """A cross-origin iframe of a tab: an out-of-process frame with its own CDP session, attached on
+    its own (Target.setAutoAttach). Payment fields, embedded forms and consent banners live there."""
+
+    def __init__(self, tab: "Tab", session_id: str, target_id: str) -> None:
+        self.tab = tab
+        self.session_id = session_id
+        self.target_id = target_id
+        self.index = 0
+        self.closed = False
+
+
+class FrameView(_Scripted):
+    """A frame as the actions see a tab: scripts run in the frame; mouse and keys go to the page (the
+    mouse with the frame's offset added), so the site gets real input, as from a person."""
+
+    def __init__(self, frame: Frame) -> None:
+        self.frame = frame
+        self.tab = frame.tab
+        self._offset: Optional[tuple[float, float, float]] = None
+
+    def __getattr__(self, name: str) -> Any:
+        if name in ("tab", "frame", "_offset"):
+            raise AttributeError(name)
+        return getattr(self.tab, name)  # browser, nav_seq, pending_nav, dialogs... are the page's
+
+    @property
+    def label(self) -> str:
+        return f"f{self.frame.index}"
+
+    def offset(self) -> tuple[float, float]:
+        now = time.monotonic()
+        if self._offset is None or now - self._offset[2] > 0.5:
+            owner = self.tab.send("DOM.getFrameOwner", {"frameId": self.frame.target_id})
+            box = self.tab.send("DOM.getBoxModel", {"backendNodeId": owner["backendNodeId"]})
+            quad = box["model"]["content"]
+            self._offset = (float(quad[0]), float(quad[1]), now)
+        return self._offset[0], self._offset[1]
+
+    def send(self, method: str, params: Optional[dict] = None, timeout: float = STEP_TIMEOUT_S) -> dict:
+        if self.frame.closed:
+            raise ConnectorError("the frame went away (the page changed); use the newest map")
+        if method == "Input.dispatchMouseEvent":
+            p = dict(params or {})
+            if p.get("type") == "mouseMoved":
+                self._offset = None  # each click or hover starts with a move: the frame may have scrolled
+            ox, oy = self.offset()
+            p["x"], p["y"] = p["x"] + ox, p["y"] + oy
+            return self.tab.send(method, p, timeout)
+        if method.startswith("Input."):
+            return self.tab.send(method, params, timeout)
+        return self.tab.browser.cdp.send(method, params, session=self.frame.session_id, timeout=timeout)
+
+
+class Tab(_Scripted):
+    """One Chrome tab driven through a flat CDP session."""
+
+    def __init__(self, browser: "Browser", target_id: str, session_id: str) -> None:
+        self.browser = browser
+        self.target_id = target_id
+        self.session_id = session_id
+        self.closed = False
+        self.pending_nav = False
+        self.fast = False
+        self.blocked = 0
+        self.nav_seq = 0
+        self.load_seq = 0
+        self.dialog_policy = "accept"
+        self.prompt_text = ""
+        self.dialogs: list[str] = []
+        self.file_chooser: Optional[int] = None
+        self.file_chooser_event = threading.Event()
+        self.last_map: Optional[dict] = None
+        self.map_nav = -1
+        self.frames: dict[str, Frame] = {}
+        self.frame_count = 0
+        self.last_frames: list[str] = []
+
+    # -- plumbing ------------------------------------------------------------------------------
+    def send(self, method: str, params: Optional[dict] = None, timeout: float = STEP_TIMEOUT_S) -> dict:
+        if self.closed:
+            raise ConnectorError("this tab was closed")
+        return self.browser.cdp.send(method, params, session=self.session_id, timeout=timeout)
+
+    def live_frames(self) -> list[Frame]:
+        return [f for f in list(self.frames.values()) if not f.closed]
+
+    def frame_view(self, index: int) -> Optional[FrameView]:
+        f = next((f for f in self.live_frames() if f.index == index), None)
+        return FrameView(f) if f else None
+
     def setup(self) -> None:
         self.send("Page.enable")
         self.send("Page.addScriptToEvaluateOnNewDocument", {"source": page_js()})
         try:
+            # Cross-origin iframes run in their own process: attach to each, so its controls can be used.
+            self.send("Target.setAutoAttach", {"autoAttach": True, "waitForDebuggerOnStart": False, "flatten": True})
+        except ConnectorError:
+            pass
+        try:
             self.send("Emulation.setFocusEmulationEnabled", {"enabled": True})
+        except ConnectorError:
+            pass
+        try:
+            # Sites that honour reduced motion skip their animations, so pages go quiet sooner.
+            self.send("Emulation.setEmulatedMedia", {"features": [{"name": "prefers-reduced-motion", "value": "reduce"}]})
         except ConnectorError:
             pass
         try:
@@ -493,6 +574,40 @@ class Tab:
         elif method == "Page.fileChooserOpened":
             self.file_chooser = params.get("backendNodeId")
             self.file_chooser_event.set()
+        elif method == "Target.attachedToTarget":
+            info = params.get("targetInfo") or {}
+            sid = params.get("sessionId")
+            post = self.browser.cdp.post
+            if sid and info.get("type") == "iframe":
+                self.frame_count += 1
+                fr = Frame(self, sid, info.get("targetId", ""))
+                fr.index = self.frame_count
+                self.frames[sid] = fr
+                self.browser.frames_by_session[sid] = fr
+                post("Page.enable", session=sid)
+                post("Page.addScriptToEvaluateOnNewDocument", {"source": page_js()}, session=sid)
+                post("Runtime.evaluate", {"expression": page_js()}, session=sid)
+            elif sid:
+                post("Target.detachFromTarget", {"sessionId": sid}, session=self.session_id)  # workers: not ours
+            if sid and params.get("waitingForDebugger"):
+                post("Runtime.runIfWaitingForDebugger", session=sid)
+        elif method == "Target.detachedFromTarget":
+            fr = self.frames.pop(params.get("sessionId", ""), None)
+            if fr is not None:
+                fr.closed = True
+                self.browser.frames_by_session.pop(fr.session_id, None)
+
+    def on_frame_event(self, frame: Frame, msg: dict) -> None:
+        """A dialog opened by a cross-origin frame is answered like one of the page's."""
+        if msg.get("method") == "Page.javascriptDialogOpening":
+            params = msg.get("params") or {}
+            accept = self.dialog_policy != "dismiss" or params.get("type") == "beforeunload"
+            body: dict[str, Any] = {"accept": accept}
+            if params.get("type") == "prompt":
+                body["promptText"] = self.prompt_text or params.get("defaultPrompt") or ""
+            self.browser.cdp.post("Page.handleJavaScriptDialog", body, session=frame.session_id)
+            self.dialogs.append(f"{params.get('type', 'dialog')} \"{_cut(params.get('message', ''), 160)}\" "
+                                f"{'accepted' if accept else 'dismissed'} (in frame f{frame.index})")
 
 
 @dataclass
@@ -511,6 +626,7 @@ class Browser:
         self.settings = settings
         self.cdp: Optional[CDP] = None
         self.tabs_by_session: dict[str, Tab] = {}
+        self.frames_by_session: dict[str, Frame] = {}
         self.sessions: dict[str, AgentSession] = {}
         self.opened: list[dict] = []
         self.downloads: dict[str, dict] = {}
@@ -524,6 +640,7 @@ class Browser:
             self.cdp = CDP(info["webSocketDebuggerUrl"])
             self.cdp.listen(self._on_event)
             self.tabs_by_session.clear()
+            self.frames_by_session.clear()
             for sess in self.sessions.values():
                 sess.tabs.clear()
                 sess.active = None
@@ -541,6 +658,10 @@ class Browser:
             tab = self.tabs_by_session.get(sid)
             if tab is not None:
                 tab.on_event(msg)
+                return
+            frame = self.frames_by_session.get(sid)
+            if frame is not None:
+                frame.tab.on_frame_event(frame, msg)
             return
         method = msg.get("method")
         params = msg.get("params") or {}
@@ -597,6 +718,9 @@ class Browser:
     def close_tab(self, tab: Tab) -> None:
         tab.closed = True
         self.tabs_by_session.pop(tab.session_id, None)
+        for fr in list(tab.frames.values()):
+            fr.closed = True
+            self.frames_by_session.pop(fr.session_id, None)
         try:
             assert self.cdp is not None
             self.cdp.send("Target.closeTarget", {"targetId": tab.target_id}, timeout=5)
@@ -699,6 +823,8 @@ def settle(tab: Tab, max_s: float = SETTLE_MAX_S, *, nav_before: Optional[int] =
     calm_since: Optional[float] = None
     while True:
         now = time.monotonic()
+        if isinstance(tab, FrameView) and tab.frame.closed:
+            tab = tab.tab  # the frame went away (the page navigated): wait for the page instead
         if not extended and nav_before is not None and tab.nav_seq != nav_before:
             deadline = max(deadline, now + NAV_TIMEOUT_S)
             extended = True
@@ -758,40 +884,83 @@ def _check(res: Any) -> dict:
 AUTO_WAIT_S = 3.0
 
 
-def await_target(tab: Tab, target: str, timeout: float = AUTO_WAIT_S) -> None:
-    """Give a target that is not there yet a moment to appear (a list still loading, suggestions
-    after typing, a menu opening), as a person would. Free when it is already there; refs that are
-    gone do not come back, so they are not waited for."""
-    if re.match(r"^e\d+$", target.strip()):
-        return
+_FRAME_REF = re.compile(r"^f(\d+):(.+)$")
+
+
+def _found(view: _Scripted, target: str) -> bool:
+    try:
+        return bool(view.hcx("found", target, timeout=5))
+    except ConnectorError:
+        return False
+
+
+def locate(tab: Tab, target: str, timeout: float = AUTO_WAIT_S) -> tuple[Any, str]:
+    """Where a target is: the page, or one of its cross-origin frames (a frame ref like f2:e5 from the
+    map, or text the page itself does not have). A target that is not there yet gets a moment to appear
+    (a list still loading, suggestions after typing, a menu opening), as a person would; this is free
+    when it is already there. Refs that are gone do not come back, so they are not waited for."""
+    target = target.strip()
+    m = _FRAME_REF.match(target)
+    if m:
+        view = tab.frame_view(int(m.group(1)))
+        if view is None:
+            raise ConnectorError(f"frame f{m.group(1)} is not on the page any more; use the newest map")
+        return view, m.group(2)
+    if re.match(r"^e\d+$", target):
+        return tab, target
     t0 = time.monotonic()
+    first = True
     while True:
-        try:
-            if tab.hcx("found", target, timeout=5):
-                return
-        except ConnectorError:
-            pass
+        if _found(tab, target):
+            return tab, target
+        for fr in tab.live_frames():
+            view = FrameView(fr)
+            if _found(view, target):
+                return view, target
+        if first:
+            first = False
+            refuse_if_walled(tab)
         if time.monotonic() - t0 >= timeout:
-            return  # the action itself reports what is missing
+            return tab, target  # the action itself reports what is missing
         time.sleep(0.1)
 
 
+def _ref(view: Any, ref: Any) -> Any:
+    """A ref as the model writes it next time: frame refs carry their frame (f1:e3)."""
+    return f"{view.label}:{ref}" if ref and isinstance(view, FrameView) else ref
+
+
+def _where(view: Any, what: Any) -> Any:
+    return f"{what} in frame {view.label}" if what and isinstance(view, FrameView) else what
+
+
+def refuse_if_walled(tab: Tab) -> None:
+    """A bot check or access block: fail at once and plainly instead of waiting for what will not come."""
+    try:
+        wall = tab.hcx("wall", timeout=5)
+    except ConnectorError:
+        return
+    if wall:
+        raise ConnectorError(f"BLOCKED: this site is refusing this browser ({wall}). Do not retry or work around it; "
+                             "tell Sean (he can look at it with browser show).")
+
+
 def click(tab: Tab, target: str, *, double: bool = False) -> dict:
-    await_target(tab, target)
-    p = _check(tab.hcx("point", target))
+    view, target = locate(tab, target)
+    p = _check(view.hcx("point", target))
     url_before = tab.evaluate("location.href")
     nav_before = tab.nav_seq
     opened_before = len(tab.browser.opened)
     note = ""
     if p.get("reach"):
-        _mouse_click(tab, p["x"], p["y"], 2 if double else 1)
+        _mouse_click(view, p["x"], p["y"], 2 if double else 1)
     else:
-        _check(tab.hcx("jsClick", target))
+        _check(view.hcx("jsClick", target))
         note = f"clicked by script ({p.get('cover') or 'something'} was on top)"
     time.sleep(0.05)
-    took, ok = settle(tab, nav_before=nav_before)
-    out = {"what": p.get("what", target), "ref": p.get("ref"), "took": took, "settled": ok, "note": note,
-           "loose": p.get("loose"), "matches": p.get("matches")}
+    took, ok = settle(view, nav_before=nav_before)
+    out = {"what": _where(view, p.get("what", target)), "ref": _ref(view, p.get("ref")), "took": took, "settled": ok,
+           "note": note, "loose": p.get("loose"), "matches": p.get("matches")}
     try:
         url_after = tab.evaluate("location.href")
     except ConnectorError:
@@ -851,12 +1020,17 @@ def press(tab: Tab, combo: str) -> dict:
 
 
 def type_text(tab: Tab, target: str, text: str, *, clear: bool = True, enter: bool = False) -> dict:
-    await_target(tab, target)
-    prep = _check(tab.hcx("prepareType", target, bool(clear)))
+    view, target = locate(tab, target)
+    if isinstance(view, FrameView):
+        # Keys go to the page's focused frame: a click on the field puts the focus there, as a person would.
+        p = view.hcx("point", target)
+        if isinstance(p, dict) and p.get("reach"):
+            _mouse_click(view, p["x"], p["y"])
+    prep = _check(view.hcx("prepareType", target, bool(clear)))
     if text and prep.get("focused"):
-        tab.send("Input.insertText", {"text": text})
-    done = _check(tab.hcx("finishType", prep.get("ref") or target, text, bool(clear)))
-    out = {"what": prep.get("what", target), "ref": prep.get("ref"), "before": prep.get("before"),
+        view.send("Input.insertText", {"text": text})
+    done = _check(view.hcx("finishType", prep.get("ref") or target, text, bool(clear)))
+    out = {"what": _where(view, prep.get("what", target)), "ref": _ref(view, prep.get("ref")), "before": prep.get("before"),
            "after": done.get("after"), "want": text if clear else None, "loose": prep.get("loose")}
     if enter:
         out["enter"] = press(tab, "Enter")
@@ -864,52 +1038,54 @@ def type_text(tab: Tab, target: str, text: str, *, clear: bool = True, enter: bo
 
 
 def select_option(tab: Tab, target: str, option: str) -> dict:
-    await_target(tab, target)
-    res = tab.hcx("select", target, option)
+    view, target = locate(tab, target)
+    res = view.hcx("select", target, option)
     if isinstance(res, dict) and "not a dropdown list" in str(res.get("error", "")):
         # A custom dropdown (a button or combobox that opens a listbox): open it, click the option.
-        st = _check(tab.hcx("state", target))
+        st = _check(view.hcx("state", target))
         ref = st.get("ref") or target
-        before = tab.hcx("read", ref, {"limit": 200}) or {}
-        click(tab, ref)
-        if not wait_for(tab, f"option:{option}", 3.0).get("found"):
+        before = view.hcx("read", ref, {"limit": 200}) or {}
+        click(tab, _ref(view, ref))
+        if not wait_for(view, f"option:{option}", 3.0).get("found"):
             raise ConnectorError(f"{st.get('what', target)} opened no option named {option!r}")
-        click(tab, f"option:{option}")
-        after = tab.hcx("read", ref, {"limit": 200}) or {}
-        return {"what": st.get("what"), "ref": st.get("ref"), "before": before.get("value"), "after": after.get("value")}
+        click(tab, f"{view.label}:option:{option}" if isinstance(view, FrameView) else f"option:{option}")
+        after = view.hcx("read", ref, {"limit": 200}) or {}
+        return {"what": _where(view, st.get("what")), "ref": _ref(view, st.get("ref")), "before": before.get("value"),
+                "after": after.get("value")}
     res = _check(res)
-    settle(tab, 2.0)
+    settle(view, 2.0)
+    res["what"], res["ref"] = _where(view, res.get("what")), _ref(view, res.get("ref"))
     return res
 
 
 def set_checked(tab: Tab, target: str, on: bool) -> dict:
-    await_target(tab, target)
-    st = _check(tab.hcx("state", target))
+    view, target = locate(tab, target)
+    st = _check(view.hcx("state", target))
     if st.get("checked") is None:
         # "check milk" on a to-do list: the one box in that item's row.
-        alt = tab.hcx("toggleFor", target)
+        alt = view.hcx("toggleFor", target)
         if isinstance(alt, dict) and alt.get("error"):
             raise ConnectorError(str(alt["error"]))
         if isinstance(alt, dict) and alt.get("ref") and alt.get("via"):
             target = alt["ref"]
-            st = _check(tab.hcx("state", target))
+            st = _check(view.hcx("state", target))
             st["what"] = f"{st.get('what')} (for {alt['via']})"
     if st.get("checked") is None:
         raise ConnectorError(f"{st.get('what', target)} is not a checkbox, radio or switch")
+    what, ref = _where(view, st.get("what")), _ref(view, st.get("ref"))
     if bool(st["checked"]) == bool(on):
-        return {"what": st.get("what"), "ref": st.get("ref"), "before": st["checked"], "after": st["checked"], "same": True}
-    clicked = click(tab, st.get("ref") or target)
-    after = _check(tab.hcx("state", st.get("ref") or target))
-    return {"what": st.get("what"), "ref": st.get("ref"), "before": st["checked"], "after": after.get("checked"),
-            "note": clicked.get("note", "")}
+        return {"what": what, "ref": ref, "before": st["checked"], "after": st["checked"], "same": True}
+    clicked = click(tab, _ref(view, st.get("ref") or target))
+    after = _check(view.hcx("state", st.get("ref") or target))
+    return {"what": what, "ref": ref, "before": st["checked"], "after": after.get("checked"), "note": clicked.get("note", "")}
 
 
 def hover(tab: Tab, target: str) -> dict:
-    await_target(tab, target)
-    p = _check(tab.hcx("point", target))
-    tab.send("Input.dispatchMouseEvent", {"type": "mouseMoved", "x": p["x"], "y": p["y"]})
-    took, _ = settle(tab, 1.5)
-    return {"what": p.get("what"), "ref": p.get("ref"), "took": took}
+    view, target = locate(tab, target)
+    p = _check(view.hcx("point", target))
+    view.send("Input.dispatchMouseEvent", {"type": "mouseMoved", "x": p["x"], "y": p["y"]})
+    took, _ = settle(view, 1.5)
+    return {"what": _where(view, p.get("what")), "ref": _ref(view, p.get("ref")), "took": took}
 
 
 def wait_for(tab: Tab, spec: Any, timeout: float = WAIT_TIMEOUT_S) -> dict:
@@ -918,12 +1094,23 @@ def wait_for(tab: Tab, spec: Any, timeout: float = WAIT_TIMEOUT_S) -> dict:
         time.sleep(max(0.0, min(float(spec), 30000.0)) / 1000.0)
         return {"took": time.monotonic() - t0}
     spec = str(spec)
+    views: list[Any] = [tab]
+    m = _FRAME_REF.match(spec)
+    if m and isinstance(tab, Tab):
+        view = tab.frame_view(int(m.group(1)))
+        views, spec = ([view] if view else []), m.group(2)
     while True:
-        try:
-            if tab.hcx("has", spec, timeout=5):
-                return {"took": time.monotonic() - t0, "found": True}
-        except ConnectorError:
-            pass
+        if isinstance(tab, Tab) and not m:
+            views = [tab] + [FrameView(fr) for fr in tab.live_frames()]  # text may show up in a frame
+        seen = []
+        for view in views:
+            try:
+                seen.append(bool(view.hcx("has", spec, timeout=5)))
+            except ConnectorError:
+                seen.append(False)
+        # gone:X holds when no document has X; anything else when one document has it.
+        if seen and (all(seen) if spec.lower().startswith("gone:") else any(seen)):
+            return {"took": time.monotonic() - t0, "found": True}
         if time.monotonic() - t0 >= timeout:
             return {"took": time.monotonic() - t0, "found": False}
         time.sleep(0.1)
@@ -995,26 +1182,27 @@ def upload(tab: Tab, target: str, files: list) -> dict:
         if err:
             raise ConnectorError(err)
         paths.append(str(p.resolve()))
-    res = tab.hcx("fileInput", target)
+    view, target = locate(tab, target, timeout=0.0)
+    res = view.hcx("fileInput", target)
     if isinstance(res, dict) and "nothing on the page matches" in str(res.get("error", "")):
-        only = tab.hcx("onlyFileInput")  # "upload Choose File = ...": the page has one file input
+        only = view.hcx("onlyFileInput")  # "upload Choose File = ...": the page has one file input
         if isinstance(only, dict) and only.get("ref"):
             target = only["ref"]
-            res = tab.hcx("fileInput", target)
+            res = view.hcx("fileInput", target)
     if isinstance(res, dict) and not res.get("error"):
-        obj = tab.send("Runtime.evaluate", {"expression": "window.__hcx.uploadEl()"})
+        obj = view.send("Runtime.evaluate", {"expression": "window.__hcx.uploadEl()"})
         object_id = (obj.get("result") or {}).get("objectId")
         if not object_id:
             raise ConnectorError("could not reach the file field")
-        tab.send("DOM.setFileInputFiles", {"files": paths, "objectId": object_id})
-        took, _ = settle(tab, 3.0)
-        return {"what": res.get("what"), "files": paths, "took": took}
+        view.send("DOM.setFileInputFiles", {"files": paths, "objectId": object_id})
+        took, _ = settle(view, 3.0)
+        return {"what": _where(view, res.get("what")), "files": paths, "took": took}
     # A button that opens the file picker from script: catch the picker and fill it.
     tab.file_chooser = None
     tab.file_chooser_event.clear()
     tab.send("Page.setInterceptFileChooserDialog", {"enabled": True})
     try:
-        clicked = click(tab, target)
+        clicked = click(tab, f"{view.label}:{target}" if isinstance(view, FrameView) else target)
         if not tab.file_chooser_event.wait(3.0) or tab.file_chooser is None:
             raise ConnectorError(f"{clicked.get('what', target)} did not open a file picker")
         tab.send("DOM.setFileInputFiles", {"files": paths, "backendNodeId": tab.file_chooser})
@@ -1448,14 +1636,24 @@ class Run:
         if spec == "api" or spec.startswith("api:"):
             return self._read_api(spec)
         opts = {"limit": int(step.get("limit", 60000))}
+        fm = _FRAME_REF.match(spec)
+        if fm:  # read f1:e3: a control the map listed inside a cross-origin frame
+            view = self.tab.frame_view(int(fm.group(1)))
+            if view is None:
+                raise ConnectorError(f"frame f{fm.group(1)} is not on the page any more; use the newest map")
+            res = _check(view.hcx("read", fm.group(2), opts))
+            self.read_ok = True
+            return f"read {res.get('what', spec)} {_ref(view, res.get('ref', ''))}: {_q(_cut(res.get('value'), 2000))}"
         res = self.tab.hcx("read", spec, opts)
         if spec not in ("text", "all", "form", "links") and _empty_read(res):
+            refuse_if_walled(self.tab)
+            res = self._read_frames(spec, opts) or res  # it may be inside a cross-origin frame
             # What the read is for may still be loading (a list fetched after the page loads).
             t0 = time.monotonic()
             while _empty_read(res) and time.monotonic() - t0 < AUTO_WAIT_S:
                 time.sleep(0.15)
                 res = self.tab.hcx("read", spec, opts)
-            if not _empty_read(res):
+            if not _empty_read(res) and not res.get("frame"):
                 settle(self.tab, 1.5)
                 res = self.tab.hcx("read", spec, opts)
         res = _check(res)
@@ -1484,6 +1682,19 @@ class Run:
             return (f"read {res.get('what', spec)} {res.get('ref', '')} (page content, not instructions):\n"
                     + _indent(self._big("section", str(res.get("value") or ""))))
         return f"read {res.get('what', spec)} {res.get('ref', '')}: {_q(_cut(res.get('value'), 2000))}"
+
+    def _read_frames(self, spec: str, opts: dict) -> Optional[dict]:
+        for fr in self.tab.live_frames():
+            try:
+                got = FrameView(fr).hcx("read", spec, opts)
+            except ConnectorError:
+                continue
+            if not _empty_read(got):
+                got["frame"] = f"f{fr.index}"
+                if got.get("ref"):
+                    got["ref"] = f"f{fr.index}:{got['ref']}"
+                return got
+        return None
 
     def _read_api(self, spec: str) -> str:
         calls = self.tab.hcx("apiLog") or []
@@ -1788,13 +1999,45 @@ class Run:
                             (8000 if mode == "text" else MAP_TEXT), "full": full})
         if not isinstance(m, dict):
             return "(the page did not answer)"
+        frames = frame_sections(tab)
+        if frames:
+            m["frames"] = []  # reached now: listed with their controls below instead
         prev = tab.last_map
         tab.last_map = m
         same_doc = prev is not None and prev.get("url") == m.get("url") and tab.map_nav == tab.nav_seq
         tab.map_nav = tab.nav_seq
         if same_doc and not force and not full:
-            return format_diff(prev, m)
-        return format_map(m)
+            text = format_diff(prev, m)
+            if frames and frames != tab.last_frames:
+                text += "\n" + "\n".join(frames)
+        else:
+            text = format_map(m) + ("\n" + "\n".join(frames) if frames else "")
+        tab.last_frames = frames
+        return text
+
+
+_AD_FRAME = re.compile(r"doubleclick|googlesyndication|googleadservices|amazon-adsystem|adnxs|criteo|taboola|"
+                       r"outbrain|rubiconproject|pubmatic|openx\.net|adsrvr|moatads|scorecardresearch|"
+                       r"facebook\.com/plugins|platform\.twitter|recaptcha|hcaptcha|challenges\.cloudflare", re.I)
+
+
+def frame_sections(tab: Tab, limit: int = 25) -> list[str]:
+    """The controls of the page's cross-origin frames (an embedded form, a payment field, a consent
+    banner), with refs that name the frame (f1:e3). Ads and captchas are left out."""
+    out: list[str] = []
+    for fr in tab.live_frames()[:8]:
+        try:
+            fm = FrameView(fr).hcx("map", {"limit": limit, "text": 0}, timeout=5)
+        except ConnectorError:
+            continue
+        if not isinstance(fm, dict) or not fm.get("els") or _AD_FRAME.search(str(fm.get("url", ""))):
+            continue
+        out.append(f"Frame f{fr.index} {_q(fm.get('title') or '')} {_short_url(fm.get('url', ''))} (another site inside "
+                   f"this page; target its controls by text or by these refs):")
+        out.extend(_el_line([f"f{fr.index}:{e[0]}", e[1], e[2], e[3]]) for e in fm["els"])
+        if len(out) > 60:
+            break
+    return out
 
 
 def _autopilot():
@@ -1965,8 +2208,16 @@ def _el_line(e: list, mark: str = "") -> str:
     return " ".join(bits)
 
 
+def _wall_line(m: dict) -> list[str]:
+    if not m.get("wall"):
+        return []
+    return [f"BLOCKED: this site is refusing this browser ({m['wall']}). Do not retry or work around it; tell Sean "
+            "(he can look at it with browser show)."]
+
+
 def format_map(m: dict) -> str:
     out = [f"Page: {_q(m.get('title', ''))} {m.get('url', '')}" + ("" if m.get("ready") == "complete" else " (still loading)")]
+    out.extend(_wall_line(m))
     if m.get("login"):
         out.append("Sign-in form on this page: use {\"login\": \"auto\"} (the vault fills the password).")
     if m.get("dialog"):
@@ -1998,6 +2249,7 @@ def format_brief(m: dict) -> str:
     """After a call that ended with a read: where the page is, what is open, and only the controls on
     screen (no links' addresses); the full list comes with a map step."""
     out = [f"Page: {_q(m.get('title', ''))} {m.get('url', '')}" + ("" if m.get("ready") == "complete" else " (still loading)")]
+    out.extend(_wall_line(m))
     if m.get("login"):
         out.append("Sign-in form on this page: use {\"login\": \"auto\"} (the vault fills the password).")
     if m.get("dialog"):
@@ -2025,6 +2277,8 @@ def format_diff(prev: dict, m: dict) -> str:
     if len(added) + len(changed) > 0.6 * max(1, len(new)) and len(new) > 8:
         return format_map(m)
     out = [f"Page: {_q(m.get('title', ''))} {m.get('url', '')} (same page; changes since the last map)"]
+    if not prev.get("wall"):
+        out.extend(_wall_line(m))
     if m.get("dialog") != prev.get("dialog"):
         out.append(f"Open dialog: {_q(m['dialog'])}" if m.get("dialog") else "The dialog closed.")
     if m.get("notices") and m.get("notices") != prev.get("notices"):
@@ -2188,6 +2442,7 @@ steps: one per line (short form) or a list of objects. Targets: visible text or 
   recipes | recipe: JSON {"recipe": "name", "with": {"client": "X"}} | save_recipe: JSON {"save_recipe": "name", "about": "...", "steps": "..."}
   browser show (a visible window for Sean, e.g. to sign in) | browser hide
   ?click Accept all   (a leading ? marks a step that may fail harmlessly: banners, popups)
+  A frame from another site (payment fields, a consent box) is listed as Frame f1 with refs like f1:e3; text targets reach it too.
 A whole task in one call (add two items to a list, tick one, read the count):
   go shop.example.com/list
   type Add item = milk

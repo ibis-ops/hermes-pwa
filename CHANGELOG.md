@@ -45,8 +45,16 @@ All notable changes are documented here. The format follows
   `check milk` ticks the box in that item's row; `read section:Syntax` and `read Born` read a section
   or the value next to a label, text inside web components (shadow roots) is read too, and a long
   `read text` names the sections it left out; a call that ends with a read or a download answers with
-  the page line instead of every control; a ref used before any map says so; downloads report their
-  exact size; steps sent with a literal `\n` are split.
+  the page line and the controls on screen instead of every control; a ref used before any map says
+  so; downloads report their exact size; steps sent with a literal `\n` are split; `upload Choose File`
+  finds the page's file input; a search box that is a combobox takes `type searchbox:...`; a dropdown
+  answers to the text it shows.
+- **Frames from other sites, walls, motion.** A cross-origin iframe (payment fields, an embedded form, a
+  consent box) is attached on its own: its controls are listed under `Frame f1` with refs like
+  `f1:e3`, text targets reach them, clicks and keys go through the page as a person's would (ads and
+  captchas are left out of the map). A page that walls the browser off (a bot check, an access block)
+  says `BLOCKED ... tell Sean` at once instead of waiting 3 s for a target that will never come. Tabs
+  ask sites for reduced motion, so animated pages go quiet sooner.
 - **Safe by design.** It never types into a password field or returns a password: `login` signs in
   with Hermes's vault, which fills the page without the model seeing the password. Every change is
   logged per session in `chrome/history/`, and `chrome_history` (with `verify`) lets the bot audit its

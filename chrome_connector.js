@@ -411,6 +411,34 @@
     return '';
   }
 
+  // A page that walls this browser off (a bot check, an access block), named so the bot stops at once.
+  // The title always counts; the text only on a short page, so an article about CAPTCHAs is not a wall.
+  var TITLE_WALLS = [
+    [/^just a moment\W*$|^attention required!? \| cloudflare/i, 'a Cloudflare check'],
+    [/^(access denied|forbidden|403 forbidden|request rejected)$/i, 'an access block'],
+    [/^(are you a robot|robot check|human verification|verify you are human)\b/i, 'a bot check']
+  ];
+  var TEXT_WALLS = [
+    [/unusual traffic from your computer network/i, 'a Google bot check'],
+    [/verify (that )?you are (a )?human|are you a robot|press (&|and) hold to confirm|i'?m not a robot/i, 'a bot check'],
+    [/checking your browser before accessing|enable javascript and cookies to continue/i, 'a browser check'],
+    [/to discuss automated access to amazon data|enter the characters you see below/i, 'an Amazon bot check'],
+    [/blocked by network security|you'?ve been blocked|request unsuccessful\. incapsula/i, 'a block on this browser'],
+    [/^access denied|you don'?t have permission to access .* on this server/i, 'an access block'],
+    [/captcha/i, 'a captcha']
+  ];
+
+  function wallOf() {
+    var title = norm(document.title), i;
+    for (i = 0; i < TITLE_WALLS.length; i++) if (TITLE_WALLS[i][0].test(title)) return TITLE_WALLS[i][1];
+    // A wall is a small page: skip reading the text of a big one (its inline scripts make textContent long).
+    var small = document.body && document.body.getElementsByTagName('*').length < 800;
+    var text = small ? norm(document.body.innerText || '') : '';
+    if (!text || text.length >= 1500) return '';
+    for (i = 0; i < TEXT_WALLS.length; i++) if (TEXT_WALLS[i][0].test(text)) return TEXT_WALLS[i][1];
+    return '';
+  }
+
   // The page as a short list: title, url, open dialog, notices, headings, interactive elements, text.
   function map(opts) {
     opts = opts || {};
@@ -466,7 +494,7 @@
     return {
       title: cut(document.title, 120), url: location.href, ready: document.readyState,
       dialog: dialog ? cut(nameOf(dialog) || dialog.innerText, 120) : '', behind: behindCount,
-      notices: notices(), heads: heads, frames: frames, login: pw.length > 0,
+      notices: notices(), heads: heads, frames: frames, login: pw.length > 0, wall: wallOf(),
       els: out, total: total, cut: Math.max(0, total - out.length - (opts.full ? 0 : behindCount)),
       text: opts.text === 0 ? '' : mainText(opts.text || 1200),
       scroll: [Math.round(scrollY), Math.max(0, Math.round(document.documentElement.scrollHeight - innerHeight))]
@@ -518,6 +546,8 @@
           !(role === 'select' && r === 'combobox') && !(role === 'button' && r === 'clickable')) return;
       var n = low(nameOf(el));
       var alt = low(el.getAttribute('placeholder') || '') + '|' + low(el.getAttribute('title') || '') + '|' + low(el.getAttribute('name') || '');
+      // A dropdown list also answers to the text it shows ("Please select an option").
+      if (el.tagName === 'SELECT' && el.selectedIndex >= 0 && el.options[el.selectedIndex]) alt += '|' + low(el.options[el.selectedIndex].text);
       var score = 0;
       if (n === w) score = 100;
       else if (n.indexOf(w) === 0) score = 70;
@@ -911,6 +941,7 @@
     busy: busy,
     has: has,
     found: function (t) { return !resolve(t).error; },
+    wall: wallOf,
     scroll: scroll,
     point: function (t) { return withTarget(t, point); },
     prepareType: function (t, clear) { return withTarget(t, function (el) { return prepareType(el, clear); }); },

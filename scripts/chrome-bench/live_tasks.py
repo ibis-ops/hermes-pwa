@@ -24,6 +24,7 @@ UPLOAD_BYTES = b"hermes chrome bench upload test\n"
 
 # Pages that wall a browser off. Seeing one is "blocked", never something to work around.
 _WALLS = [
+    (r"BLOCKED: this site is refusing this browser", "the connector reports a wall"),
     (r"Sorry! Something went wrong!|To discuss automated access to Amazon data|Enter the characters you see below",
      "Amazon error page served to this browser"),
     (r"blocked by network security", "Reddit network-security block"),
