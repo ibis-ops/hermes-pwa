@@ -91,7 +91,10 @@ All notable changes are documented here. The format follows
   tabs nobody is attached to any more (headless Chrome only, so a window Sean is using is never
   touched). Downloads: every process on the same Chrome hears every download, and two of them raced
   to rename the file, so the bot was sometimes told a path that no longer existed; now only the
-  process whose tab started a download names it.
+  process whose tab started a download names it. And Chrome forgets the connector's download folder
+  when the process that set it ends, so after a cron run finished, the gateway's next download landed
+  in ~/Downloads; every call now sets the folder again, and a download that still lands elsewhere is
+  reported as a failure instead of a wrong path.
 - **Safe by design.** It never types into a password field or returns a password: `login` signs in
   with Hermes's vault, which fills the page without the model seeing the password. Every change is
   logged per session in `chrome/history/`, and `chrome_history` (with `verify`) lets the bot audit its

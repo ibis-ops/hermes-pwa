@@ -355,8 +355,15 @@ def _(t):
             paths.append(m.group(1) if m else "")
     finally:
         other.wait(timeout=15)
-    ok = all(p and Path(p).exists() and not re.search(r"/[0-9a-f-]{36}$", p) for p in paths)
-    return C.check(ok, "three downloads, each saved under its own name at the path the reply gives", paths)
+    # The second process has ended: Chrome drops the download folder it set; the next download must still
+    # land in the connector's folder (it went to ~/Downloads before the fix).
+    out = t.call(f"go {t.base}/download.html\ndownload Download report")
+    m = re.search(r"download saved: (.+?) \((?:\d+ bytes|[\d.]+ MB)", out)
+    paths.append(m.group(1) if m else "")
+    home = str(C.BENCH_CHROME)
+    ok = all(p and p.startswith(home) and Path(p).exists() and not re.search(r"/[0-9a-f-]{36}$", p) for p in paths)
+    return C.check(ok, "three downloads while it listens and one after it ends, each saved under its own name in "
+                       "the connector's folder at the path the reply gives", paths)
 
 
 @test("download_blob", "download of a blob the page builds (Export CSV button)")

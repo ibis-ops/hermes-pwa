@@ -68,7 +68,13 @@ fetches its list 300 to 900 ms after load and paginates, `read api`, confirm/ale
 typing), a file input and a script-opened file picker, downloads (attachment link, URL, blob), infinite
 scroll, sign-in detection (one and two steps; passwords never echoed or typed), controls re-rendered
 with new nodes (stale refs), slow images and scripts, `each`, tabs, back/forward/reload, a bare
-`localhost:port` address and a hover menu.
+`localhost:port` address and a hover menu. The `target_*` tests (fixtures `targets.html`,
+`results.html`) hold each target form the bot wrote in rounds 8 to 12 that the connector once refused:
+`X in Y` for a control in a row, `text:`, `role:`, `#id` without `css=`, kind nouns (`Login button`,
+`Card A`), an unlabelled list under its heading, typing into the box a Search button opens, two tables
+with the same header, a row action shown only on hover, ordinals (`first result`, `second User
+Avatar`), `read table:2`. Also a frameset page (`fs*.html`), a ref used after the page is opened again,
+and a download while a second connector process listens on the same Chrome.
 
 Passes: every test runs `--repeat` times (default 3) as full passes; pass 1 is the accuracy pass and all
 passes together are the stability pass. Then the cold-start pass stops the bench Chrome before each of
@@ -94,8 +100,14 @@ if the page changed.
 ```sh
 $PY runner_c.py --all --repeat 2 --workers 2 --round 4 --baseline 3
 $PY runner_c.py --tasks heroku_upload,heroku_download
-$PY runner_c.py --all --model claude-haiku-5.5 --tag -haiku   # one-turn override; the profile is unchanged
+$PY runner_c.py --all --model claude-sonnet-5-5 --tag=-s55   # one-turn override; the profile is unchanged
+$PY runner_c.py --all --reasoning low --tag=-rlow
+$PY runner_c.py --all --toolsets browser,clarify,file,memory,session_search,skills,terminal,todo,web --tag=-lean
+$PY runner_c.py --all --extra --repeat 2               # the 14 core tasks plus the 8 added in round 8
 ```
+
+Write `--tag=-x` with the equals sign (argparse reads `--tag -x` as an option). With `--extra` the
+scorecard also prints the 14 core tasks alone (`core 14`), comparable with the rounds before round 8.
 
 Tasks are in `bot_tasks.py`: they need real interaction (search then open the second result and read
 its infobox, wait for late content, unlabelled checkboxes, a dropdown, a JS prompt, upload, download,

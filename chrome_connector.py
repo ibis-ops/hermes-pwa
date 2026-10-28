@@ -657,12 +657,21 @@ class Browser:
                 sess.active = None
             self.cdp.send("Target.setDiscoverTargets", {"discover": True})
             self._close_orphans(info)
-            try:
-                self.settings.downloads_dir.mkdir(parents=True, exist_ok=True)
-                self.cdp.send("Browser.setDownloadBehavior", {"behavior": "allowAndName", "eventsEnabled": True,
-                                                              "downloadPath": str(self.settings.downloads_dir)})
-            except (ConnectorError, OSError):
-                pass
+            self.set_downloads()
+
+    def set_downloads(self) -> None:
+        """Downloads go to the connector's folder, saved under their id until named. Chrome drops this when
+        the process that set it disconnects, and the next download lands in ~/Downloads under its own name
+        (the bench saw it after a second process ended; in production a finished cron run does it to the
+        gateway), so every call sets it again: one quick message."""
+        if self.cdp is None:
+            return
+        try:
+            self.settings.downloads_dir.mkdir(parents=True, exist_ok=True)
+            self.cdp.send("Browser.setDownloadBehavior", {"behavior": "allowAndName", "eventsEnabled": True,
+                                                          "downloadPath": str(self.settings.downloads_dir)}, timeout=5)
+        except (ConnectorError, OSError):
+            pass
 
     def _close_orphans(self, info: dict) -> int:
         """Close the tabs that connector processes which have ended left behind (a one-shot run, a cron job,
@@ -1404,6 +1413,7 @@ def download(tab: Tab, spec: str, timeout: float = 120.0) -> dict:
     known = set(browser.downloads)
     spec = spec.strip()
     browser.awaiting_downloads += 1
+    browser.set_downloads()  # again just before: another process may have ended since the call began
     try:
         return _download(tab, browser, known, spec, timeout)
     finally:
@@ -1422,6 +1432,9 @@ def _download(tab: Tab, browser: "Browser", known: set, spec: str, timeout: floa
         if new:
             d = browser.downloads[new[-1]]
             if d["state"] == "completed" and d["path"]:
+                if not os.path.exists(d["path"]):
+                    raise ConnectorError(f"Chrome saved {d['name']} somewhere other than the connector's folder; "
+                                         "download it again")
                 return {"path": d["path"], "bytes": d["bytes"], "took": time.monotonic() - t0}
             if d["state"] == "canceled":
                 raise ConnectorError(f"the download of {d['name']} was canceled")
@@ -2587,6 +2600,7 @@ def chrome_tool(args: dict, task_id: Optional[str] = None, session_id: Optional[
         browser.connect()
     except ConnectorError as exc:
         return f"chrome: {exc}"
+    browser.set_downloads()
     sess = browser.session(key)
     history = History(settings.history_dir, key)
     run = Run(browser, sess, history, time.monotonic() + CALL_BUDGET_S, task_id=task_id or key)
