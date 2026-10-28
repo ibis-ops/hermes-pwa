@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Checkout</title>
+<style>
+body{font:15px/1.5 system-ui,sans-serif;margin:24px;max-width:640px}
+#cookie{position:fixed;inset:0;background:rgba(0,0,0,.45);display:flex;align-items:flex-end;z-index:50}
+#cookie .box{background:#fff;width:100%;padding:18px 24px}
+</style></head>
+<body>
+<main>
+<h1>Checkout</h1>
+<p>Review your order, then continue.</p>
+<p><button type="button" id="go">Continue</button></p>
+<p id="code" role="status"></p>
+</main>
+<script>
+// A cookie banner that arrives late (200 ms after load) and covers the page. Continue only counts a real
+// click (isTrusted), as some sites do, so a click by script does not get through.
+function post(v) { fetch('/api/submit/late', { method: 'POST', body: JSON.stringify(v) }); }
+setTimeout(function () {
+  var d = document.createElement('div');
+  d.id = 'cookie';
+  d.setAttribute('role', 'dialog');
+  d.setAttribute('aria-label', 'Cookie consent');
+  d.innerHTML = '<div class="box"><p>We use cookies to improve your experience.</p>' +
+    '<button type="button" id="acc">Accept all</button> <button type="button" id="rej">Reject all</button></div>';
+  document.body.appendChild(d);
+  document.getElementById('acc').onclick = function () { post({ banner: 'accept' }); d.remove(); };
+  document.getElementById('rej').onclick = function () { post({ banner: 'reject' }); d.remove(); };
+}, 200);
+document.getElementById('go').addEventListener('click', function (e) {
+  if (!e.isTrusted) { post({ untrusted: true }); return; }
+  document.getElementById('code').textContent = 'Confirmation CONT-OK-4417';
+  post({ continued: true });
+});
+</script>
+</body>
+</html>

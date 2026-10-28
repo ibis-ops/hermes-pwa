@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Pay</title>
+<style>
+body{font:15px/1.5 system-ui,sans-serif;margin:24px;max-width:640px}
+#promo{display:block;width:260px;height:80px;background:#fd0;border:0;font-size:18px}
+#pay,#save{font-size:18px;padding:8px 18px}
+.badge{display:inline-block;width:60px;height:40px;background:#9cf;vertical-align:middle}
+</style></head>
+<body>
+<main>
+<h1>Pay</h1>
+<div id="box"><button type="button" id="pay">Pay</button></div>
+<p id="receipt" role="status"></p>
+<h2>Profile</h2>
+<div id="sbox"><button type="button" id="save">Save</button></div>
+<p id="saved" role="status"></p>
+</main>
+<script>
+// Layout shift under the pointer: when the pointer reaches Pay, a promo slides in where Pay was and
+// pushes it down, so a click aimed at the old spot lands on the promo. Save re-renders on hover: a new
+// node, moved right by a badge.
+function post(v) { fetch('/api/submit/shift', { method: 'POST', body: JSON.stringify(v) }); }
+var shifted = false;
+document.getElementById('pay').addEventListener('pointerenter', function () {
+  if (shifted) return;
+  shifted = true;
+  var p = document.createElement('button');
+  p.type = 'button';
+  p.id = 'promo';
+  p.textContent = 'Try Premium';
+  p.onclick = function () { document.getElementById('receipt').textContent = 'Premium offer opened'; post({ promo: true }); };
+  document.getElementById('box').insertBefore(p, document.getElementById('pay'));
+});
+document.getElementById('pay').addEventListener('click', function () {
+  document.getElementById('receipt').textContent = 'Receipt RCPT-5521';
+  post({ paid: true });
+});
+function wireSave(btn) {
+  btn.addEventListener('pointerenter', function () {
+    if (btn.dataset.fresh) return;
+    var b = document.createElement('button');
+    b.type = 'button';
+    b.id = 'save';
+    b.textContent = 'Save';
+    b.dataset.fresh = '1';
+    var badge = document.createElement('span');
+    badge.className = 'badge';
+    var box = document.getElementById('sbox');
+    box.innerHTML = '';
+    box.appendChild(badge);
+    box.appendChild(b);
+    b.addEventListener('click', function () { document.getElementById('saved').textContent = 'Saved'; post({ saved: true }); });
+  });
+}
+wireSave(document.getElementById('save'));
+</script>
+</body>
+</html>

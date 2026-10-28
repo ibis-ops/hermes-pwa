@@ -172,7 +172,7 @@ def history_entries(profile: str, session_id: str, since: float) -> list[dict]:
 
 
 def run_task(task: T.BotTask, profile: str, n: int, run_no: int, timeout: int, truth: Any, model: str,
-             reasoning: str, tag: str = "", toolsets: str = "") -> dict:
+             reasoning: str, tag: str = "", toolsets: str = "", base: str = "") -> dict:
     out_json = C.OUT_DIR / "logs" / f"round-{n}-bot{tag}-{task.name}-r{run_no}.turn.json"
     out_json.parent.mkdir(parents=True, exist_ok=True)
     out_json.unlink(missing_ok=True)
@@ -182,7 +182,8 @@ def run_task(task: T.BotTask, profile: str, n: int, run_no: int, timeout: int, t
     t0 = time.monotonic()
     code: Any = 0
     try:
-        proc = subprocess.run(turn_cmd(task.prompt, out_json, model, reasoning, toolsets), cwd=RUN_DIR, capture_output=True,
+        prompt = task.prompt.replace("{base}", base).replace("{token}", f"{task.name}-r{run_no}")
+        proc = subprocess.run(turn_cmd(prompt, out_json, model, reasoning, toolsets), cwd=RUN_DIR, capture_output=True,
                               text=True, timeout=timeout, env=env)
         code, stdout, stderr = proc.returncode, proc.stdout, proc.stderr
     except subprocess.TimeoutExpired as exc:
@@ -299,6 +300,13 @@ def print_scorecard(data: dict) -> None:
         print(f"core 14     accuracy {k['passed']}/{k['tasks']} = {k['accuracy']}%, stable {k['stability']}%, median "
               f"{k['median_s']}s, p90 {k['p90_s']}s, model calls {k['median_api_calls']}, chrome output "
               f"{k['median_chrome_chars']}, input tokens {k['median_input_tokens']}, FAILED steps {k['failed_steps']}")
+    for label, key in (("core+extra", "c22_summary"), ("trouble", "trouble_summary")):
+        k = data.get(key)
+        if k:
+            print(f"{label:<11} accuracy {k['passed']}/{k['tasks']} = {k['accuracy']}%, stable {k['stability']}%, median "
+                  f"{k['median_s']}s, p90 {k['p90_s']}s, model calls {k['median_api_calls']}, chrome calls "
+                  f"{k['median_chrome_calls']}, FAILED steps {k['failed_steps']}"
+                  + (f", failed: {', '.join(k['failed'])}" if k.get("failed") else ""))
     print("-" * 100)
     for r in data["prompts"]:
         print(f"{'PASS' if r['pass'] else 'FAIL'} {r['name']:<18} r{r['run']} {r['wall_s']:>6}s calls {r.get('api_calls')} "
@@ -321,10 +329,15 @@ def print_compare(data: dict, base_round: int, kind: str = "bot") -> None:
         print(f"no baseline {p}")
         return
     pairs = []
-    if bool(base.get("core_summary")) == bool(data.get("core_summary")):
+    if bool(base.get("core_summary")) == bool(data.get("core_summary")) and \
+            bool(base.get("trouble_summary")) == bool(data.get("trouble_summary")):
         pairs.append(("all tasks", base["summary"], data["summary"]))
     if data.get("core_summary"):
         pairs.append(("core 14", base.get("core_summary") or base["summary"], data["core_summary"]))
+    if data.get("c22_summary"):
+        pairs.append(("core+extra 22", base.get("c22_summary") or base["summary"], data["c22_summary"]))
+    if data.get("trouble_summary") and base.get("trouble_summary"):
+        pairs.append(("trouble", base["trouble_summary"], data["trouble_summary"]))
     for label, a, b in pairs:
         print(f"compared with round {base_round} ({base['started']}), {label}:")
         for key in ("accuracy", "stability", "median_s", "p90_s", "median_api_calls", "median_chrome_calls",
@@ -352,6 +365,7 @@ def main(argv: list[str] | None = None) -> int:
     group.add_argument("--tasks", default="", help="comma-separated task names from bot_tasks.py")
     group.add_argument("--all", action="store_true", help="every core task (with --extra, the extra ones too)")
     ap.add_argument("--extra", action="store_true", help="with --all: also the tasks added in round 8")
+    ap.add_argument("--trouble", action="store_true", help="with --all: also the trouble tasks (fixture site, round 19 on)")
     ap.add_argument("--repeat", type=int, default=1)
     ap.add_argument("--workers", type=int, default=2, help="bot turns at a time (each has its own tab)")
     ap.add_argument("--round", type=int, default=0)
@@ -368,7 +382,8 @@ def main(argv: list[str] | None = None) -> int:
             print(f"{t.name:<18}{t.about}")
         return 0
     if args.all:
-        tasks = [t for t in T.TASKS if t.group == "core" or args.extra]
+        tasks = [t for t in T.TASKS if t.group == "core" or (args.extra and t.group == "extra")
+                 or (args.trouble and t.group == "trouble")]
     elif args.tasks:
         want = [x.strip() for x in args.tasks.split(",") if x.strip()]
         unknown = [w for w in want if w not in {t.name for t in T.TASKS}]
@@ -381,6 +396,10 @@ def main(argv: list[str] | None = None) -> int:
         raise SystemExit(f"no state.db for profile {args.profile}")
     ensure_run_dir()
     T.write_files()
+    fx = None
+    if any("{base}" in t.prompt for t in tasks):
+        import fixture_server as F  # the bench's own site, for the trouble tasks
+        fx = F.start()
     kind = "bot" + args.tag
     n = args.round or C.next_round(kind)
     started = C.now()
@@ -414,7 +433,7 @@ def main(argv: list[str] | None = None) -> int:
                     chain = queue.pop(0)
                 for t in chain:
                     rec = run_task(t, args.profile, n, run_no, args.timeout, truths.get(t.name), args.model,
-                                   args.reasoning, args.tag, args.toolsets)
+                                   args.reasoning, args.tag, args.toolsets, fx.base if fx else "")
                     with lock:
                         records.append(rec)
                         print(f"[run {run_no}] {'PASS' if rec['pass'] else 'FAIL'} {t.name:<18} {rec['wall_s']:>6}s "
@@ -429,6 +448,8 @@ def main(argv: list[str] | None = None) -> int:
             th.join()
     order = {t.name: i for i, t in enumerate(T.TASKS)}
     records.sort(key=lambda r: (r["run"], order.get(r["name"], 99)))
+    if fx is not None:
+        fx.stop()
     core = {t.name for t in T.TASKS if t.group == "core"}
     data = {"runner": "bot", "round": n, "profile": args.profile, "model": args.model, "reasoning": args.reasoning,
             "toolsets": args.toolsets,
@@ -438,6 +459,12 @@ def main(argv: list[str] | None = None) -> int:
     if any(r["name"] not in core for r in records):
         # The 14 core tasks alone, comparable with the rounds before the extra tasks were added.
         data["core_summary"] = summarize([r for r in records if r["name"] in core])
+    trouble = {t.name for t in T.TASKS if t.group == "trouble"}
+    if any(r["name"] in trouble for r in records):
+        data["trouble_summary"] = summarize([r for r in records if r["name"] in trouble])
+        if any(r["name"] not in trouble and r["name"] not in core for r in records):
+            # The 22 tasks of rounds 8 to 18, comparable with those rounds' "all tasks".
+            data["c22_summary"] = summarize([r for r in records if r["name"] not in trouble])
     path = C.write_round(kind, n, data)
     print_scorecard(data)
     if args.baseline:

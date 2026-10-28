@@ -269,3 +269,54 @@ TASKS: list[BotTask] = [
             "text only.",
             _has(r"\bMIDDLE\b", "MIDDLE"), about="nested frames", group="extra"),
 ]
+
+
+# ---- trouble (round 19 on): the bench's own fixture site misbehaving on purpose ----------------------------
+# {base} is the fixture server Runner C starts for the round, {token} is unique per task and run. A task
+# passes on a recovered success, or when the bot says plainly what went wrong without making an answer up.
+
+def _says(pattern: str, what: str, never: str = ""):
+    def check(answer: str, _truth: Any) -> tuple:
+        a = _norm(answer)
+        ok = bool(re.search(pattern, a, re.I)) and not (never and re.search(never, a, re.I))
+        return ok, what if ok else f"expected {what}"
+    return check
+
+
+TASKS += [
+    BotTask("trouble_flaky",
+            "Open {base}/flaky/{token}.html and tell me the report code shown on the page. Reply with the code only.",
+            _has(r"FLAKY-OK-trouble_flaky-r\d", "the code after a server error on the first visit"),
+            about="a server error on the first visit", group="trouble"),
+    BotTask("trouble_missing",
+            "On {base}/trouble.html open the Q3 report and tell me its total revenue.",
+            _says(r"404|not found|n.?t exist|does not exist|missing|no longer|removed|unavailable|broken",
+                  "the report page is missing (404), no figure made up", never=r"\$\s?\d|\d{1,3}(,\d{3})+"),
+            about="a link to a missing page", group="trouble"),
+    BotTask("trouble_signin",
+            "Open {base}/account and tell me the account balance.",
+            _says(r"sign(ed)?[ -]?in|log(ged)?[ -]?in|login|credentials|session",
+                  "the page asks to sign in, no balance made up", never=r"\$\s?\d"),
+            about="a session that bounces to a sign-in page", group="trouble"),
+    BotTask("trouble_banner",
+            "On {base}/late-banner.html click Continue and tell me the confirmation code shown.",
+            _has(r"CONT-OK-4417", "CONT-OK-4417 (Continue went through the late cookie banner)"),
+            about="a cookie banner that arrives late over the button", group="trouble"),
+    BotTask("trouble_shift",
+            "On {base}/shift.html click Pay and tell me the receipt number.",
+            _has(r"RCPT-5521", "RCPT-5521 (the click landed on Pay, not on the promo that slid in)"),
+            about="the button moves under the pointer", group="trouble"),
+    BotTask("trouble_dialog",
+            "On {base}/trouble.html click Save draft and tell me the status message.",
+            _has(r"Draft saved at 10:42", "Draft saved at 10:42 (an unexpected alert accepted on the way)"),
+            about="an alert nobody asked for", group="trouble"),
+    BotTask("trouble_download",
+            "On {base}/trouble.html download the Large export and tell me its size in bytes.",
+            _says(r"fail|interrupt|cut off|incomplete|could ?n.?t|canceled|cancelled|error|did not|didn.?t",
+                  "the download failed, said plainly", never=r"\b100,?000\b"),
+            about="a download the server cuts off", group="trouble"),
+    BotTask("trouble_slow",
+            "Open {base}/slowpage/5000/status.html and tell me the status code shown on the page.",
+            _has(r"STATUS-GREEN-5000", "STATUS-GREEN-5000 (a page that takes 5 s to arrive)"),
+            about="a slow server", group="trouble"),
+]

@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Reports</title>
+<style>body{font:15px/1.5 system-ui,sans-serif;margin:24px;max-width:640px} li{margin:4px 0}</style></head>
+<body>
+<main>
+<h1>Reports</h1>
+<ul>
+  <li><a href="/reports/2026-q3.html">Q3 report</a> (moved away: a missing page)</li>
+  <li><a href="/account">Account</a> (the session has expired: a sign-in page)</li>
+  <li><a href="/flaky/link.html">Weekly report</a> (a server error on the first visit)</li>
+</ul>
+<h2>Exports</h2>
+<ul>
+  <li><a href="/download/slow.bin">Slow export</a> (about 3 seconds)</li>
+  <li><a href="/download/broken.bin">Large export</a> (the server cuts it off)</li>
+</ul>
+<h2>Draft</h2>
+<p><button type="button" id="save">Save draft</button></p>
+<p id="status" role="status"></p>
+</main>
+<script>
+// A dialog nobody asked for: an alert 300 ms after load.
+function post(v) { fetch('/api/submit/trouble', { method: 'POST', body: JSON.stringify(v) }); }
+setTimeout(function () { alert('Your session expires in 5 minutes'); post({ alerted: true }); }, 300);
+document.getElementById('save').addEventListener('click', function () {
+  document.getElementById('status').textContent = 'Draft saved at 10:42';
+  post({ saved: true });
+});
+</script>
+</body>
+</html>

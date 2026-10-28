@@ -620,6 +620,118 @@ def _(t):
     return C.check(isinstance(got, dict) and got.get("cards") == "B,A", "the cards swapped", f"{got}; {out[-300:]}")
 
 
+# ---- trouble: the site, the network or the browser misbehaves (round 19 on) ------------------------------
+# Each case must end in a recovered success, or in one clear line that tells the model what to do next.
+
+def _tab(t):
+    b = t.cc.browser_for(t.cc.load_settings())
+    return b.active_tab(b.session(t.session))
+
+
+@test("trouble_500_once", "a page that answers 500 on the first visit, then works")
+def _(t):
+    out = t.call(f"go {t.base}/flaky/a.html\nread css=#code")
+    items = C.read_items(out, "css=#code")
+    return C.check(items == [["FLAKY-OK-a"]], "the page read after the server error", out[-400:])
+
+
+@test("trouble_500_always", "a page that keeps answering 500: one clear failure line")
+def _(t):
+    out = t.call(f"go {t.base}/always500.html\nread text")
+    ok = "FAILED" in out and re.search(r"500|server error", out, re.I) and "Internal Server Error\n" not in out
+    return C.check(bool(ok), "the go step fails with the server error named", out[-400:])
+
+
+@test("trouble_404_link", "a link to a missing page: a clear line, the rest not run")
+def _(t):
+    out = t.call(f"go {t.base}/trouble.html\nclick Q3 report\nread text")
+    ok = "FAILED" in out and re.search(r"404|not found|missing", out, re.I) and "skipped" in out
+    return C.check(bool(ok), "the click fails with the page named missing (404) and the read skipped", out[-500:])
+
+
+@test("trouble_login_bounce", "an address that bounces to a sign-in page: one clear line")
+def _(t):
+    out = t.call(f"go {t.base}/account\nread text")
+    ok = re.search(r"sign-in page", out, re.I) and "fixture-not-a-secret" not in out
+    return C.check(bool(ok), "the reply says the address led to a sign-in page", out[-500:])
+
+
+@test("trouble_late_banner", "a cookie banner arrives late and covers Continue, which takes only real clicks")
+def _(t):
+    out = t.call(f"go {t.base}/late-banner.html\nwait 1000\nclick Continue\nread css=#code")
+    got = t.state.get("late")
+    ok = {"continued": True} in got and "CONT-OK-4417" in out
+    return C.check(ok, "Continue went through with a real click", f"{got}; {out[-400:]}")
+
+
+@test("trouble_shift", "the button moves under the pointer (a promo slides in; Save re-renders and moves)")
+def _(t):
+    out = t.call(f"go {t.base}/shift.html\nclick Pay\nread css=#receipt\nclick Save\nread css=#saved")
+    got = t.state.get("shift")
+    ok = {"paid": True} in got and {"saved": True} in got and {"promo": True} not in got
+    return C.check(ok, "Pay and Save clicked, the promo not", f"{got}; {out[-400:]}")
+
+
+@test("trouble_dialog", "an alert nobody asked for pops up after load: accepted, named in the reply, work goes on")
+def _(t):
+    out = t.call(f"go {t.base}/trouble.html\nwait 800\nclick Save draft\nread css=#status")
+    got = t.state.get("trouble")
+    ok = {"saved": True} in got and "session expires" in out.lower()
+    return C.check(ok, "draft saved and the alert named", f"{got}; {out[-400:]}")
+
+
+@test("trouble_slow_download", "a download that takes about 3 s")
+def _(t):
+    out = t.call(f"go {t.base}/trouble.html\ndownload Slow export")
+    path, data = C.downloaded(out)
+    return C.check(data == F.SLOW_BIN, "all 60000 bytes saved", f"{path}; {out[-300:]}")
+
+
+@test("trouble_broken_download", "a download the server cuts off: a clear failure in seconds, not a 2-minute wait")
+def _(t):
+    out = t.call(f"go {t.base}/trouble.html\ndownload Large export")
+    ok = "FAILED" in out and re.search(r"cut off|interrupted|failed|incomplete|canceled", out, re.I)
+    return C.check(bool(ok) and t.calls[-1].wall < 10, "a clear failure line within 10 s",
+                   f"{t.calls[-1].wall:.1f}s; {out[-400:]}")
+
+
+@test("trouble_slow_server", "a page that takes 4 s to arrive")
+def _(t):
+    out = t.call(f"go {t.base}/slowpage/4000/x.html\nread css=#status")
+    items = C.read_items(out, "css=#status")
+    return C.check(items == [["STATUS-GREEN-4000"]], "the status read after the wait", out[-300:])
+
+
+@test("trouble_slow_network", "a throttled connection (400 ms latency, 40 kB/s): the SPA list still read whole")
+def _(t):
+    t.call(f"go {t.base}/plain.html")
+    tab = _tab(t)
+    tab.send("Network.enable", {})
+    tab.send("Network.emulateNetworkConditions",
+             {"offline": False, "latency": 400, "downloadThroughput": 40000, "uploadThroughput": 20000})
+    try:
+        out = t.call(f"go {t.base}/spa.html\nread css=.item")
+    finally:
+        tab.send("Network.emulateNetworkConditions",
+                 {"offline": False, "latency": 0, "downloadThroughput": -1, "uploadThroughput": -1})
+    names = _spa_names(out)
+    return C.check(names == [f"Item {n}" for n in range(1, 11)], "Items 1 to 10", names or out[-400:])
+
+
+@test("trouble_tab_crash", "the tab crashes between calls: the next call reopens the page and goes on")
+def _(t):
+    t.call(f"go {t.base}/plain.html")
+    tab = _tab(t)
+    try:
+        tab.send("Page.crash", {}, timeout=3)
+    except Exception:
+        pass
+    time.sleep(0.5)
+    out = t.call("read text")
+    ok = "PLAIN-7Q2X" in out and re.search(r"crash", out, re.I)
+    return C.check(bool(ok), "the page read again, and the reply says the tab had crashed", out[-400:])
+
+
 # ---- main ------------------------------------------------------------------------------------------------
 
 def main(argv: list[str] | None = None) -> int:

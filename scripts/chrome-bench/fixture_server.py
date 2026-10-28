@@ -112,6 +112,7 @@ PAGE_WORDS = ["alpha", "bravo", "charlie", "delta", "echo", "foxtrot", "golf", "
 REPORT_CSV = ("region,total\n" + "".join(f"{r},{REGION_TOTALS[r]:.2f}\n" for r in REGIONS)).encode()
 DATA_BIN = random.Random(7).randbytes(50_000)
 EXPORT_CSV = b"id,name\n1,alpha\n2,beta\n3,gamma\n"
+SLOW_BIN = random.Random(11).randbytes(60_000)
 PIXEL_PNG = base64.b64decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=")
 UPLOAD_FILES = {"upload-a.txt": b"hermes chrome bench upload A\n" * 50, "upload-b.bin": random.Random(9).randbytes(3000)}
 
@@ -291,6 +292,64 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/download/data.bin":
             return self._send(200, DATA_BIN, "application/octet-stream",
                               {"Content-Disposition": 'attachment; filename="bench-data.bin"'})
+        # ---- trouble: pages and files that fail the way real sites do ------------------------------
+        if path.startswith("/flaky/") and path.endswith(".html"):
+            # A server error on the first visit, then the page (a busy server, a deploy in progress).
+            key = path[len("/flaky/"):-5]
+            hits = self.state.add(f"flaky:{key}", 1)
+            if hits == 1:
+                return self._send(500, b"<!doctype html><title>500 Internal Server Error</title><h1>Internal Server Error</h1>",
+                                  "text/html; charset=utf-8")
+            body = (f"<!doctype html><html><head><meta charset=utf-8><title>Report {html.escape(key)}</title></head>"
+                    f"<body><main><h1>Report {html.escape(key)}</h1><p id=code>FLAKY-OK-{html.escape(key)}</p></main>"
+                    "</body></html>").encode()
+            return self._send(200, body, "text/html; charset=utf-8")
+        if path == "/always500.html":
+            return self._send(500, b"<!doctype html><title>500 Internal Server Error</title><h1>Internal Server Error</h1>",
+                              "text/html; charset=utf-8")
+        if path == "/account":
+            # A session that has run out: the account page bounces to the sign-in page.
+            return self._send(302, b"", "text/html", {"Location": "/login.html?next=/account"})
+        if path.startswith("/slowpage/"):
+            # A slow server: the page itself arrives after <ms>.
+            parts = path.split("/")
+            try:
+                ms = int(parts[2])
+            except (IndexError, ValueError):
+                ms = 3000
+            time.sleep(min(ms, 15000) / 1000.0)
+            body = (f"<!doctype html><html><head><meta charset=utf-8><title>Status</title></head><body><main>"
+                    f"<h1>Status</h1><p id=status>STATUS-GREEN-{ms}</p></main></body></html>").encode()
+            return self._send(200, body, "text/html; charset=utf-8")
+        if path == "/download/slow.bin":
+            # A slow download: 60 kB in six parts over about 3 s.
+            self.send_response(200)
+            self.send_header("Content-Type", "application/octet-stream")
+            self.send_header("Content-Length", str(len(SLOW_BIN)))
+            self.send_header("Content-Disposition", 'attachment; filename="slow-export.bin"')
+            self.end_headers()
+            for i in range(6):
+                self.wfile.write(SLOW_BIN[i * 10000:(i + 1) * 10000])
+                self.wfile.flush()
+                time.sleep(0.5)
+            return None
+        if path == "/download/broken.bin":
+            # A download the server cuts off: it promises 100 kB, sends 2 kB, closes the connection.
+            self.send_response(200)
+            self.send_header("Content-Type", "application/octet-stream")
+            self.send_header("Content-Length", "100000")
+            self.send_header("Content-Disposition", 'attachment; filename="large-export.bin"')
+            self.end_headers()
+            self.wfile.write(b"x" * 2000)
+            self.wfile.flush()
+            time.sleep(0.3)
+            self.close_connection = True
+            try:
+                import socket
+                self.connection.shutdown(socket.SHUT_RDWR)
+            except OSError:
+                pass
+            return None
         if path.startswith("/slow/"):
             parts = path.split("/")
             try:
