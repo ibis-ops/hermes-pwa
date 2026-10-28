@@ -948,9 +948,9 @@ STILL_MS = 1200  # a loaded page with no change and no request for this long wil
 _FRAME_REF = re.compile(r"^f(\d+):(.+)$")
 
 
-def _found(view: _Scripted, target: str) -> bool:
+def _found(view: _Scripted, target: str, kind: str = "") -> bool:
     try:
-        return bool(view.hcx("found", target, timeout=5))
+        return bool(view.hcx("found", target, kind, timeout=5))
     except ConnectorError:
         return False
 
@@ -968,7 +968,7 @@ def _hopeless(tab: Any, t0: float) -> bool:
             and b.get("quiet", 0) >= STILL_MS and b.get("net", 0) >= STILL_MS)
 
 
-def locate(tab: Tab, target: str, timeout: Optional[float] = None) -> tuple[Any, str]:
+def locate(tab: Tab, target: str, timeout: Optional[float] = None, kind: str = "") -> tuple[Any, str]:
     """Where a target is: the page, or one of its cross-origin frames (a frame ref like f2:e5 from the
     map, or text the page itself does not have). A target that is not there yet gets a moment to appear
     (a list still loading, suggestions after typing, a menu opening), as a person would; this is free
@@ -990,11 +990,11 @@ def locate(tab: Tab, target: str, timeout: Optional[float] = None) -> tuple[Any,
     t0 = time.monotonic()
     first = True
     while True:
-        if _found(tab, target):
+        if _found(tab, target, kind):
             return tab, target
         for fr in tab.live_frames():
             view = FrameView(fr)
-            if _found(view, target):
+            if _found(view, target, kind):
                 return view, target
         if first:
             first = False
@@ -1152,7 +1152,7 @@ def press(tab: Tab, combo: str) -> dict:
 
 
 def type_text(tab: Tab, target: str, text: str, *, clear: bool = True, enter: bool = False) -> dict:
-    view, target = locate(tab, target)
+    view, target = locate(tab, target, kind="type")
     if isinstance(view, FrameView):
         # Keys go to the page's focused frame: a click on the field puts the focus there, as a person would.
         p = view.hcx("point", target)
@@ -1186,7 +1186,7 @@ def type_text(tab: Tab, target: str, text: str, *, clear: bool = True, enter: bo
 
 
 def select_option(tab: Tab, target: str, option: str) -> dict:
-    view, target = locate(tab, target)
+    view, target = locate(tab, target, kind="select")
     res = view.hcx("select", target, option)
     if isinstance(res, dict) and "not a dropdown list" in str(res.get("error", "")):
         # A custom dropdown (a button or combobox that opens a listbox): open it, click the option.
@@ -1207,7 +1207,7 @@ def select_option(tab: Tab, target: str, option: str) -> dict:
 
 
 def set_checked(tab: Tab, target: str, on: bool) -> dict:
-    view, target = locate(tab, target)
+    view, target = locate(tab, target, kind="check")
     st = _check(view.hcx("state", target, "check"))
     if st.get("checked") is None:
         # "check milk" on a to-do list: the one box in that item's row.

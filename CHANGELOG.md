@@ -90,7 +90,9 @@ All notable changes are documented here. The format follows
   pictures or boxes of that kind (or class) within the biggest repeated group, so a logo does not
   count; as a last resort a name that starts with the target's first word and shares half its words
   is taken (`click Search MDN` finds "Search the site"); and a step line holding a literal `\n` before
-  another step is split even when the other lines use real newlines.
+  another step is split even when the other lines use real newlines. `type Add item = milk` on a page
+  with a single field (TodoMVC calls it "What needs to be done?") types there once the page has
+  settled, and the reply names the field.
 - **No more leaked tabs.** Every one-shot run of a connector bot (a cron job, `hermes -z`, a bench
   turn) left its tab open, because only the process that made a tab closed it; after a few hundred
   runs the bot's Chrome held hundreds of tabs and about 13 GB. Now a process that connects closes the

@@ -5,7 +5,7 @@
 // CDP, so pages see real events. Password values are never returned.
 (function () {
   'use strict';
-  var VERSION = 16;
+  var VERSION = 17;
   if (window.__hcx && window.__hcx.version >= VERSION) return;
 
   // ---- activity tracking for settle detection ----------------------------------------------
@@ -826,7 +826,7 @@
     return best;
   }
 
-  function resolve(target, kind, depth) {
+  function resolve(target, kind, depth, probe) {
     target = norm(target);
     depth = depth || 0;
     if (!target) return { error: 'empty target' };
@@ -913,6 +913,15 @@
     if (depth) return { error: 'no match' };
     var wm = wordMatch(w, role, dialog);
     if (wm) return { el: wm, count: 1, loose: true };
+    // While a step still waits for its target (probe), only on a page that has settled: the field it
+    // names may yet appear.
+    var settled = document.readyState === 'complete' && !st.inflight && Date.now() - st.lastMutation > 800;
+    if (kind === 'type' && (!probe || settled)) {
+      // "type Add item = milk" on a page with one field (a to-do list's input named otherwise): that field.
+      // The reply names the field it used.
+      var fields = candidates().filter(function (el) { return typeable(el) && roleOf(el) !== 'password'; });
+      if (fields.length === 1) return { el: fields[0], count: 1, loose: true };
+    }
     var words = w.split(' ').filter(function (x) { return x.length > 2; });
     var short = w.split(' ').filter(function (x) { return x && x.length <= 2; });
     var near = [];
@@ -1376,7 +1385,7 @@
     read: read,
     busy: busy,
     has: has,
-    found: function (t) { return !resolve(t).error || !!reveal(t); },
+    found: function (t, kind) { return !resolve(t, kind || undefined, 0, true).error || !!reveal(t); },
     reveal: reveal,
     wall: wallOf,
     scroll: scroll,

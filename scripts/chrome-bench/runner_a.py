@@ -598,6 +598,13 @@ def _(t):
     return C.check(ok, "Login clicked and One way picked", f"{got}; {out[-300:]}")
 
 
+@test("type_only_field", "type Add item = hello on a page whose one field is named otherwise")
+def _(t):
+    out = t.call(f"go {t.base}/targets.html\ntype Add item = hello\nread #keys")
+    items = C.read_items(out, "#keys")
+    return C.check(items == [["hello"]] and "FAILED" not in out, "hello typed into the page's one field", items or out[-300:])
+
+
 @test("target_drag_card", "drag Card A = Card B on cards named A and B")
 def _(t):
     out = t.call(f"go {t.base}/targets.html\ndrag Card A = Card B")
