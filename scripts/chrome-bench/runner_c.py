@@ -1,53 +1,76 @@
 #!/usr/bin/env python3
-"""Runner C: the bot itself, with its LLM, on read-only prompts drawn from the Runner B tasks.
+"""Runner C: the bot itself (its LLM and its own connector Chrome) on read-only tasks that need real
+browsing and interaction (bot_tasks.py).
 
-Each prompt goes to `hermes -p <profile> -z "<prompt>" --usage-file <file>`, run from the empty
-folder /tmp/hermes-work/run with NODE_ENV (and HERMES_HOME) unset. The run is timed, then the bot's
-newest oneshot session is read from ~/.hermes/profiles/<profile>/state.db, read-only, to count model
-turns, tool calls by tool name, chrome calls and steps per chrome call, and tokens. A prompt passes
-when the final answer matches the task's pattern and the bot used its browser (an answer from memory
-says nothing about the connector). The bot drives its own Chrome (its connector), not the bench one.
-Only the final answer and counts are kept; tool outputs and the system prompt are not copied.
+Each task is one bot turn built the way a CLI chat builds it (bot_turn.py under Hermes's own runtime,
+HERMES_HOME = the bot's profile), run from the empty folder /tmp/hermes-work/run. `hermes -z` is not
+used: its local gateway surface leaves plugin tools out, so it cannot test the connector. Then the
+turn's session is read from the profile's state.db, read-only, for model turns, tool calls by name,
+chrome calls and steps per call, tool output size, failed steps, tokens and cost, and the bot's chrome
+change history is checked where the task needs proof that an action happened. Only answers, counts
+and the bot's own tool arguments are kept; tool outputs and the system prompt are not copied.
 
     PY=/Users/seanwoodward/.hermes/installs/a054e8eb893639fa/environments/144c13c0849643c59ebdb1c3c7f7f488/venv/bin/python
-    $PY runner_c.py --smoke                        # one prompt (books_product)
-    $PY runner_c.py --tasks hn_front,wiki_article  # chosen prompts
-    $PY runner_c.py --all --repeat 2 --round 5     # every prompt
-    $PY runner_c.py --reanalyze 1                  # rescore round 1 from state.db (no new bot calls)
+    $PY runner_c.py --all --repeat 2 --workers 2 --round 3 --baseline 2
+    $PY runner_c.py --tasks heroku_upload,heroku_download --repeat 1
+    $PY runner_c.py --all --model claude-haiku-5.5      # one-turn override, the profile is not changed
 
-Results: /tmp/hermes-work/bench/round-<N>-bot.json, scorecard on stdout. A full run takes minutes:
-start it in the background and read the log.
+Results: /tmp/hermes-work/bench/round-<N>-bot.json and a scorecard on stdout.
 """
 from __future__ import annotations
 
 import argparse
 import json
+import math
+import os
 import re
-import shutil
 import sqlite3
 import statistics
 import subprocess
 import sys
+import threading
 import time
 from collections import Counter
 from pathlib import Path
 from typing import Any, Optional
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import bot_tasks as T  # noqa: E402
 import common as C  # noqa: E402
-import live_tasks as L  # noqa: E402
 
 RUN_DIR = Path("/tmp/hermes-work/run")
-HERMES = shutil.which("hermes") or str(Path.home() / ".local" / "bin" / "hermes")
-# Some answers are in the model's training data (a book price, a birth date): without this the bot
-# may answer from memory, which says nothing about the connector. A pass also needs a chrome call.
-PROMPT_SUFFIX = " Use your browser to check the live page; do not answer from memory."
+TURN = Path(__file__).resolve().parent / "bot_turn.py"
+HERMES_AGENT = Path.home() / ".hermes" / "hermes-agent"
+LAUNCHER = HERMES_AGENT / ".hermes" / "bin" / "hermes"
+OWN_TOOLS = {"chrome", "chrome_history"}
 SESSION_COLS = ("id, started_at, ended_at, end_reason, model, message_count, tool_call_count, api_call_count, "
                 "input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, reasoning_tokens, estimated_cost_usd")
 
 
-def state_db(profile: str) -> Path:
-    return Path.home() / ".hermes" / "profiles" / profile / "state.db"
+def hermes_python() -> str:
+    """The interpreter Hermes's own launcher runs (same runtime, site dirs and bootstrap as `hermes`)."""
+    text = LAUNCHER.read_text(encoding="utf-8")
+    m = re.search(r"^exec (\S+python3?\S*)", text, re.M)
+    if not m:
+        raise SystemExit(f"cannot find Hermes's python in {LAUNCHER}")
+    return m.group(1)
+
+
+def turn_cmd(prompt: str, out_json: Path, model: str = "", reasoning: str = "") -> list[str]:
+    boot = ("import os, sys, runpy; os.environ.pop('PYTHONHOME', None); os.environ.pop('PYTHONPATH', None); "
+            "os.environ.pop('VIRTUAL_ENV', None); sys.path.insert(0, %r); sys._hermes_pin_default_home = True; "
+            "import hermes_bootstrap; sys.argv = [sys.argv[1]] + sys.argv[2:]; runpy.run_path(sys.argv[0], run_name='__main__')"
+            % str(HERMES_AGENT))
+    cmd = [hermes_python(), "-I", "-c", boot, str(TURN), prompt, "--json", str(out_json)]
+    if model:
+        cmd += ["--model", model]
+    if reasoning:
+        cmd += ["--reasoning", reasoning]
+    return cmd
+
+
+def profile_home(profile: str) -> Path:
+    return Path.home() / ".hermes" / "profiles" / profile
 
 
 def ensure_run_dir() -> None:
@@ -57,33 +80,33 @@ def ensure_run_dir() -> None:
         raise SystemExit(f"{RUN_DIR} must be empty (the bot loads AGENTS.md and rules from its folder); it holds: {extra[:5]}")
 
 
-def read_session(db: Path, since: float = 0.0, session_id: str = "") -> Optional[dict]:
-    """The session `session_id`, or else the newest oneshot session that started after `since`, with
-    its messages. Read-only."""
+def read_session(db: Path, session_id: str) -> Optional[dict]:
     con = sqlite3.connect(f"file:{db}?mode=ro", uri=True, timeout=10)
     con.row_factory = sqlite3.Row
     try:
-        if session_id:
-            row = con.execute(f"SELECT {SESSION_COLS} FROM sessions WHERE id = ?", (session_id,)).fetchone()
-        else:
-            row = con.execute(f"SELECT {SESSION_COLS} FROM sessions WHERE source = 'oneshot' AND started_at >= ? "
-                              "ORDER BY started_at DESC LIMIT 1", (since - 2,)).fetchone()
+        row = con.execute(f"SELECT {SESSION_COLS} FROM sessions WHERE id = ?", (session_id,)).fetchone()
         if row is None:
             return None
         msgs = con.execute("SELECT role, tool_calls, tool_name, content FROM messages WHERE session_id = ? ORDER BY id",
-                           (row["id"],)).fetchall()
+                           (session_id,)).fetchall()
         return {"session": dict(row), "messages": [dict(m) for m in msgs]}
     finally:
         con.close()
 
 
+_FAILED_STEP = re.compile(r"(?m)^\s*[\w.-]*\d+\. (?:FAILED|stopped)")
+
+
 def analyze(messages: list[dict]) -> dict:
-    """Model turns, tool calls by name, chrome calls with their step counts, failed chrome calls."""
+    """Model turns, tool calls by name, chrome calls with their steps, output sizes, failed steps."""
     tools: Counter = Counter()
     chrome_steps: list[int] = []
-    chrome_failed = 0
+    chrome_chars: list[int] = []
+    tool_chars = 0
+    chrome_failed = failed_steps = shots = 0
     turns = 0
-    final = ""
+    chrome_args: list[str] = []
+    other_args: list[str] = []
     for m in messages:
         if m["role"] == "assistant":
             turns += 1
@@ -95,88 +118,110 @@ def analyze(messages: list[dict]) -> dict:
                 fn = c.get("function") or {}
                 name = fn.get("name") or c.get("name") or "?"
                 tools[name] += 1
+                if name not in OWN_TOOLS:
+                    other_args.append(f"{name}: {C.cut(fn.get('arguments') or '', 160)}")
                 if name == "chrome":
                     try:
                         args = json.loads(fn.get("arguments") or "{}")
                     except ValueError:
                         args = {}
-                    chrome_steps.append(C.count_steps(args.get("steps")) if isinstance(args, dict) else 0)
-            if m.get("content") and not calls:
-                final = m["content"]
-        elif m["role"] == "tool" and m.get("tool_name") == "chrome" and "chrome: FAILED" in str(m.get("content") or "")[:600]:
-            chrome_failed += 1  # the header line, possibly inside an untrusted-result wrapper
+                    steps = args.get("steps") if isinstance(args, dict) else None
+                    chrome_steps.append(C.count_steps(steps))
+                    text = steps if isinstance(steps, str) else json.dumps(steps, ensure_ascii=False)
+                    chrome_args.append(C.cut(text, 300))
+                    shots += len(re.findall(r"(?m)(?:^|\")\s*screenshot", text or ""))
+        elif m["role"] == "tool":
+            content = str(m.get("content") or "")
+            tool_chars += len(content)
+            if m.get("tool_name") == "chrome":
+                chrome_chars.append(len(content))
+                if "chrome: FAILED" in content[:600]:
+                    chrome_failed += 1
+                failed_steps += len(_FAILED_STEP.findall(content))
+    other = {k: v for k, v in tools.items() if k not in OWN_TOOLS}
     return {"turns": turns, "tool_calls": dict(tools), "tool_calls_total": sum(tools.values()),
             "chrome_calls": tools.get("chrome", 0), "chrome_steps": chrome_steps,
             "steps_per_chrome_call": round(statistics.mean(chrome_steps), 2) if chrome_steps else None,
-            "chrome_failed_calls": chrome_failed, "final_from_db": final}
+            "chrome_chars": sum(chrome_chars), "max_chrome_chars": max(chrome_chars, default=0),
+            "tool_chars": tool_chars, "chrome_failed_calls": chrome_failed, "failed_steps": failed_steps,
+            "screenshots": shots, "other_tools": other, "chrome_args": chrome_args, "other_args": other_args[:6]}
 
 
-def build_record(task: C.Test, run_no: int, prompt: str, stdout: str, code: Any, stderr: str, wall: float,
-                 found: Optional[dict], usage: Optional[dict], allow_no_browser: bool) -> dict:
-    stats = analyze(found["messages"]) if found else {}
-    sess = found["session"] if found else {}
-    answer = (stdout or "").strip() or stats.get("final_from_db", "")
-    answer_ok = bool(re.search(task.meta["answer"], answer))
-    used_chrome = (stats.get("chrome_calls") or 0) > 0
-    # state.db counts uncached input only; the usage file (or the cache columns) give the full prompt size.
-    cached = (sess.get("cache_read_tokens") or 0) + (sess.get("cache_write_tokens") or 0)
-    total_in = (usage or {}).get("input_tokens")
-    if total_in is None and sess:
-        total_in = (sess.get("input_tokens") or 0) + cached
-    return {
-        "name": task.name, "run": run_no, "prompt": prompt, "pass": answer_ok and (used_chrome or allow_no_browser),
-        "answer_ok": answer_ok, "used_chrome": used_chrome, "expected": task.meta["answer"],
-        "answer": C.cut(answer, 600), "exit": code, "stderr_tail": C.cut(stderr[-600:], 600) if stderr else "",
-        "wall_s": round(wall, 2), "session": sess.get("id"), "model": sess.get("model"),
-        "turns": stats.get("turns"), "api_calls": sess.get("api_call_count"),
-        "tool_calls": stats.get("tool_calls"), "tool_calls_total": stats.get("tool_calls_total"),
-        "chrome_calls": stats.get("chrome_calls"), "chrome_steps": stats.get("chrome_steps"),
-        "steps_per_chrome_call": stats.get("steps_per_chrome_call"), "chrome_failed_calls": stats.get("chrome_failed_calls"),
-        "input_tokens": total_in, "uncached_input_tokens": sess.get("input_tokens"),
-        "output_tokens": sess.get("output_tokens"), "cache_read_tokens": sess.get("cache_read_tokens"),
-        "cache_write_tokens": sess.get("cache_write_tokens"), "reasoning_tokens": sess.get("reasoning_tokens"),
-        "cost_usd": sess.get("estimated_cost_usd"), "usage": usage,
-    }
+def history_entries(profile: str, session_id: str, since: float) -> list[dict]:
+    """The bot's chrome change history for this turn (files keyed by session, written after `since`)."""
+    folder = profile_home(profile) / "chrome" / "history"
+    out: list[dict] = []
+    if not folder.is_dir():
+        return out
+    for p in folder.glob("*.jsonl"):
+        try:
+            if p.stat().st_mtime < since - 1:
+                continue
+            if session_id and session_id not in p.stem:
+                continue
+            for line in p.read_text(encoding="utf-8").splitlines():
+                try:
+                    out.append(json.loads(line))
+                except ValueError:
+                    continue
+        except OSError:
+            continue
+    return out
 
 
-def run_prompt(task: C.Test, profile: str, n: int, run_no: int, timeout: int, allow_no_browser: bool) -> dict:
-    prompt = task.meta["prompt"] + PROMPT_SUFFIX
-    usage_path = C.OUT_DIR / f"round-{n}-bot-{task.name}-r{run_no}.usage.json"
-    usage_path.unlink(missing_ok=True)
-    cmd = ["env", "-u", "NODE_ENV", "-u", "HERMES_HOME", HERMES, "-p", profile, "-z", prompt, "--usage-file", str(usage_path)]
+def run_task(task: T.BotTask, profile: str, n: int, run_no: int, timeout: int, truth: Any, model: str,
+             reasoning: str, tag: str = "") -> dict:
+    out_json = C.OUT_DIR / "logs" / f"round-{n}-bot{tag}-{task.name}-r{run_no}.turn.json"
+    out_json.parent.mkdir(parents=True, exist_ok=True)
+    out_json.unlink(missing_ok=True)
+    env = {k: v for k, v in os.environ.items() if k not in ("NODE_ENV", "PYTHONPATH", "PYTHONHOME", "VIRTUAL_ENV")}
+    env["HERMES_HOME"] = str(profile_home(profile))
     since = time.time()
     t0 = time.monotonic()
+    code: Any = 0
     try:
-        proc = subprocess.run(cmd, cwd=RUN_DIR, capture_output=True, text=True, timeout=timeout)
+        proc = subprocess.run(turn_cmd(task.prompt, out_json, model, reasoning), cwd=RUN_DIR, capture_output=True,
+                              text=True, timeout=timeout, env=env)
         code, stdout, stderr = proc.returncode, proc.stdout, proc.stderr
     except subprocess.TimeoutExpired as exc:
-        partial = exc.stdout
-        code, stdout, stderr = "timeout", partial.decode("utf-8", "replace") if isinstance(partial, bytes) else (partial or ""), ""
+        raw = exc.stdout
+        code, stdout, stderr = "timeout", raw.decode("utf-8", "replace") if isinstance(raw, bytes) else (raw or ""), ""
     wall = time.monotonic() - t0
     try:
-        usage = json.loads(usage_path.read_text(encoding="utf-8"))
+        turn = json.loads(out_json.read_text(encoding="utf-8"))
     except (OSError, ValueError):
-        usage = None
+        turn = {}
+    sid = turn.get("session_id") or ""
     found = None
     for _ in range(10):  # the session row can land a moment after the process exits
-        found = read_session(state_db(profile), since, (usage or {}).get("session_id") or "")
+        found = read_session(profile_home(profile) / "state.db", sid) if sid else None
         if found:
             break
         time.sleep(0.5)
-    return build_record(task, run_no, prompt, stdout, code, stderr, wall, found, usage, allow_no_browser)
-
-
-def reanalyze(n: int, allow_no_browser: bool) -> dict:
-    """Rescore a recorded round from state.db with the current rules (no new bot calls)."""
-    data = json.loads(C.round_path("bot", n).read_text(encoding="utf-8"))
-    tasks = {t.name: t for t in L.TASKS}
-    records = []
-    for r in data["prompts"]:
-        found = read_session(state_db(data["profile"]), session_id=r.get("session") or "") if r.get("session") else None
-        records.append(build_record(tasks[r["name"]], r["run"], r["prompt"], r["answer"], r["exit"], r.get("stderr_tail", ""),
-                                    r["wall_s"], found, r.get("usage"), allow_no_browser))
-    data.update({"prompts": records, "summary": summarize(records), "rescored": C.now()})
-    return data
+    stats = analyze(found["messages"]) if found else {}
+    sess = found["session"] if found else {}
+    answer = str(turn.get("response") or "").strip() or (stdout or "").split("STATS ")[0].strip()
+    stale = isinstance(truth, dict) and truth.get("stale")
+    ok, why = task.check(answer, truth) if not stale else (False, f"stale task: {truth['stale']}")
+    hist_ok, hist_why = True, ""
+    if task.history is not None and ok:
+        hist_ok, hist_why = task.history(history_entries(profile, sid, since))
+    used_chrome = (stats.get("chrome_calls") or 0) > 0
+    passed = bool(ok and hist_ok and used_chrome)
+    if ok and not used_chrome:
+        why += " (but no chrome call: answered without the connector)"
+    cached = (sess.get("cache_read_tokens") or 0) + (sess.get("cache_write_tokens") or 0)
+    return {
+        "name": task.name, "run": run_no, "pass": passed, "stale": bool(stale), "answer_ok": ok,
+        "history_ok": hist_ok, "why": why + (f"; {hist_why}" if hist_why else ""), "answer": C.cut(answer, 400),
+        "exit": code, "error": turn.get("error") or "",
+        "stderr_tail": C.cut(stderr[-400:], 400) if stderr and code != 0 else "",
+        "wall_s": round(wall, 2), "turn_s": turn.get("seconds"), "session": sid, "model": sess.get("model"),
+        "api_calls": sess.get("api_call_count") or turn.get("api_calls"), **stats,
+        "input_tokens": (sess.get("input_tokens") or 0) + cached if sess else None,
+        "output_tokens": sess.get("output_tokens"), "reasoning_tokens": sess.get("reasoning_tokens"),
+        "cache_read_tokens": sess.get("cache_read_tokens"), "cost_usd": sess.get("estimated_cost_usd"),
+    }
 
 
 def _med(vals: list) -> Any:
@@ -184,105 +229,200 @@ def _med(vals: list) -> Any:
     return round(statistics.median(vals), 2) if vals else None
 
 
+def _p90(vals: list) -> Any:
+    vals = sorted(v for v in vals if isinstance(v, (int, float)))
+    return round(vals[max(0, math.ceil(0.9 * len(vals)) - 1)], 2) if vals else None
+
+
 def summarize(records: list[dict]) -> dict:
     names = list(dict.fromkeys(r["name"] for r in records))
-    first = {n: next(r for r in records if r["name"] == n) for n in names}
-    steps = [s for r in records for s in (r.get("chrome_steps") or [])]
+    scored = [n for n in names if not any(r["stale"] for r in records if r["name"] == n)]
+    first = {n: min((r for r in records if r["name"] == n), key=lambda r: r["run"]) for n in names}
+    recs = [r for r in records if r["name"] in scored]
+    steps = [s for r in recs for s in (r.get("chrome_steps") or [])]
+    same = [n for n in scored if len({r["pass"] for r in records if r["name"] == n}) == 1]
+    crashes = [f"{r['name']} r{r['run']}" for r in recs if r["exit"] not in (0, None) or r.get("error")]
+    unrecovered = sorted({r["name"] for r in recs if not r["pass"] and (r.get("failed_steps") or 0) > 0})
+    tools = sum((Counter(r.get("tool_calls") or {}) for r in recs), Counter())
+    other = sum((Counter(r.get("other_tools") or {}) for r in recs), Counter())
     return {
-        "prompts": len(names), "runs": max((r["run"] for r in records), default=0),
-        "passed": sum(1 for n in names if first[n]["pass"]),
-        "accuracy": round(100.0 * sum(1 for n in names if first[n]["pass"]) / len(names), 1) if names else 0.0,
-        "stability": round(100.0 * sum(1 for n in names if len({r["pass"] for r in records if r["name"] == n}) == 1)
-                           / len(names), 1) if names else 0.0,
-        "no_browser": sorted({r["name"] for r in records if not r.get("used_chrome")}),
-        "median_s": _med([r["wall_s"] for r in records]), "median_turns": _med([r["turns"] for r in records]),
-        "median_tool_calls": _med([r["tool_calls_total"] for r in records]),
-        "median_chrome_calls": _med([r["chrome_calls"] for r in records]),
+        "tasks": len(scored), "runs": max((r["run"] for r in records), default=0),
+        "passed": sum(1 for n in scored if first[n]["pass"]),
+        "accuracy": round(100.0 * sum(1 for n in scored if first[n]["pass"]) / len(scored), 1) if scored else 0.0,
+        "pass_rate_all_runs": round(100.0 * sum(1 for r in recs if r["pass"]) / len(recs), 1) if recs else 0.0,
+        "stability": round(100.0 * len(same) / len(scored), 1) if scored else 0.0,
+        "flaky": [n for n in scored if n not in same], "stale": [n for n in names if n not in scored],
+        "failed": sorted({r["name"] for r in recs if not r["pass"]}), "crashes": crashes,
+        "unrecovered": unrecovered,
+        "median_s": _med([r["wall_s"] for r in recs]), "p90_s": _p90([r["wall_s"] for r in recs]),
+        "median_api_calls": _med([r.get("api_calls") for r in recs]),
+        "median_chrome_calls": _med([r.get("chrome_calls") for r in recs]),
         "steps_per_chrome_call": round(statistics.mean(steps), 2) if steps else None,
-        "median_input_tokens": _med([r["input_tokens"] for r in records]),
-        "median_output_tokens": _med([r["output_tokens"] for r in records]),
-        "median_cache_read_tokens": _med([r["cache_read_tokens"] for r in records]),
-        "median_cost_usd": _med([r["cost_usd"] for r in records]),
-        "tools_used": dict(sum((Counter(r.get("tool_calls") or {}) for r in records), Counter())),
+        "median_chrome_chars": _med([r.get("chrome_chars") for r in recs]),
+        "median_tool_chars": _med([r.get("tool_chars") for r in recs]),
+        "max_chrome_chars": max((r.get("max_chrome_chars") or 0 for r in recs), default=0),
+        "median_input_tokens": _med([r.get("input_tokens") for r in recs]),
+        "median_output_tokens": _med([r.get("output_tokens") for r in recs]),
+        "median_cost_usd": _med([r.get("cost_usd") for r in recs]),
+        "total_cost_usd": round(sum(r.get("cost_usd") or 0 for r in recs), 3),
+        "failed_steps": sum(r.get("failed_steps") or 0 for r in recs),
+        "screenshots": sum(r.get("screenshots") or 0 for r in recs),
+        "tools_used": dict(tools), "other_tools": dict(other),
     }
 
 
 def print_scorecard(data: dict) -> None:
     s = data["summary"]
     print("=" * 100)
-    print(f"Runner C (bot {data['profile']}): round {data['round']}, {data['started']} to {data['finished']}"
-          + (f" (rescored {data['rescored']})" if data.get("rescored") else ""))
-    print(f"accuracy    {s['passed']}/{s['prompts']} = {s['accuracy']}% on run 1 (answer matched and the browser was used); "
-          f"stability {s['stability']}%")
-    if s["no_browser"]:
-        print(f"no browser  {', '.join(s['no_browser'])}: answered without a chrome call (from memory)")
-    print(f"time        median {s['median_s']}s per prompt; model turns median {s['median_turns']}")
-    print(f"tools       median {s['median_tool_calls']} calls per prompt, chrome calls median {s['median_chrome_calls']}, "
-          f"steps per chrome call {s['steps_per_chrome_call']}")
-    print(f"tokens      median input {s['median_input_tokens']} (incl. cache), output {s['median_output_tokens']}, "
-          f"cache read {s['median_cache_read_tokens']}; cost median ${s['median_cost_usd']}")
-    print(f"tools used  {s['tools_used']}")
+    print(f"Runner C (bot {data['profile']}{', model ' + data['model'] if data.get('model') else ''}"
+          f"{', reasoning ' + data['reasoning'] if data.get('reasoning') else ''}): round {data['round']}, "
+          f"{data['started']} to {data['finished']}, plugin {data['connector'].get('installed')}")
+    print(f"accuracy    {s['passed']}/{s['tasks']} = {s['accuracy']}% on run 1 (all runs {s['pass_rate_all_runs']}%)")
+    print(f"reliability same result on every run {s['stability']}%"
+          + (f" (flaky: {', '.join(s['flaky'])})" if s["flaky"] else "")
+          + f"; crashes {len(s['crashes'])}; tasks failed with FAILED steps {len(s['unrecovered'])}"
+          + (f" ({', '.join(s['unrecovered'])})" if s["unrecovered"] else ""))
+    print(f"speed       median {s['median_s']}s, p90 {s['p90_s']}s per task; model calls median {s['median_api_calls']}; "
+          f"chrome calls median {s['median_chrome_calls']}, steps per call {s['steps_per_chrome_call']}")
+    print(f"output      chrome output median {s['median_chrome_chars']} chars per task (largest call {s['max_chrome_chars']}); "
+          f"all tool output median {s['median_tool_chars']}")
+    print(f"tokens      median input {s['median_input_tokens']} (incl. cache), output {s['median_output_tokens']}; "
+          f"cost median ${s['median_cost_usd']}, total ${s['total_cost_usd']}")
+    print(f"tools       {s['tools_used']}; not chrome: {s['other_tools'] or 'none'}; "
+          f"FAILED steps {s['failed_steps']}; screenshots {s['screenshots']}")
+    if s["stale"]:
+        print(f"stale       {', '.join(s['stale'])} (the live page changed under the task; not scored)")
     print("-" * 100)
     for r in data["prompts"]:
-        print(f"{'PASS' if r['pass'] else 'FAIL'} {r['name']:<16} r{r['run']} {r['wall_s']:>7}s turns {r['turns']} "
-              f"tools {r['tool_calls']} chrome steps {r['chrome_steps']} tokens in/out {r['input_tokens']}/{r['output_tokens']}")
-        note = "" if r["pass"] else ("   (no chrome call)" if r.get("answer_ok") else f"   (expected /{r['expected']}/)")
-        print(f"     answer: {C.cut(r['answer'], 200)}{note}")
-        if r["exit"] not in (0, None):
-            print(f"     exit {r['exit']}: {r['stderr_tail'][-300:]}")
+        print(f"{'PASS' if r['pass'] else 'FAIL'} {r['name']:<18} r{r['run']} {r['wall_s']:>6}s calls {r.get('api_calls')} "
+              f"chrome {r.get('chrome_calls')} steps {r.get('chrome_steps')} out {r.get('chrome_chars')} "
+              f"tok {r.get('input_tokens')}/{r.get('output_tokens')}"
+              + (f" other {r['other_tools']}" if r.get("other_tools") else "")
+              + (f" failed-steps {r['failed_steps']}" if r.get("failed_steps") else ""))
+        if not r["pass"]:
+            print(f"     answer: {C.cut(r['answer'], 160)} | {r['why']}")
+            if r.get("error") or r["exit"] not in (0, None):
+                print(f"     exit {r['exit']} {r.get('error', '')} {r.get('stderr_tail', '')[-200:]}")
     print("=" * 100)
 
 
+def print_compare(data: dict, base_round: int, kind: str = "bot") -> None:
+    p = C.round_path(kind, base_round)
+    try:
+        base = json.loads(p.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        print(f"no baseline {p}")
+        return
+    a, b = base["summary"], data["summary"]
+    print(f"compared with round {base_round} ({base['started']}):")
+    for key in ("accuracy", "stability", "median_s", "p90_s", "median_api_calls", "median_chrome_calls",
+                "steps_per_chrome_call", "median_chrome_chars", "median_input_tokens", "median_output_tokens",
+                "median_cost_usd", "failed_steps"):
+        va, vb = a.get(key), b.get(key)
+        if isinstance(va, (int, float)) and isinstance(vb, (int, float)):
+            print(f"  {key:<22} {va:>10} -> {vb:<10} ({vb - va:+.3g})")
+    fa, fb = set(a.get("failed", [])), set(b.get("failed", []))
+    print(f"  now passing: {', '.join(sorted(fa - fb)) or 'none'}; now failing: {', '.join(sorted(fb - fa)) or 'none'}")
+
+
+def installed_head(profile: str) -> str:
+    try:
+        return subprocess.run(["git", "-C", str(profile_home(profile) / "plugins" / "hermes-pwa"), "log", "-1",
+                               "--format=%h %s"], capture_output=True, text=True, timeout=5).stdout.strip()
+    except (OSError, subprocess.SubprocessError):
+        return ""
+
+
 def main(argv: list[str] | None = None) -> int:
-    ap = argparse.ArgumentParser(description="Runner C: the bot (LLM + its Chrome) on read-only live prompts.")
+    ap = argparse.ArgumentParser(description="Runner C: the bot (LLM + its Chrome) on read-only interactive tasks.")
     ap.add_argument("--profile", default="kahunas-connector")
     group = ap.add_mutually_exclusive_group()
-    group.add_argument("--smoke", action="store_true", help="one prompt only (the task marked smoke)")
-    group.add_argument("--tasks", default="", help="comma-separated task names from live_tasks.py")
-    group.add_argument("--all", action="store_true", help="every live task")
-    group.add_argument("--reanalyze", type=int, default=0, help="rescore this round from state.db, no new bot calls")
+    group.add_argument("--tasks", default="", help="comma-separated task names from bot_tasks.py")
+    group.add_argument("--all", action="store_true", help="every task")
     ap.add_argument("--repeat", type=int, default=1)
+    ap.add_argument("--workers", type=int, default=2, help="bot turns at a time (each has its own tab)")
     ap.add_argument("--round", type=int, default=0)
-    ap.add_argument("--timeout", type=int, default=900, help="seconds per prompt")
-    ap.add_argument("--allow-no-browser", action="store_true", help="count a matching answer as a pass without a chrome call")
+    ap.add_argument("--baseline", type=int, default=0)
+    ap.add_argument("--timeout", type=int, default=420, help="seconds per task")
+    ap.add_argument("--model", default="", help="model for these turns only (the profile is not changed)")
+    ap.add_argument("--reasoning", default="", help="reasoning effort for these turns only")
+    ap.add_argument("--tag", default="", help="suffix of the results kind: round-N-bot<tag>.json")
     ap.add_argument("--list", action="store_true")
     args = ap.parse_args(argv)
     if args.list:
-        for t in L.TASKS:
-            print(f"{t.name:<18}{t.meta['prompt']}")
+        for t in T.TASKS:
+            print(f"{t.name:<18}{t.about}")
         return 0
-    if args.reanalyze:
-        data = reanalyze(args.reanalyze, args.allow_no_browser)
-        path = C.write_round("bot", args.reanalyze, data)
-        print_scorecard(data)
-        print(f"results: {path}")
-        return 0
-    if args.smoke:
-        tasks = [t for t in L.TASKS if t.meta.get("smoke")][:1]
-    elif args.all:
-        tasks = list(L.TASKS)
+    if args.all:
+        tasks = list(T.TASKS)
     elif args.tasks:
-        tasks = C.select(L.TASKS, args.tasks)
+        want = [x.strip() for x in args.tasks.split(",") if x.strip()]
+        unknown = [w for w in want if w not in {t.name for t in T.TASKS}]
+        if unknown:
+            raise SystemExit(f"unknown task(s): {', '.join(unknown)}")
+        tasks = [t for t in T.TASKS if t.name in want]
     else:
-        ap.error("choose --smoke, --tasks a,b, --all or --reanalyze N")
-    if not state_db(args.profile).is_file():
+        ap.error("choose --tasks a,b or --all")
+    if not (profile_home(args.profile) / "state.db").is_file():
         raise SystemExit(f"no state.db for profile {args.profile}")
     ensure_run_dir()
-    L.write_files()
-    n = args.round or C.next_round("bot")
+    T.write_files()
+    kind = "bot" + args.tag
+    n = args.round or C.next_round(kind)
     started = C.now()
-    print(f"Runner C round {n}: {len(tasks)} prompt(s) x {args.repeat} to the {args.profile} bot from {RUN_DIR}", flush=True)
-    records = []
+    truths: dict[str, Any] = {}
+    for t in tasks:
+        if t.truth is not None:
+            try:
+                truths[t.name] = t.truth()
+            except Exception as exc:
+                truths[t.name] = {"error": f"{type(exc).__name__}: {exc}"}
+    print(f"Runner C round {n}: {len(tasks)} task(s) x {args.repeat}, {args.workers} at a time, bot {args.profile} "
+          f"({installed_head(args.profile)})", flush=True)
+    records: list[dict] = []
+    lock = threading.Lock()
     for run_no in range(1, args.repeat + 1):
+        # A task and the tasks that must follow it (download after upload) go to one worker, in order.
+        chains: list[list[T.BotTask]] = []
         for t in tasks:
-            rec = run_prompt(t, args.profile, n, run_no, args.timeout, args.allow_no_browser)
-            records.append(rec)
-            print(f"[run {run_no}] {'PASS' if rec['pass'] else 'FAIL'} {t.name} {rec['wall_s']}s turns {rec['turns']} "
-                  f"chrome {rec['chrome_calls']} answer: {C.cut(rec['answer'], 120)}", flush=True)
-    data = {"runner": "bot", "round": n, "profile": args.profile, "started": started, "finished": C.now(),
-            "connector": C.fingerprint(), "summary": summarize(records), "prompts": records}
-    path = C.write_round("bot", n, data)
+            prev = next((c for c in chains if c[-1].name == t.after), None) if t.after else None
+            if prev is not None:
+                prev.append(t)
+            else:
+                chains.append([t])
+        queue = list(chains)
+
+        def worker() -> None:
+            while True:
+                with lock:
+                    if not queue:
+                        return
+                    chain = queue.pop(0)
+                for t in chain:
+                    rec = run_task(t, args.profile, n, run_no, args.timeout, truths.get(t.name), args.model,
+                                   args.reasoning, args.tag)
+                    with lock:
+                        records.append(rec)
+                        print(f"[run {run_no}] {'PASS' if rec['pass'] else 'FAIL'} {t.name:<18} {rec['wall_s']:>6}s "
+                              f"calls {rec.get('api_calls')} chrome {rec.get('chrome_calls')} out {rec.get('chrome_chars')} "
+                              f"| {C.cut(rec['answer'], 90)}" + ("" if rec["pass"] else f" | {C.cut(rec['why'], 120)}"),
+                              flush=True)
+
+        threads = [threading.Thread(target=worker) for _ in range(max(1, args.workers))]
+        for th in threads:
+            th.start()
+        for th in threads:
+            th.join()
+    order = {t.name: i for i, t in enumerate(T.TASKS)}
+    records.sort(key=lambda r: (r["run"], order.get(r["name"], 99)))
+    data = {"runner": "bot", "round": n, "profile": args.profile, "model": args.model, "reasoning": args.reasoning,
+            "started": started, "finished": C.now(),
+            "connector": {**C.fingerprint(), "installed": installed_head(args.profile)},
+            "truths": truths, "summary": summarize(records), "prompts": records}
+    path = C.write_round(kind, n, data)
     print_scorecard(data)
+    if args.baseline:
+        print_compare(data, args.baseline, kind)
     print(f"results: {path}")
     return 0
 

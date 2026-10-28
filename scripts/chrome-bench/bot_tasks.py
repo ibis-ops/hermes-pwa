@@ -1,0 +1,209 @@
+"""Bot-level tasks for Runner C: prompts that need real browsing and interaction (search then open a
+result, wait for content, form controls, dialogs, upload, download, a JS app, a cookie banner,
+pagination), each with a checkable answer.
+
+Read-only on the open web: no logins, purchases, posts or messages. Only the automation demos are
+typed into (the-internet.herokuapp.com, which also receives one small text file, and the Playwright
+TodoMVC demo); the IKEA task rejects the cookie banner and only searches and reads.
+
+A task is `BotTask(name, prompt, check, truth=None, history=None, after=None)`:
+- `check(answer, truth)` returns (ok, why); `truth()` runs once per round (a live API, for answers that
+  change, like a star count) and may return {"stale": "why"} when the page changed under the task.
+- `history(entries)` checks the bot's chrome change history for the turn (the action really happened).
+- `after` names a task that must run first in the same worker (download needs the upload).
+"""
+from __future__ import annotations
+
+import json
+import re
+import urllib.request
+from dataclasses import dataclass
+from typing import Any, Callable, Optional
+
+UPLOAD_PATH = "/tmp/hermes-work/bench/files/bench-upload.txt"
+UPLOAD_BYTES = b"hermes chrome bench upload test\n"
+UA = {"User-Agent": "hermes-chrome-bench/1.0 (read-only test bench)"}
+
+
+@dataclass
+class BotTask:
+    name: str
+    prompt: str
+    check: Callable[[str, Any], tuple]
+    truth: Optional[Callable[[], Any]] = None
+    history: Optional[Callable[[list], tuple]] = None
+    after: str = ""
+    about: str = ""
+
+
+def _get_json(url: str) -> Any:
+    req = urllib.request.Request(url, headers=UA)
+    with urllib.request.urlopen(req, timeout=15) as resp:
+        return json.loads(resp.read().decode("utf-8"))
+
+
+def _norm(s: str) -> str:
+    return re.sub(r"\s+", " ", str(s or "")).strip()
+
+
+def _has(pattern: str, what: str):
+    def check(answer: str, _truth: Any) -> tuple:
+        ok = bool(re.search(pattern, _norm(answer), re.I))
+        return ok, what if ok else f"expected {what}"
+    return check
+
+
+def write_files() -> None:
+    from pathlib import Path
+    p = Path(UPLOAD_PATH)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    if not p.exists() or p.read_bytes() != UPLOAD_BYTES:
+        p.write_bytes(UPLOAD_BYTES)
+
+
+# ---- Wikipedia: search, the second result, its infobox -----------------------------------------------
+
+def _wiki_truth() -> Any:
+    d = _get_json("https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch=analytical%20engine"
+                  "&format=json&srlimit=3")
+    titles = [r["title"] for r in d["query"]["search"]]
+    if len(titles) < 2 or titles[1] != "Ada Lovelace":
+        return {"stale": f"the second result is now {titles[1:2]}"}
+    return {"title": "Ada Lovelace"}
+
+
+def _wiki_check(answer: str, _truth: Any) -> tuple:
+    a = _norm(answer)
+    ok = "Lovelace" in a and bool(re.search(r"10 December 1815|December 10,? 1815|1815-12-10", a))
+    return ok, "Ada Lovelace, born 10 December 1815" if ok else "expected Ada Lovelace and 10 December 1815"
+
+
+# ---- the-internet.herokuapp.com --------------------------------------------------------------------
+
+def _checkbox_check(answer: str, _truth: Any) -> tuple:
+    a = _norm(answer).lower()
+    one = re.search(r"(?:checkbox\s*)?1\b[^0-9]{0,30}?\b(unchecked|checked|ticked|not checked)", a)
+    two = re.search(r"(?:checkbox\s*)?2\b[^0-9]{0,30}?\b(unchecked|checked|ticked|not checked)", a)
+    ok = bool(one and two and one.group(1) in ("checked", "ticked") and two.group(1) in ("unchecked", "not checked"))
+    return ok, "1 checked, 2 unchecked" if ok else "expected 1 checked, 2 unchecked"
+
+
+def _checkbox_history(entries: list) -> tuple:
+    checks = [e for e in entries if e.get("kind") == "check"]
+    return (bool(checks), f"{len(checks)} checkbox change(s) in the history" if checks else
+            "no checkbox change in the chrome history")
+
+
+def _dropdown_history(entries: list) -> tuple:
+    sel = [e for e in entries if e.get("kind") == "select" and _norm(e.get("after")) == "Option 2"]
+    return bool(sel), "Option 2 selected (history)" if sel else "no select of Option 2 in the chrome history"
+
+
+def _upload_history(entries: list) -> tuple:
+    ups = [e for e in entries if e.get("kind") == "upload"]
+    return bool(ups), "upload in the history" if ups else "no upload in the chrome history"
+
+
+def _download_history(entries: list) -> tuple:
+    downs = [e for e in entries if e.get("kind") == "download"]
+    return bool(downs), "download in the history" if downs else "no download through chrome (curl or similar instead)"
+
+
+# ---- GitHub: stars and the latest release ------------------------------------------------------------
+
+def _gh_truth() -> Any:
+    repo = _get_json("https://api.github.com/repos/psf/requests")
+    rel = _get_json("https://api.github.com/repos/psf/requests/releases/latest")
+    return {"stars": int(repo["stargazers_count"]), "tag": str(rel["tag_name"])}
+
+
+def _stars_in(answer: str) -> list:
+    out = []
+    for m in re.finditer(r"(\d+(?:[.,]\d+)*)\s*([kK])?\b", answer):
+        raw, k = m.group(1), m.group(2)
+        try:
+            if k:
+                out.append(float(raw.replace(",", ".")) * 1000)
+            else:
+                out.append(float(raw.replace(",", "")))
+        except ValueError:
+            continue
+    return out
+
+
+def _gh_check(answer: str, truth: Any) -> tuple:
+    if not isinstance(truth, dict) or "stars" not in truth:
+        return False, "no truth from the GitHub API"
+    a = _norm(answer)
+    tag = truth["tag"].lstrip("v")
+    ver_ok = bool(re.search(r"v?" + re.escape(tag) + r"\b", a))
+    stars = truth["stars"]
+    star_ok = any(abs(n - stars) <= max(150, 0.012 * stars) for n in _stars_in(a) if n >= 1000)
+    ok = ver_ok and star_ok
+    return ok, (f"{stars} stars and {truth['tag']}" if ok else
+                f"expected about {stars} stars ({'ok' if star_ok else 'wrong'}) and {truth['tag']} ({'ok' if ver_ok else 'wrong'})")
+
+
+TASKS: list[BotTask] = [
+    BotTask("wiki_second",
+            "On English Wikipedia, search for analytical engine and look at the full list of search results (not "
+            "the article the search jumps to). Open the second result and tell me the date of birth given in its "
+            "infobox. Reply with the article title and the date only.",
+            _wiki_check, truth=_wiki_truth, about="search, results list, second result, infobox"),
+    BotTask("heroku_dynamic",
+            "Open the-internet.herokuapp.com/dynamic_loading/2, click Start and tell me the text that appears once "
+            "loading finishes. Reply with the text only.",
+            _has(r"Hello World!?", "Hello World!"), about="click, then content that appears after 5 s"),
+    BotTask("heroku_checkboxes",
+            "On the-internet.herokuapp.com/checkboxes, make checkbox 1 checked and checkbox 2 unchecked, then tell "
+            "me the state of each box as the page now shows it. Reply like: 1 checked, 2 unchecked.",
+            _checkbox_check, history=_checkbox_history, about="unlabelled checkboxes, set and read back"),
+    BotTask("heroku_dropdown",
+            "On the-internet.herokuapp.com/dropdown, choose Option 2 in the dropdown list, then tell me which option "
+            "the list shows as selected. Reply with the option text only.",
+            _has(r"\bOption 2\b", "Option 2"), history=_dropdown_history, about="native select"),
+    BotTask("heroku_prompt",
+            "On the-internet.herokuapp.com/javascript_alerts, click 'Click for JS Prompt', enter the text hermes in "
+            "the prompt and accept it. What result text does the page show? Reply with the text only.",
+            _has(r"You entered: hermes", "You entered: hermes"), about="JS prompt answered"),
+    BotTask("heroku_upload",
+            f"Upload the file {UPLOAD_PATH} on the-internet.herokuapp.com/upload (choose the file, then press "
+            "Upload) and tell me the file name the page reports afterwards. Reply with the name only.",
+            _has(r"bench-upload\.txt", "bench-upload.txt"), history=_upload_history, about="file input, submit"),
+    BotTask("heroku_download",
+            "On the-internet.herokuapp.com/download, download the file bench-upload.txt and tell me its size in "
+            "bytes as saved. Reply with the number only.",
+            _has(rf"\b{len(UPLOAD_BYTES)}\b", f"{len(UPLOAD_BYTES)} bytes"), history=_download_history,
+            after="heroku_upload",
+            about="download a listed file, its size"),
+    BotTask("todomvc",
+            "On demo.playwright.dev/todomvc, first remove any todos already in the list. Then add three todos: "
+            "alpha task, beta task and gamma task, and mark beta task as completed. How many items does the page "
+            "say are left? Reply with the number only.",
+            _has(r"^\D*\b2\b\D*$", "2 items left"), about="JS app: add, complete, count"),
+    BotTask("github_repo",
+            "Open github.com/psf/requests. How many stars does the repository have, and what is its latest release "
+            "version? Reply like: 12.3k stars, v1.2.3.",
+            _gh_check, truth=_gh_truth, about="repo page: star count and latest release"),
+    BotTask("books_page2",
+            "On books.toscrape.com, use the next button to go to page 2 of the book list. What are the title and "
+            "the price of the first book on page 2? Reply like: title, price.",
+            _has(r"In Her Wake.*12\.84", "In Her Wake, £12.84"), about="pagination: page 2"),
+    BotTask("quotes_js",
+            "On quotes.toscrape.com/js/ (the JavaScript version of the site), click Next to go to page 2. Who is "
+            "the author of the first quote on page 2? Reply with the name only.",
+            _has(r"Marilyn Monroe", "Marilyn Monroe"), about="JS-rendered list, pagination"),
+    BotTask("mdn_search",
+            "Use the search on developer.mozilla.org to find flatMap and open the reference page for the array "
+            "method. What is the first line of its Syntax section? Reply with that line only.",
+            _has(r"flatMap\(callbackFn\)", "flatMap(callbackFn)"), about="docs site search, open a result"),
+    BotTask("ikea_cookie",
+            "On ikea.com/gb/en (it shows a cookie banner first), search for billy bookcase and open the first "
+            "product in the results. What is its article number? Do not add anything to the bag. Reply with the "
+            "number only.",
+            _has(r"002\.?638\.?50", "002.638.50"), about="cookie banner, search, product page"),
+    BotTask("flights",
+            "Using Google Flights, what is the cheapest one-way fare shown from London to Paris on 15 December "
+            "2026? Do not book anything. Reply with the price only.",
+            _has(r"[$£€]\s?\d|\d\s?(USD|GBP|EUR)", "a fare with its currency"), about="travel search form, read-only"),
+]

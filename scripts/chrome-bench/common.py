@@ -283,7 +283,7 @@ def find_ref(out: str, role: str, name: str) -> Optional[str]:
 
 
 def downloaded(out: str) -> tuple[Optional[Path], Optional[bytes]]:
-    m = re.search(r"download saved: (.+?) \(\d+ KB", out)
+    m = re.search(r"download saved: (.+?) \(\d+(?:\.\d+)? (?:KB|MB|bytes)", out)
     if not m:
         return None, None
     p = Path(m.group(1))

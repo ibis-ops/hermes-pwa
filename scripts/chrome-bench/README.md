@@ -7,7 +7,7 @@ A test bench for the speed, accuracy and reliability of the Chrome connector
 | --- | --- | --- | --- |
 | A `runner_a.py` | `chrome_tool` directly, local fixture site | what the fixture server received, file bytes, generated data | `/tmp/hermes-work/bench/round-<N>-direct.json` |
 | B `runner_b.py` | `chrome_tool` directly, live public sites (read-only) | exact values or patterns on the live page | `/tmp/hermes-work/bench/round-<N>-live.json` |
-| C `runner_c.py` | the bot itself (LLM + its own Chrome) via `hermes -z` | the final answer against a pattern | `/tmp/hermes-work/bench/round-<N>-bot.json` |
+| C `runner_c.py` | the bot itself (LLM + its own Chrome), one CLI-style turn per task (`bot_turn.py`) | the answer, and for actions the bot's chrome change history | `/tmp/hermes-work/bench/round-<N>-bot.json` |
 
 `scripts/` is never shipped, so none of this reaches the plugin package.
 
@@ -92,25 +92,27 @@ if the page changed.
 ### Runner C (the bot, with its LLM)
 
 ```sh
-$PY runner_c.py --smoke                  # one prompt (books_product)
-$PY runner_c.py --tasks hn_front,wiki_article --round 2
-$PY runner_c.py --all --profile kahunas-connector
-$PY runner_c.py --reanalyze 2            # rescore round 2 from state.db with the current rules, no bot calls
+$PY runner_c.py --all --repeat 2 --workers 2 --round 4 --baseline 3
+$PY runner_c.py --tasks heroku_upload,heroku_download
+$PY runner_c.py --all --model claude-haiku-5.5 --tag -haiku   # one-turn override; the profile is unchanged
 ```
 
-Each prompt (the `prompt=` of a live task plus "Use your browser to check the live page; do not
-answer from memory.") runs as
-`env -u NODE_ENV -u HERMES_HOME hermes -p <profile> -z "<prompt>" --usage-file <file>` from the empty
-folder `/tmp/hermes-work/run` (the runner refuses to start if that folder holds files). Then it reads the
-bot's session from `~/.hermes/profiles/<profile>/state.db` (tables `sessions` and `messages`; the
-session id comes from the usage file, else the newest oneshot session) and records: wall time, model
-turns (assistant messages) and API calls, tool calls by tool name, chrome calls, steps per chrome
-call, failed chrome calls, tokens, cost and the usage file. A prompt **passes** when the final answer
-matches the task's `answer=` pattern **and** the bot made at least one chrome call: some answers are in
-the model's training data (the first smoke run answered the book price from memory in one turn), and
-such a run says nothing about the connector (`--allow-no-browser` counts it anyway). Input tokens are
-the full prompt size from the usage file; `state.db`'s `input_tokens` counts only the uncached part
-and is kept as `uncached_input_tokens`. The bot uses its own connector Chrome.
+Tasks are in `bot_tasks.py`: they need real interaction (search then open the second result and read
+its infobox, wait for late content, unlabelled checkboxes, a dropdown, a JS prompt, upload, download,
+a JS to-do app, a GitHub repo's stars and release, pagination, a JS-rendered list, a docs search, a
+cookie banner then search, a travel search form), and every one has a checkable answer. Answers that
+change (stars, the release) are checked against a live API at the start of the round; a task whose
+page changed under it is reported as stale, not scored.
+
+`hermes -z` is not used: it runs a local gateway surface whose tool list leaves plugin tools out, so the
+bot cannot see the connector there. Each task is one turn built like a CLI chat (`bot_turn.py`, run by
+Hermes's own Python with `HERMES_HOME` set to the profile) from the empty folder `/tmp/hermes-work/run`.
+Then the runner reads the turn's session from `~/.hermes/profiles/<profile>/state.db` (read-only) and
+records wall time, model calls, tool calls by name (anything other than chrome is listed), chrome calls
+and steps per call, chrome output size, FAILED steps, screenshots, tokens (input including cache) and
+cost. A task **passes** when the answer matches, the bot made at least one chrome call, and, for tasks
+that change something (checkboxes, dropdown, upload, download), the bot's chrome change history
+(`chrome/history/<session>.jsonl`) shows the change.
 
 ### Other tools
 

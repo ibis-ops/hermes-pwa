@@ -44,6 +44,13 @@ class ParseLineTests(unittest.TestCase):
     def test_lines_skip_comments_and_blanks(self) -> None:
         self.assertEqual(cc.parse_lines("go a.b\n\n# note\nclick e1"), [{"go": "a.b"}, {"click": "e1"}])
 
+    def test_dialog_answer_forms(self) -> None:
+        want = {"dialog": "accept", "text": "hermes"}
+        self.assertEqual(cc.parse_line("dialog accept = hermes"), want)
+        self.assertEqual(cc.parse_line("dialog accept hermes"), want)
+        self.assertEqual(cc.parse_line("dialog accept with text hermes"), want)
+        self.assertEqual(cc.parse_line("dialog accept"), {"dialog": "accept"})
+
     def test_bad_lines_say_how_to_write_them(self) -> None:
         with self.assertRaises(cc.ConnectorError) as err:
             cc.parse_line("type e5 hello")
@@ -100,6 +107,22 @@ class SummaryTests(unittest.TestCase):
         self.assertIn("Gone: 1", out)
         self.assertNotIn("B3", out)
         self.assertIn("Nothing changed", cc.format_diff(prev, self._map(els)))
+
+    def test_brief_map_after_a_read_names_the_page_not_the_controls(self) -> None:
+        m = self._map([["e1", "button", "Save", {}]], total=57, notices=["Saved"])
+        out = cc.format_brief(m)
+        self.assertIn('Page: "T" https://x.y/', out)
+        self.assertIn("Notices: Saved", out)
+        self.assertIn("57 controls", out)
+        self.assertNotIn("e1", out)
+
+    def test_shared_names_carry_their_row(self) -> None:
+        line = cc._el_line(["e6", "checkbox", "Toggle Todo", {"checked": False, "row": "milk"}])
+        self.assertEqual(line, 'e6 checkbox "Toggle Todo" in "milk" off')
+
+    def test_download_size_is_exact(self) -> None:
+        self.assertEqual(cc._size("/no/such/file", 32), "32 bytes")
+        self.assertEqual(cc._size("/no/such/file", 3 * 1048576), "3.0 MB (3145728 bytes)")
 
 
 class GateTests(unittest.TestCase):

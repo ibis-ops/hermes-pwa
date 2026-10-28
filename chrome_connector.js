@@ -5,7 +5,7 @@
 // CDP, so pages see real events. Password values are never returned.
 (function () {
   'use strict';
-  var VERSION = 8;
+  var VERSION = 9;
   if (window.__hcx && window.__hcx.version >= VERSION) return;
 
   // ---- activity tracking for settle detection ----------------------------------------------
@@ -107,7 +107,8 @@
     if (cs.visibility === 'hidden' || cs.visibility === 'collapse' || cs.display === 'none') return false;
     var r = el.getBoundingClientRect();
     if (r.width < 1 || r.height < 1) return false;
-    if (parseFloat(cs.opacity) === 0) return false;
+    // A see-through checkbox or radio over a styled label (TodoMVC, many design systems) still takes the click.
+    if (parseFloat(cs.opacity) === 0 && !isToggle(el)) return false;
     return true;
   }
 
@@ -151,6 +152,21 @@
     return norm(out.join(' '));
   }
 
+  // An unlabelled checkbox or radio is named by the text right next to it: a text node, a <label> or <span>
+  // that is not tied to it ("<input type=checkbox> checkbox 1", TodoMVC's "<input><label>milk</label>").
+  function besideText(el) {
+    var ways = [['nextSibling', 3], ['previousSibling', 2]];
+    for (var w = 0; w < ways.length; w++) {
+      var n = el[ways[w][0]];
+      for (var hops = 0; n && hops < ways[w][1]; hops++, n = n[ways[w][0]]) {
+        if (n.nodeType === 1 && (n.tagName === 'BR' || n.matches(SEL) || n.querySelector(SEL))) break;
+        var t = n.nodeType === 3 ? norm(n.textContent) : n.nodeType === 1 ? norm(n.innerText || n.textContent) : '';
+        if (t) return cut(t, 80);
+      }
+    }
+    return '';
+  }
+
   function nameOf(el) {
     var n = '';
     var lb = el.getAttribute('aria-labelledby');
@@ -160,6 +176,7 @@
     if (!n && el.labels && el.labels.length) {
       n = norm(Array.prototype.map.call(el.labels, function (l) { return l.innerText || l.textContent || ''; }).join(' '));
     }
+    if (!n && isToggle(el)) n = besideText(el);
     if (!n && (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT')) {
       var t = (el.type || '').toLowerCase();
       if ((t === 'submit' || t === 'button' || t === 'reset') && el.value) n = norm(el.value);
@@ -242,6 +259,7 @@
     ts.seq = (ts.seq || 0) + 1;
     r = 'e' + ts.seq;
     el.setAttribute('data-hcx', r);
+    (ts.names = ts.names || {})[r] = [roleOf(el), nameOf(el)];
     return r;
   }
 
@@ -313,11 +331,55 @@
     return e;
   }
 
+  // innerText, plus the text inside open shadow roots: web components (MDN's code examples, many design
+  // systems) keep their text there, where innerText of the page does not reach.
+  var BLOCK = /^(ADDRESS|ARTICLE|ASIDE|BLOCKQUOTE|BR|DD|DETAILS|DIV|DL|DT|FIELDSET|FIGCAPTION|FIGURE|FOOTER|FORM|H[1-6]|HEADER|HR|LI|MAIN|NAV|OL|P|PRE|SECTION|SUMMARY|TABLE|TR|UL)$/;
+
+  function fullText(el, max) {
+    if (!el) return '';
+    var shadow = !!el.shadowRoot;
+    if (!shadow && el.querySelectorAll) {
+      var all = el.querySelectorAll('*');
+      for (var i = 0; i < all.length && !shadow; i++) if (all[i].shadowRoot) shadow = true;
+    }
+    if (!shadow) return el.innerText || el.textContent || '';
+    var out = [], size = 0, cap = max || 200000;
+    // Like innerText: no text from display:none subtrees or from visibility:hidden elements (their children
+    // may still be visible, so the walk goes on below them).
+    var walk = function (node, show) {
+      if (size > cap) return;
+      if (node.nodeType === 3) {
+        if (show) { out.push(node.textContent); size += node.textContent.length; }
+        return;
+      }
+      if (node.nodeType === 1) {
+        if (/^(SCRIPT|STYLE|NOSCRIPT|TEMPLATE)$/.test(node.tagName)) return;
+        if (node.tagName === 'SLOT') {
+          var got = node.assignedNodes ? node.assignedNodes({ flatten: true }) : [];
+          var src = got.length ? got : node.childNodes;
+          for (var s = 0; s < src.length; s++) walk(src[s], show);
+          return;
+        }
+        var cs = node.ownerDocument.defaultView.getComputedStyle(node);
+        if (cs.display === 'none') return;
+        // Not rendered (inside a closed <details>, content-visibility hidden); display:contents has no box.
+        if (cs.display !== 'contents' && node.checkVisibility && !node.checkVisibility()) return;
+        show = cs.visibility !== 'hidden' && cs.visibility !== 'collapse';
+      }
+      var kids = (node.shadowRoot || node).childNodes;
+      for (var k = 0; k < kids.length; k++) walk(kids[k], show);
+      if (node.nodeType === 1 && BLOCK.test(node.tagName)) out.push('\n');
+    };
+    walk(el, true);
+    return out.join('');
+  }
+
   function mainText(limit) {
     var main = document.querySelector('main,[role=main]');
-    var root = main && visible(main) ? main : document.body;
+    // MDN's main is display:contents (no box of its own), so a main counts when it is rendered and has text.
+    var root = main && getComputedStyle(main).display !== 'none' && (main.innerText || '').trim() ? main : document.body;
     if (!root) return '';
-    var t = root.innerText || '';
+    var t = fullText(root, limit * 2 + 2000);
     t = t.replace(/[ \t ]+/g, ' ').replace(/\n\s*\n+/g, '\n').trim();
     return t.length > limit ? t.slice(0, limit) + '\n[... ' + (t.length - limit) + ' more characters; read with {"read": "text"}]' : t;
   }
@@ -327,6 +389,26 @@
     return deepQueryAll('[role=alert],[role=status],[aria-live=assertive],[aria-live=polite],.toast,.alert,.notification,.flash,.error,.invalid-feedback')
       .filter(visible).map(function (n) { return cut(n.innerText || n.textContent, 160); })
       .filter(function (t) { if (!t || seen[t]) return false; seen[t] = 1; return true; }).slice(0, 6);
+  }
+
+  // The text of the row or card a control sits in: the smallest container around it with text of its own,
+  // short of a container that also holds another control with the same name.
+  function rowText(el, name) {
+    var n = low(name), role = roleOf(el), node = el;
+    for (var i = 0; i < 6 && node.parentElement && node.parentElement !== document.body; i++) {
+      var p = node.parentElement, same = 0, list = p.querySelectorAll(SEL);
+      for (var j = 0; j < list.length && same < 2; j++) {
+        if (list[j] === el || roleOf(list[j]) === role && low(nameOf(list[j])) === n) same++;
+      }
+      if (same > 1) return '';
+      var t = norm(p.innerText || '');
+      if (t && low(t) !== n) {
+        if (n && low(t).indexOf(n) === 0) t = norm(t.slice(n.length));
+        return t ? cut(t, 60) : '';
+      }
+      node = p;
+    }
+    return '';
   }
 
   // The page as a short list: title, url, open dialog, notices, headings, interactive elements, text.
@@ -351,10 +433,18 @@
       first.forEach(function (el) { (inViewport(el) ? on : off).push(el); });
       first = on.concat(off);
     }
-    var out = [];
-    first.forEach(function (el) { if (out.length < limit) out.push(entryOf(el, false)); });
+    var out = [], outEls = [];
+    first.forEach(function (el) { if (out.length < limit) { out.push(entryOf(el, false)); outEls.push(el); } });
     var behindCount = 0;
-    rest.forEach(function (el) { if (out.length < limit && opts.full) out.push(entryOf(el, true)); else behindCount++; });
+    rest.forEach(function (el) {
+      if (out.length < limit && opts.full) { out.push(entryOf(el, true)); outEls.push(el); } else behindCount++;
+    });
+    // Controls that share a name (a Delete in every row, an "Add to cart" on every card) get their row's text.
+    var groups = {};
+    out.forEach(function (e) { var k = e[1] + '|' + e[2]; groups[k] = (groups[k] || 0) + 1; });
+    out.forEach(function (e, i) {
+      if (groups[e[1] + '|' + e[2]] > 1) { var rt = rowText(outEls[i], e[2]); if (rt) e[3].row = rt; }
+    });
     var total = first.length + rest.length;
     var heads = Array.prototype.slice.call(document.querySelectorAll('h1,h2,h3'))
       .filter(visible).slice(0, 8).map(function (h) { return h.tagName.toLowerCase() + ' ' + cut(h.innerText, 90); });
@@ -387,6 +477,10 @@
       if (seen && seen[1]) {
         var again = resolve((ROLE_WORDS.test(seen[0] + ':x') ? seen[0] + ':' : '') + seen[1]);
         if (again.el && !again.loose && (again.count || 1) === 1) { again.loose = true; return again; }
+      }
+      if (!seen) {
+        return { error: 'ref ' + target + ' was never on this page: refs come from a map of the page you are on. ' +
+          'Target by visible text or label instead (click Upload, type Search = shoes), or use a ref from the map below.' };
       }
       return { error: 'ref ' + target + ' is gone (the page changed). Use the newest map, or target by text.' };
     }
@@ -432,7 +526,8 @@
       while (n) {
         if (n.nodeType === 1 && n.childElementCount < 4 && (n.textContent || '').length <= w.length + 40) {
           var t = low(n.innerText || '');
-          if (t === w && visible(n) && t.length < smallLen) { small = n; smallLen = t.length; }
+          // On a tie the later element wins: it is inside the earlier one (the label, not its list item).
+          if (t === w && visible(n) && t.length <= smallLen) { small = n; smallLen = t.length; }
         }
         n = walker.nextNode();
       }
@@ -586,7 +681,11 @@
   function read(spec, opts) {
     spec = norm(spec || 'text');
     var limit = (opts && opts.limit) || 8000;
-    if (spec === 'text') return { text: mainText(limit) };
+    if (spec === 'text') {
+      var mt = mainText(limit);
+      return { text: mt, heads: mt.length > 2500 ? sectionHeads() : [] };
+    }
+    if (/^section\s*[:=]/i.test(spec)) return readSection(spec.replace(/^section\s*[:=]\s*/i, ''), limit);
     if (spec === 'all') return { text: (document.body.innerText || '').slice(0, limit) };
     if (spec === 'form') return readForm();
     if (spec === 'table') return readTable(null);
@@ -605,12 +704,127 @@
     }
     if (/^css=/i.test(spec)) {
       var els = deepQueryAll(spec.slice(4)).filter(visible);
-      return { items: els.slice(0, 300).map(function (e) { return cut(e.innerText || e.textContent || valueOf(e), 400); }), more: Math.max(0, els.length - 300) };
+      return { items: els.slice(0, 300).map(function (e) { return cut(fullText(e) || valueOf(e), 400); }), more: Math.max(0, els.length - 300) };
+    }
+    if (!ROLE_WORDS.test(spec) && !/^e\d+$/.test(spec)) {
+      // "read Born", "read Price": a label cell, term or heading with exactly that text reads its value.
+      var cell = labelCell(spec);
+      var pt = cell && pairedText(cell, limit);
+      if (pt) return { what: describe(cell), value: pt, ref: refOf(cell), block: pt.indexOf('\n') >= 0 };
     }
     var r = resolve(spec);
     if (r.error) return r;
     var v = valueOf(r.el);
+    if (v === null) {
+      // A label cell or heading named by the target reads what belongs to it: "read Born" on an infobox
+      // gives the date, "read Syntax" the section under that heading.
+      var paired = pairedText(r.el, limit);
+      if (paired) return { what: describe(r.el), value: paired, ref: refOf(r.el), block: paired.indexOf('\n') >= 0 };
+    }
     return { what: describe(r.el), value: v === null ? cut(r.el.innerText || r.el.textContent, limit) : v, ref: refOf(r.el) };
+  }
+
+  var HEAD_SEL = 'h1,h2,h3,h4,h5,h6,[role=heading]';
+
+  function headLevel(h) {
+    var m = /^H(\d)$/.exec(h.tagName);
+    return m ? +m[1] : +(h.getAttribute('aria-level') || 2);
+  }
+
+  function blockText(t) {
+    return String(t || '').replace(/[ \t ]+/g, ' ').replace(/\n\s*\n+/g, '\n').trim();
+  }
+
+  // Headings of the main content, to say what a long text read left out.
+  function sectionHeads() {
+    var main = document.querySelector('main,[role=main]');
+    var root = main && visible(main) ? main : document.body;
+    return Array.prototype.slice.call(root.querySelectorAll('h2,h3')).filter(visible)
+      .map(function (h) { return cut(h.innerText, 50); }).filter(Boolean).slice(0, 30);
+  }
+
+  // The text under the heading named `want`, up to the next heading of the same or a higher level.
+  function readSection(want, limit) {
+    var w = low(want);
+    var heads = deepQueryAll(HEAD_SEL + ',summary,legend').filter(visible);
+    var best = null, score = 0;
+    heads.forEach(function (h) {
+      var t = low(h.innerText || h.textContent);
+      var s = t === w ? 3 : t.indexOf(w) === 0 ? 2 : t.indexOf(w) >= 0 ? 1 : 0;
+      if (s > score) { best = h; score = s; }
+    });
+    if (!best) {
+      return { error: 'no heading named "' + want + '". Headings: ' +
+        heads.slice(0, 20).map(function (h) { return cut(h.innerText, 40); }).join(' | ') };
+    }
+    return { what: describe(best), value: clip(sectionText(best), limit), ref: refOf(best), block: true };
+  }
+
+  function clip(s, n) { s = String(s || ''); return s.length > n ? s.slice(0, n) : s; }
+
+  function sectionText(h) {
+    var box = h.parentElement;
+    if (box && /^(SECTION|DETAILS|FIELDSET|ARTICLE)$/.test(box.tagName) &&
+        box.querySelector(HEAD_SEL + ',summary,legend') === h) {
+      return blockText(fullText(box));
+    }
+    var lv = /^(SUMMARY|LEGEND)$/.test(h.tagName) ? 1 : headLevel(h);
+    var out = [norm(h.innerText)], node = h, size = 0;
+    while (node && size < 60000) {
+      var next = node.nextElementSibling;
+      while (!next && node.parentElement && node.parentElement !== document.body) {
+        node = node.parentElement;
+        next = node.nextElementSibling;
+      }
+      if (!next) break;
+      node = next;
+      var stop = node.matches(HEAD_SEL) ? node : node.querySelector(HEAD_SEL);
+      if (stop && headLevel(stop) <= lv) break;
+      if (!visible(node)) continue;
+      var t = blockText(fullText(node));
+      if (t) { out.push(t); size += t.length; }
+    }
+    return out.join('\n');
+  }
+
+  // What a label-like element names: the rest of a table row (th), the dd after a dt, a heading's section.
+  function pairedText(el, limit) {
+    var tag = el.tagName;
+    if (tag === 'TH' || (tag === 'TD' && el.nextElementSibling && el.parentElement && el.parentElement.tagName === 'TR' &&
+        el.parentElement.firstElementChild === el)) {
+      var cells = [], c = el.nextElementSibling;
+      for (; c; c = c.nextElementSibling) cells.push(blockText(c.innerText));
+      return cut(cells.join(' | '), limit);
+    }
+    if (tag === 'DT') {
+      var dd = [], d = el.nextElementSibling;
+      for (; d && d.tagName === 'DD'; d = d.nextElementSibling) dd.push(blockText(d.innerText));
+      return cut(dd.join(' | '), limit);
+    }
+    if (el.matches && el.matches(HEAD_SEL)) return clip(sectionText(el), limit);
+    if (/^(B|STRONG|LABEL|SPAN|DIV)$/.test(tag) && el.parentElement) {
+      // "<b>Price:</b> £12": the rest of the line after the label.
+      var whole = norm(fullText(el.parentElement)), own = norm(el.innerText);
+      if (!own || own.length > 40 || (tag === 'LABEL' && el.control)) return '';
+      if (whole.indexOf(own) === 0 && whole.length > own.length) return cut(whole.slice(own.length).replace(/^[\s:–-]+/, ''), limit);
+      var sib = el.nextElementSibling;
+      if (sib && !sib.matches(SEL)) return cut(norm(fullText(sib)), limit);
+    }
+    return '';
+  }
+
+  // A table header, term, heading or label whose own text is exactly the target, without a trailing colon.
+  function labelCell(want) {
+    var w = low(want).replace(/:$/, '');
+    if (!w) return null;
+    var hits = deepQueryAll('th,dt,' + HEAD_SEL + ',summary,legend,label,b,strong,dt *,th *').filter(function (x) {
+      return !(x.tagName === 'LABEL' && x.control) && low(x.innerText || x.textContent).replace(/\s*:$/, '') === w && visible(x);
+    });
+    if (!hits.length) return null;
+    var h = hits[0];
+    // A link or span inside a th/dt names the cell itself.
+    var up = h.closest && h.closest('th,dt');
+    return up && low(up.innerText).replace(/\s*:$/, '') === w ? up : h;
   }
 
   function busy() {
@@ -692,6 +906,23 @@
       });
     },
     jsClick: function (t) { return withTarget(t, function (el) { (proxyOf(el) || el).click(); return { what: describe(el) }; }); },
+    // The one checkbox, radio or switch in the row of a target that is not one itself ("check milk" on a
+    // to-do list ticks that item's box).
+    toggleFor: function (t) {
+      return withTarget(t, function (el) {
+        if (checkedOf(el) !== null) return { what: describe(el) };
+        var node = el;
+        for (var i = 0; i < 5 && node && node !== document.body; i++) {
+          var ts = Array.prototype.filter.call(
+            node.querySelectorAll('input[type=checkbox],input[type=radio],[role=checkbox],[role=switch],[role=radio]'),
+            function (x) { return visible(x) || !!proxyOf(x); });
+          if (ts.length === 1) return { what: describe(ts[0]), ref: refOf(ts[0]), via: describe(el) };
+          if (ts.length > 1) break;
+          node = node.parentElement;
+        }
+        return { error: describe(el) + ' is not a checkbox, radio or switch, and no single one sits in its row' };
+      });
+    },
     fileInput: function (t) {
       return withTarget(t, function (el) {
         if (!(el.tagName === 'INPUT' && el.type === 'file')) {

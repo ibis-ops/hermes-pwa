@@ -228,7 +228,9 @@ def _(t):
       prompt="On demo.playwright.dev/todomvc, add a todo called 'bench item' and tell me how many items are left. Reply with the number only.",
       answer=r"\b\d+\b")
 def _(t):
-    out = t.call("go https://demo.playwright.dev/todomvc/\ntype What needs to be done? = bench item one\npress Enter\n"
+    # The demo keeps its list in the browser: clear what earlier runs left (all ticked, then cleared).
+    out = t.call("go https://demo.playwright.dev/todomvc/\n?check Mark all as complete\n?click Clear completed\n"
+                 "type What needs to be done? = bench item one\npress Enter\n"
                  "type What needs to be done? = bench item two\npress Enter\nread css=.todo-list li label\nread css=.todo-count")
     labels, count = _items(out, "css=.todo-list"), _items(out, "css=.todo-count")
     m = re.match(r"(\d+) items? left", count[0]) if count else None

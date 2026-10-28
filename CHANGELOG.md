@@ -31,6 +31,20 @@ All notable changes are documented here. The format follows
   replay them without thinking. `auto` (Jev picks each click, like Jev Ultrafast) and `ask` (a small
   model answers from a long page) are built but stay off until zero data retention is settled: the
   Vercel team is on Hobby, which refuses it, and they send nothing from the page without it.
+- **Measured with the bot itself.** A bench of 14 tasks that need real interaction (search then the
+  second result's infobox, late content, unlabelled checkboxes, a JS prompt, upload, download, a to-do
+  app, GitHub stars and release, pagination, a docs search, a cookie banner, a travel form) runs the
+  Kahunas bot's own turns and checks each answer and, for changes, its chrome history. What it found
+  and what changed: the tool now says it is the browser for every site (the bot refused non-Kahunas
+  sites and reached for web_extract, which once answered with a stale release, or curl); `dialog
+  accept = text` answers a prompt and a dialog step placed after the click says to click again; a
+  see-through checkbox over a styled label (to-do lists, many design systems) and an unlabelled one
+  named by the text beside it are in the map, controls that share a name show the row they sit in, and
+  `check milk` ticks the box in that item's row; `read section:Syntax` and `read Born` read a section
+  or the value next to a label, text inside web components (shadow roots) is read too, and a long
+  `read text` names the sections it left out; a call that ends with a read or a download answers with
+  the page line instead of every control; a ref used before any map says so; downloads report their
+  exact size; steps sent with a literal `\n` are split.
 - **Safe by design.** It never types into a password field or returns a password: `login` signs in
   with Hermes's vault, which fills the page without the model seeing the password. Every change is
   logged per session in `chrome/history/`, and `chrome_history` (with `verify`) lets the bot audit its
