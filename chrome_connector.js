@@ -5,7 +5,7 @@
 // CDP, so pages see real events. Password values are never returned.
 (function () {
   'use strict';
-  var VERSION = 13;
+  var VERSION = 14;
   if (window.__hcx && window.__hcx.version >= VERSION) return;
 
   // ---- activity tracking for settle detection ----------------------------------------------
@@ -183,6 +183,7 @@
       if (!n) n = norm(el.getAttribute('placeholder') || el.getAttribute('title') || el.getAttribute('name') || el.id);
     }
     if (!n) n = norm(el.innerText || el.textContent);
+    if (!n && tag === 'IMG') n = norm(el.getAttribute('alt') || el.getAttribute('title'));
     if (!n) {
       var img = el.querySelector && el.querySelector('img[alt],svg[aria-label],[title]');
       n = norm((img && (img.getAttribute('alt') || img.getAttribute('aria-label') || img.getAttribute('title'))) ||
@@ -620,21 +621,34 @@
   // The smallest visible element whose own text is the target (clickable divs, table headers). Nested
   // matches are one (the label inside its list item: the inner one wins); apart from that the first on
   // the page wins, and the count says how many there are.
-  function textMatch(w) {
-    var small = null, group = null, groups = 0;
+  function textMatches(w) {
+    var picks = [], group = null;
     roots(document).forEach(function (r) {
       var walker = (r.ownerDocument || r).createTreeWalker(r, NodeFilter.SHOW_ELEMENT);
       var n = walker.currentNode;
       while (n) {
         if (n.nodeType === 1 && n.childElementCount < 4 && (n.textContent || '').length <= w.length + 40 &&
             low(n.innerText || '') === w && visible(n)) {
-          if (group && group.contains(n)) { if (groups === 1) small = n; }
-          else { groups++; group = n; if (groups === 1) small = n; }
+          if (group && group.contains(n)) picks[picks.length - 1] = n;
+          else { group = n; picks.push(n); }
         }
         n = walker.nextNode();
       }
     });
-    return small ? { el: small, count: groups, loose: true } : null;
+    return picks;
+  }
+
+  function textMatch(w) {
+    var picks = textMatches(w);
+    return picks.length ? { el: picks[0], count: picks.length, loose: true } : null;
+  }
+
+  // Pictures and icons named by their alt text, label or title ("hover User Avatar").
+  function altMatches(w) {
+    return deepQueryAll('img[alt],svg[aria-label],[role=img][aria-label],[title]').filter(function (el) {
+      var a = low(el.getAttribute('alt') || el.getAttribute('aria-label') || el.getAttribute('title') || '');
+      return a && (a === w || (w.length > 2 && a.indexOf(w) >= 0)) && visible(el);
+    });
   }
 
   // An unlabelled field or list named by the text before it ("Dropdown List" over a <select>, a "Name"
@@ -808,6 +822,8 @@
       if (after) return { el: after, count: 1, loose: true };
       return small;
     }
+    var pics = altMatches(w);
+    if (pics.length) return { el: pics[0], count: pics.length, loose: true };
     if (depth < 2) {
       var sc = scopedMatch(want, role, kind, dialog);
       if (sc) return sc;
@@ -816,6 +832,16 @@
         var r2 = resolve(forms[i], kind, depth + 1);
         if (r2.el) { r2.loose = true; return r2; }
       }
+    }
+    // "second User Avatar", "the third Delete", "last Edit": that one of the matches, in page order.
+    var on = !depth && /^(?:the\s+)?(first|second|third|fourth|fifth|1st|2nd|3rd|4th|5th|last)\s+(.+)$/i.exec(want);
+    if (on) {
+      var nth = ORDINAL[on[1].toLowerCase()], rest = low(unquote(on[2]));
+      var pool = scored(rest, role, kind, dialog).map(function (h) { return h.el; });
+      if (!pool.length) pool = textMatches(rest);
+      if (!pool.length) pool = altMatches(rest);
+      var pick = nth < 0 ? pool[pool.length - 1] : pool[nth - 1];
+      if (pick) return { el: pick, count: pool.length, loose: true };
     }
     var om = !depth && ORDINAL_RE.exec(want);
     if (om) {

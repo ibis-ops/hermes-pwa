@@ -82,7 +82,9 @@ All notable changes are documented here. The format follows
   the second table, and `role:searchbox` prefers a real search field, then the Search button that
   opens one. `click first product result`, `click second result`, `click last item` pick that entry of
   the page's main result list (the biggest group of repeated cards or rows with a link, outside the
-  header, menus, filters and footer); on IKEA's search page that is the first product.
+  header, menus, filters and footer); on IKEA's search page that is the first product. `hover second
+  User Avatar`, `click third Delete` and `click last Edit` take that match in page order, and pictures
+  answer to their alt text.
 - **No more leaked tabs.** Every one-shot run of a connector bot (a cron job, `hermes -z`, a bench
   turn) left its tab open, because only the process that made a tab closed it; after a few hundred
   runs the bot's Chrome held hundreds of tabs and about 13 GB. Now a process that connects closes the

@@ -534,6 +534,13 @@ def _(t):
                    items or out[-400:])
 
 
+@test("target_nth_named", "hover second User Avatar: the second of three pictures with that alt text")
+def _(t):
+    out = t.call(f"go {t.base}/targets.html\nhover second User Avatar\nread text")
+    ok = "name: user2" in out and "name: user1" not in out and "name: user3" not in out
+    return C.check(ok, "only the second caption (name: user2) shows", out[-400:])
+
+
 @test("target_drag_card", "drag Card A = Card B on cards named A and B")
 def _(t):
     out = t.call(f"go {t.base}/targets.html\ndrag Card A = Card B")

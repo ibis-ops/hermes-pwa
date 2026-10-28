@@ -15,6 +15,9 @@ li{list-style:none;margin:2px 0}
 .trip span{display:inline-block;padding:2px 8px;border:1px solid #888;cursor:pointer}
 .clients .act{display:none;margin-left:8px}
 .clients li:hover .act{display:inline-block}
+.team .figure{display:inline-block;margin-right:16px;vertical-align:top}
+.team .cap{display:none}
+.team .figure:hover .cap{display:block}
 </style></head>
 <body>
 <header><button type="button" id="searchbtn">Search</button></header>
@@ -56,6 +59,13 @@ li{list-style:none;margin:2px 0}
   <li><span>Jane Doe</span><button type="button" class="act">Archive</button></li>
   <li><span>John Roe</span><button type="button" class="act">Archive</button></li>
 </ul>
+
+<h2>Team</h2>
+<div class="team">
+  <div class="figure"><img alt="User Avatar" width="60" height="60" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='60' height='60'%3E%3Crect width='60' height='60' fill='%23999'/%3E%3C/svg%3E"><div class="cap">name: user1</div></div>
+  <div class="figure"><img alt="User Avatar" width="60" height="60" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='60' height='60'%3E%3Crect width='60' height='60' fill='%23999'/%3E%3C/svg%3E"><div class="cap">name: user2</div></div>
+  <div class="figure"><img alt="User Avatar" width="60" height="60" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='60' height='60'%3E%3Crect width='60' height='60' fill='%23999'/%3E%3C/svg%3E"><div class="cap">name: user3</div></div>
+</div>
 
 <h2>Board</h2>
 <div class="cards">
