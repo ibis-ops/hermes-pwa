@@ -511,6 +511,14 @@ def _(t):
     return C.check(ok, "the title read twice and a Page line with map none", out[-400:])
 
 
+@test("links_base_href", "read links on a page with <base href> (like Kahunas): addresses as a click would open them")
+def _(t):
+    out = t.call(f"go {t.base}/base/page.html\nread links")
+    ok = ('"Targets page" /targets.html' in out and '"Page two" /page/2.html' in out and '"Table page" /table.html' in out
+          and "/base/targets.html" not in out)
+    return C.check(ok, "links resolved against the base (/targets.html, /page/2.html, /table.html)", out[-400:])
+
+
 @test("target_in_row", "a control in a row: check Toggle Todo in beta task, click Delete in gamma task")
 def _(t):
     out = t.call(f"go {t.base}/targets.html\ncheck Toggle Todo in beta task\nclick Delete in gamma task")

@@ -201,7 +201,7 @@
   function relHref(h) {
     if (!h || /^javascript:/i.test(h) || h === '#') return '';
     try {
-      var u = new URL(h, location.href);
+      var u = new URL(h, document.baseURI);  // the page's <base href> counts, as when it is clicked (Kahunas sets one)
       return u.origin === location.origin ? u.pathname + u.search + u.hash : u.href;
     } catch (e) { return h; }
   }
@@ -1595,7 +1595,7 @@
     // A request to this site's own server with the page's session (same origin only).
     apiCall: function (url, method, body) {
       var u;
-      try { u = new URL(url, location.href); } catch (e) { return Promise.resolve({ error: 'bad url ' + url }); }
+      try { u = new URL(url, document.baseURI); } catch (e) { return Promise.resolve({ error: 'bad url ' + url }); }
       if (u.origin !== location.origin) return Promise.resolve({ error: 'api calls stay on ' + location.origin + ' (the page you are on)' });
       var headers = { 'Accept': 'application/json, text/plain, */*', 'X-Requested-With': 'XMLHttpRequest' };
       var meta = document.querySelector('meta[name=csrf-token],meta[name=_csrf],meta[name=csrf_token]');

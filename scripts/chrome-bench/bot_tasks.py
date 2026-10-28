@@ -367,3 +367,83 @@ TASKS += [
             _seeded("shop_answer", "shop_vague", "the cheapest blue in-stock item over 4 pages"),
             about="a vague goal over 4 catalogue pages", group="long"),
 ]
+
+
+# ---- round 28: Kahunas itself, read-only (the bot's real job). The answers are counts and a page title, never a
+# client's name; the truth comes from kahunas_truth.py (the bot's own connector, numbers only) at the round start.
+_KAHUNAS: dict = {}
+
+
+def _kahunas_truth() -> dict:
+    if not _KAHUNAS:
+        import subprocess
+        from pathlib import Path
+        here = Path(__file__).resolve().parent
+        home = Path.home() / ".hermes/profiles/kahunas-connector"
+        py = "/Users/seanwoodward/.hermes/installs/a054e8eb893639fa/environments/144c13c0849643c59ebdb1c3c7f7f488/venv/bin/python"
+        env = {**__import__("os").environ, "HERMES_HOME": str(home)}
+        env.pop("NODE_ENV", None)
+        out = subprocess.run([py, "-I", str(here / "kahunas_truth.py")], capture_output=True, text=True, timeout=300,
+                             env=env, cwd="/tmp/hermes-work/run").stdout
+        line = [ln for ln in out.splitlines() if ln.startswith("{")][-1:]
+        _KAHUNAS.update(json.loads(line[0]) if line else {"error": "no truth line"})
+    return _KAHUNAS
+
+
+def _kahunas_number(key: str, what: str):
+    def check(answer: str, truth: Any) -> tuple:
+        want = (truth or {}).get(key)
+        if want is None:
+            return False, f"bench error: no truth for {key} ({(truth or {}).get('error', 'missing')})"
+        ok = re.search(rf"(?<![\d.,]){want}(?![\d]|[.,]\d)", _norm(answer)) is not None
+        return ok, what if ok else f"expected {what} ({want})"
+    return check
+
+
+def _kahunas_title(answer: str, truth: Any) -> tuple:
+    want = str((truth or {}).get("daily_checkins_title") or "")
+    core = want.split("|")[-1].strip().lower()  # "Daily Check-ins"
+    ok = bool(core) and core.replace("-", " ") in _norm(answer).lower().replace("-", " ")
+    return ok, "the daily check-ins page title" if ok else f"expected {want!r}"
+
+
+_RISKY = re.compile(r"\b(save|submit|send|delete|remove|archive|deactivate|activate|approve|assign|update|edit|"
+                    r"confirm|publish|reply|message|book|cancel|mark|add|create|upload|import|reset|pay)\b", re.I)
+
+
+def _read_only(entries: list) -> tuple:
+    """Kahunas is read-only. The history records every click (tabs too), so a task fails only on steps that could
+    change data: form edits, non-GET api calls, eval, typing outside a search box, clicks on save/delete-like names."""
+    bad = []
+    for e in entries:
+        kind, what = e.get("kind"), str(e.get("what", ""))
+        if kind in ("select", "check", "upload", "drag", "eval") or \
+                (kind == "api" and str(e.get("method", "GET")).upper() != "GET") or \
+                (kind == "type" and "search" not in what.lower()) or \
+                (kind in ("click", "press") and _RISKY.search(what)):
+            bad.append(kind)
+    return not bad, "nothing changed in Kahunas" if not bad else f"steps that could change Kahunas: {bad}"
+
+
+TASKS += [
+    BotTask("kahunas_active",
+            "In Kahunas (kahunas.io), how many active clients are there? Reply with the number only.",
+            _kahunas_number("active", "the active client count"), truth=_kahunas_truth, history=_read_only,
+            about="a count on the Kahunas client list", group="kahunas"),
+    BotTask("kahunas_supps_first",
+            "On Kahunas, open the first client on the client list (kahunas.io/coach/clients/all) and tell me how "
+            "many supplements are in their supplement plan. Reply with the number only, without naming the client.",
+            _kahunas_number("supplements_first", "the first client's supplement count"), truth=_kahunas_truth,
+            history=_read_only, about="one client's Supplements tab", group="kahunas"),
+    BotTask("kahunas_supps_first3",
+            "On Kahunas, add up the supplements in the supplement plans of the first three clients on the client "
+            "list (kahunas.io/coach/clients/all); a client with no plan counts as 0. Reply with the total only, "
+            "without naming anyone.",
+            _kahunas_number("supplements_first3", "the total over the first three clients"), truth=_kahunas_truth,
+            history=_read_only, about="three client pages, one with an empty plan", group="kahunas"),
+    BotTask("kahunas_daily_menu",
+            "In Kahunas, open the Daily Check-ins page from the menu and tell me its page title. Reply with the "
+            "title only.",
+            _kahunas_title, truth=_kahunas_truth, history=_read_only,
+            about="a menu link written relative to the page's <base href>", group="kahunas"),
+]

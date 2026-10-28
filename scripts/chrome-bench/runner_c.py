@@ -303,7 +303,7 @@ def print_scorecard(data: dict) -> None:
         print(f"core 14     accuracy {k['passed']}/{k['tasks']} = {k['accuracy']}%, stable {k['stability']}%, median "
               f"{k['median_s']}s, p90 {k['p90_s']}s, model calls {k['median_api_calls']}, chrome output "
               f"{k['median_chrome_chars']}, input tokens {k['median_input_tokens']}, FAILED steps {k['failed_steps']}")
-    for label, key in (("core+extra", "c22_summary"), ("trouble", "trouble_summary"), ("long", "long_summary")):
+    for label, key in (("core+extra", "c22_summary"), ("trouble", "trouble_summary"), ("long", "long_summary"), ("kahunas", "kahunas_summary")):
         k = data.get(key)
         if k:
             print(f"{label:<11} accuracy {k['passed']}/{k['tasks']} = {k['accuracy']}%, stable {k['stability']}%, median "
@@ -372,6 +372,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--extra", action="store_true", help="with --all: also the tasks added in round 8")
     ap.add_argument("--trouble", action="store_true", help="with --all: also the trouble tasks (fixture site, round 19 on)")
     ap.add_argument("--long", action="store_true", help="with --all: also the long-page and vague-goal tasks (round 25 on)")
+    ap.add_argument("--kahunas", action="store_true", help="with --all: also the read-only Kahunas tasks (round 28 on)")
     ap.add_argument("--repeat", type=int, default=1)
     ap.add_argument("--workers", type=int, default=2, help="bot turns at a time (each has its own tab)")
     ap.add_argument("--round", type=int, default=0)
@@ -389,7 +390,8 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if args.all:
         tasks = [t for t in T.TASKS if t.group == "core" or (args.extra and t.group == "extra")
-                 or (args.trouble and t.group == "trouble") or (args.long and t.group == "long")]
+                 or (args.trouble and t.group == "trouble") or (args.long and t.group == "long")
+                 or (args.kahunas and t.group == "kahunas")]
     elif args.tasks:
         want = [x.strip() for x in args.tasks.split(",") if x.strip()]
         unknown = [w for w in want if w not in {t.name for t in T.TASKS}]
@@ -480,6 +482,10 @@ def main(argv: list[str] | None = None) -> int:
     long_tasks = {t.name for t in T.TASKS if t.group == "long"}
     if any(r["name"] in long_tasks for r in records):
         data["long_summary"] = summarize([r for r in records if r["name"] in long_tasks])
+    kahunas_tasks = {t.name for t in T.TASKS if t.group == "kahunas"}
+    if any(r["name"] in kahunas_tasks for r in records):
+        data["kahunas_summary"] = summarize([r for r in records if r["name"] in kahunas_tasks])
+    long_tasks |= kahunas_tasks  # neither counts in the 22 tasks of rounds 8 to 18
     if any(r["name"] in trouble for r in records):
         data["trouble_summary"] = summarize([r for r in records if r["name"] in trouble])
     added = trouble | long_tasks

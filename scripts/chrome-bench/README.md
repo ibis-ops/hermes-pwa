@@ -109,7 +109,13 @@ $PY runner_c.py --all --model claude-sonnet-5-5 --tag=-s55   # one-turn override
 $PY runner_c.py --all --reasoning low --tag=-rlow
 $PY runner_c.py --all --toolsets browser,clarify,file,memory,session_search,skills,terminal,todo,web --tag=-lean
 $PY runner_c.py --all --extra --repeat 2               # the 14 core tasks plus the 8 added in round 8
+$PY runner_c.py --all --extra --trouble --long --kahunas --repeat 2   # every group (rounds 19, 25, 28)
 ```
+
+Groups: `--trouble` the fixture site misbehaving on purpose (round 19), `--long` a 250k-character page and a
+vague goal over 4 pages (round 25), `--kahunas` read-only Kahunas tasks (round 28): their truth comes from
+`kahunas_truth.py` (the bot's own connector, counts and a page title only, never a client's name), and a task
+fails if its chrome history holds a step that could change Kahunas.
 
 Write `--tag=-x` with the equals sign (argparse reads `--tag -x` as an option). With `--extra` the
 scorecard also prints the 14 core tasks alone (`core 14`), comparable with the rounds before round 8.
