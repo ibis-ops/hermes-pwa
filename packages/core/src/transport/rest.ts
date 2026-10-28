@@ -37,6 +37,7 @@ import {
   type RouterTry,
 } from '../domain/router';
 import { toAgentHistory, type AgentHistory } from '../domain/agent-history';
+import { toBotActivityReport, type BotActivityReport } from '../domain/bot-activity';
 import type {
   AuxiliaryModels,
   ModelAssignment,
@@ -404,6 +405,8 @@ export interface RestClient {
   saveProfileRoutes(bot: string, routes: ProfileRoutes): Promise<ProfileRoutes>;
   /** Every delegated agent run across profiles, newest first. */
   agentHistory(days?: number): Promise<AgentHistory>;
+  /** What each bot is working on right now, and when each was last active. */
+  botActivity(): Promise<BotActivityReport>;
 }
 
 /** How far back the browse-only Sessions list reaches for delegated runs. */
@@ -1004,6 +1007,10 @@ export function makeRestClient(http: Http): RestClient {
 
     async agentHistory(days = 30): Promise<AgentHistory> {
       return agentHistoryRequest(days);
+    },
+
+    async botActivity(): Promise<BotActivityReport> {
+      return toBotActivityReport(await http<unknown>('/api/plugins/hermes-pwa/bots/activity', MAC_WIDE));
     },
 
     async obsidianNote(vault: string, path: string): Promise<ObsidianNoteContent> {

@@ -37,6 +37,7 @@ const required = [
   // plugin_api.py imports these at load; a package without them cannot start.
   'local_files.py',
   'agent_history.py',
+  'bot_activity.py',
   'obsidian_activity.py',
   'pwa_speech.py',
   'bot_graph.py',

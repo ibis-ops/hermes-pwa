@@ -386,6 +386,25 @@ const noopRest: RestClient = {
     { id: 'cron-1', title: 'Nightly memory review · Oct 25 02:42', updatedAt: Date.now() / 1000 - 36_000, messageCount: 54, profile: 'default', source: 'cron', originSource: 'cron', currentSource: 'cron', profileName: 'default' },
     { id: 'sub-1', title: "Subagent: Check Sean's Google Calendar for today", updatedAt: Date.now() / 1000 - 90_000, messageCount: 13, profile: 'default', source: 'subagent', originSource: 'subagent', currentSource: 'subagent', profileName: 'google-calander', parentSessionId: 'p-1' },
   ] as Session[]),
+  botActivity:         () => Promise.resolve({
+    scannedAt: Date.now(),
+    error: undefined,
+    bots: {
+      router: {
+        working: true,
+        work: [{ kind: 'chat' as const, title: 'Did the backup run last night?', activity: 'executing tool: delegate_task', requestedBy: undefined, source: 'tui', sessionId: 'p-1', startedAt: Date.now() - 40_000, updatedAt: Date.now() - 3_000 }],
+        lastActiveAt: Date.now() - 3_000,
+        lastTitle: 'Did the backup run last night?',
+      },
+      ops: {
+        working: true,
+        work: [{ kind: 'delegated' as const, title: 'Check last night’s backup job', activity: 'executing tool: terminal', requestedBy: 'router', source: 'subagent', sessionId: 'p-2', startedAt: Date.now() - 30_000, updatedAt: Date.now() - 2_000 }],
+        lastActiveAt: Date.now() - 2_000,
+        lastTitle: 'Check last night’s backup job',
+      },
+      default: { working: false, work: [], lastActiveAt: Date.now() - 3 * 3_600_000, lastTitle: 'Refactor WS reconnect' },
+    },
+  }),
   agentHistory:        () => Promise.resolve({
     runs: [
       { id: 'sub1', bot: 'google-calander', ownerProfile: 'default', goal: "Check Sean's Google Calendar for today", model: 'claude-sonnet-5', status: 'completed' as const, startedAt: Date.now() - 3_600_000, endedAt: Date.now() - 3_540_000, durationSeconds: 63, messageCount: 13, toolCallCount: 6, inputTokens: 12, outputTokens: 5492, costUsd: undefined, lastActivity: undefined, parent: { id: 'p', title: 'Check Google Calendar via delegate_task', source: 'oneshot', profile: 'default' }, result: '## Summary\n\nTwo events today.' },

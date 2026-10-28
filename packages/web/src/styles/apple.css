@@ -744,6 +744,13 @@ textarea {
   overflow-y: auto;
 }
 
+/* In a scrolling screen laid out as a flex column, children keep their full height so the screen
+   scrolls instead. A child that clips its own overflow (the rounded Bots list) has no minimum
+   height, so it shrank to the screen and cut off its last rows with no way to scroll to them. */
+.hm-screen > .hm-scroll > * {
+  flex-shrink: 0;
+}
+
 /* Scrolling screens end above the home indicator. */
 .hm-home,
 .hm-sessions,
@@ -5609,6 +5616,91 @@ html.hm-keyboard-open .hm-skill-popover {
 .hm-team__node-lines {
   color: var(--hm-color-text-faint);
   font-size: var(--hm-fs-label);
+}
+
+/* What a bot is doing now, from the step labels Hermes stamps on its sessions. */
+.hm-team__node-work {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  min-width: 0;
+  margin-top: 2px;
+  color: var(--hm-color-success-strong);
+  font-size: var(--hm-fs-small);
+  font-weight: var(--hm-fw-semibold);
+}
+
+.hm-team__node-work .hm-team__live-dot {
+  margin-top: 0.45em;
+}
+
+/* The job's title is what matters here, so it gets two lines before it is cut. */
+.hm-team__node-work-title {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+}
+
+.hm-team__node-work-detail,
+.hm-team__node-idle {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hm-team__node-work-detail {
+  color: var(--hm-color-text-muted);
+  font-size: var(--hm-fs-label);
+}
+
+.hm-team__node-idle {
+  margin-top: 2px;
+  color: var(--hm-color-text-faint);
+  font-size: var(--hm-fs-label);
+}
+
+.hm-team__node[data-working='true'] {
+  box-shadow: inset 0 0 0 1px var(--hm-color-success);
+}
+
+.hm-team__live {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 4px;
+  color: var(--hm-color-text-muted);
+  font-size: var(--hm-fs-small);
+}
+
+.hm-team__live[data-working='true'] {
+  color: var(--hm-color-text);
+}
+
+.hm-team__live-dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--hm-color-success);
+  animation: hm-live-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes hm-live-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+
+  50% {
+    opacity: 0.35;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hm-team__live-dot {
+    animation: none;
+  }
 }
 
 .hm-team__node-chevron {

@@ -103,6 +103,8 @@ export type { ObsidianActivity, ObsidianNote, ObsidianVault, ObsidianNoteAction,
 export { toObsidianActivity, toObsidianNoteContent, obsidianOpenUrl, resolveLinkVault, groupNotesByDay, parseObsidianNote, obsidianToMarkdown } from './domain/obsidian';
 export type { AgentHistory, AgentRun, AgentRunParent, AgentRunStatus, AgentRunDayGroup } from './domain/agent-history';
 export { toAgentHistory, toAgentRun, groupRunsByDay } from './domain/agent-history';
+export type { BotActivity, BotActivityReport, BotWork, BotWorkKind } from './domain/bot-activity';
+export { toBotActivityReport, toBotWork, describeActivity, workingBots } from './domain/bot-activity';
 export type { Artifact } from './domain/artifact';
 export type { HermesConfig } from './domain/config';
 export { extractFileRefs, stripAttachmentRefs, attachmentRefs, localFileUrl, localFileInfoUrl, MAX_FILE_REFS_PER_MESSAGE, type FileRef, type FileRefKind } from './domain/file-refs';

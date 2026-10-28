@@ -4,12 +4,17 @@ import {
   addToMap,
   botLabel,
   defaultTeamMap,
+  describeActivity,
   possibleBosses,
   removeFromMap,
   teamTree,
   topBot,
   updateNode,
   withBots,
+  workingBots,
+  type BotActivity,
+  type BotActivityReport,
+  type BotWork,
   type RestClient,
   type TeamMap,
   type TeamTreeNode,
@@ -19,6 +24,98 @@ import { BotAvatar } from './BotAvatar';
 import { Icon } from './Icon';
 import { RouterCard } from './RouterPanel';
 import { SkeletonRows } from './Skeleton';
+import { formatAgo } from '../lib/chatTime';
+
+/** How often the map asks what the bots are doing while it is on screen. */
+const ACTIVITY_POLL_MS = 8000;
+
+/** What each bot is working on, asked again every few seconds while the map is visible. */
+function useBotActivity(rest: RestClient): BotActivityReport | undefined {
+  const [report, setReport] = useState<BotActivityReport | undefined>();
+  useEffect(() => {
+    let alive = true;
+    // Per run of this effect: a guard shared across runs left the remount after React's StrictMode
+    // check waiting on the first run's request, so it never asked at all.
+    let busy = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const load = async () => {
+      if (timer) clearTimeout(timer);
+      timer = undefined;
+      if (busy) return;
+      busy = true;
+      try {
+        const next = await rest.botActivity();
+        if (alive) setReport(next);
+      } catch {
+        // The map works without it; the last answer stays.
+      } finally {
+        busy = false;
+      }
+      if (alive && document.visibilityState !== 'hidden') timer = setTimeout(() => void load(), ACTIVITY_POLL_MS);
+    };
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') void load();
+    };
+    void load();
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      alive = false;
+      if (timer) clearTimeout(timer);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
+  }, [rest]);
+  return report;
+}
+
+const KIND_FALLBACK: Record<BotWork['kind'], string> = {
+  chat: 'A chat',
+  delegated: 'A job handed over',
+  scheduled: 'A scheduled job',
+  messaging: 'A message',
+};
+
+function workDetail(work: BotWork, more: number): string {
+  const parts = [
+    describeActivity(work.activity),
+    work.requestedBy ? `for ${botLabel(work.requestedBy)}` : undefined,
+    work.kind === 'scheduled' ? 'scheduled' : undefined,
+    work.kind === 'messaging' && work.source ? `from ${work.source.charAt(0).toUpperCase()}${work.source.slice(1)}` : undefined,
+    more > 0 ? `${more} more` : undefined,
+  ];
+  return parts.filter(Boolean).join(' · ');
+}
+
+/** The line under a bot on the map: what it is doing now, or when it last did something. */
+function BotStatus({ activity }: { activity: BotActivity | undefined }) {
+  if (!activity) return null;
+  const first = activity.working ? activity.work[0] : undefined;
+  if (first) {
+    const detail = workDetail(first, activity.work.length - 1);
+    return (
+      <>
+        <span className="hm-team__node-work" data-testid="team-node-work">
+          <span className="hm-team__live-dot" aria-hidden="true" />
+          <span className="hm-team__node-work-title">Working: {first.title ?? KIND_FALLBACK[first.kind]}</span>
+        </span>
+        {detail ? <span className="hm-team__node-work-detail">{detail}</span> : null}
+      </>
+    );
+  }
+  if (!activity.lastActiveAt) return null;
+  return (
+    <span className="hm-team__node-idle" data-testid="team-node-idle">
+      Last active {formatAgo(activity.lastActiveAt)}
+    </span>
+  );
+}
+
+function liveSummary(working: string[]): string {
+  if (working.length === 0) return 'No bot is working right now';
+  const labels = working.map(botLabel);
+  if (labels.length === 1) return `${labels[0]} is working`;
+  const shown = labels.length <= 3 ? labels : [...labels.slice(0, 2), `${labels.length - 2} more`];
+  return `${labels.length} bots working: ${shown.slice(0, -1).join(', ')} and ${shown[shown.length - 1]}`;
+}
 
 function messagesLine(names: string[], boss: string | null): string {
   if (names.length === 0) return 'Messages no other bot';
@@ -27,17 +124,33 @@ function messagesLine(names: string[], boss: string | null): string {
   return labels.length <= 2 ? `Messages ${labels.join(' and ')}` : `Messages ${labels.slice(0, 2).join(', ')} and ${labels.length - 2} more`;
 }
 
-function TeamBranch({ node, map, depth, onEdit }: { node: TeamTreeNode; map: TeamMap; depth: number; onEdit: (name: string) => void }) {
+interface TeamBranchProps {
+  node: TeamTreeNode;
+  map: TeamMap;
+  depth: number;
+  onEdit: (name: string) => void;
+  activity: BotActivityReport | undefined;
+}
+
+function TeamBranch({ node, map, depth, onEdit, activity }: TeamBranchProps) {
   const info = map.nodes[node.name];
   if (!info) return null;
+  const mine = activity?.bots[node.name];
   return (
     <li className="hm-team__branch" role="treeitem" aria-level={depth + 1} aria-expanded={node.children.length > 0 ? true : undefined}>
-      <button type="button" className="hm-team__node" onClick={() => onEdit(node.name)} data-testid="team-node">
+      <button
+        type="button"
+        className="hm-team__node"
+        onClick={() => onEdit(node.name)}
+        data-testid="team-node"
+        data-working={mine?.working ? 'true' : undefined}
+      >
         <BotAvatar name={node.name} size={36} />
         <span className="hm-team__node-text">
           <span className="hm-team__node-name">{botLabel(node.name)}</span>
           {info.role ? <span className="hm-team__node-role">{info.role}</span> : null}
           <span className="hm-team__node-lines">{messagesLine(info.canMessage, info.reportsTo)}</span>
+          <BotStatus activity={mine} />
         </span>
         <span className="hm-team__node-chevron" aria-hidden="true">
           <Icon name="chevR" size={14} />
@@ -46,7 +159,7 @@ function TeamBranch({ node, map, depth, onEdit }: { node: TeamTreeNode; map: Tea
       {node.children.length > 0 ? (
         <ul className="hm-team__children" role="group">
           {node.children.map((child) => (
-            <TeamBranch key={child.name} node={child} map={map} depth={depth + 1} onEdit={onEdit} />
+            <TeamBranch key={child.name} node={child} map={map} depth={depth + 1} onEdit={onEdit} activity={activity} />
           ))}
         </ul>
       ) : null}
@@ -207,6 +320,7 @@ export function TeamMapView({ rest, bots, onOpenBot }: TeamMapViewProps) {
   const [editing, setEditing] = useState<string | undefined>();
   // Bumped when something else saved the map (the router setup), so it loads again.
   const [reloadTick, setReloadTick] = useState(0);
+  const activity = useBotActivity(rest);
 
   useEffect(() => {
     let alive = true;
@@ -231,6 +345,8 @@ export function TeamMapView({ rest, bots, onOpenBot }: TeamMapViewProps) {
   const tree = useMemo(() => teamTree(map, bots), [map, bots]);
   const top = topBot(Object.keys(map.nodes));
   const starting = loaded && !saved && !loadError;
+  // Only the bots on this map; a bot Hermes no longer has is left out.
+  const working = useMemo(() => workingBots(activity).filter((name) => Boolean(map.nodes[name])), [activity, map]);
 
   async function persist(next: TeamMap): Promise<boolean> {
     setSaving(true);
@@ -270,13 +386,19 @@ export function TeamMapView({ rest, bots, onOpenBot }: TeamMapViewProps) {
         </div>
       ) : null}
 
+      {activity ? (
+        <p className="hm-team__live" data-testid="team-live" data-working={working.length > 0 ? 'true' : undefined}>
+          {working.length > 0 ? <span className="hm-team__live-dot" aria-hidden="true" /> : null}
+          <span>{liveSummary(working)}</span>
+        </p>
+      ) : null}
       <div className="hm-team__you-row" aria-hidden="true">
         <span className="hm-team__you">You</span>
         <span className="hm-team__you-label">Sean</span>
       </div>
       <ul className="hm-team__tree" role="tree" aria-label="Team map">
         {tree.roots.map((root) => (
-          <TeamBranch key={root.name} node={root} map={map} depth={0} onEdit={setEditing} />
+          <TeamBranch key={root.name} node={root} map={map} depth={0} onEdit={setEditing} activity={activity} />
         ))}
       </ul>
 

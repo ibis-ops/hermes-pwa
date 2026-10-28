@@ -1,5 +1,16 @@
 import { describe, expect, it } from 'vitest';
-import { formatDividerTime, needsTimeDivider, toMillis } from './chatTime';
+import { formatAgo, formatDividerTime, needsTimeDivider, toMillis } from './chatTime';
+
+describe('formatAgo', () => {
+  it('says how long ago in the shortest words', () => {
+    const now = 1_793_150_000_000;
+    expect(formatAgo(now - 20_000, now)).toBe('just now');
+    expect(formatAgo(now + 5_000, now)).toBe('just now');
+    expect(formatAgo(now - 4 * 60_000, now)).toBe('4m ago');
+    expect(formatAgo(now - 3 * 3_600_000, now)).toBe('3h ago');
+    expect(formatAgo(now - 50 * 3_600_000, now)).toBe('2d ago');
+  });
+});
 
 describe('chat time dividers', () => {
   it('converts Hermes seconds and local milliseconds', () => {

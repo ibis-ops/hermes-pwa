@@ -37,6 +37,7 @@ from local_files import (  # noqa: E402
     response_headers as local_file_headers,
 )
 from agent_history import cached_history as agent_cached_history  # noqa: E402
+from bot_activity import WORKING_WINDOW_S as BOT_WORKING_WINDOW_S, cached_activity as bot_activity_cached  # noqa: E402
 import pwa_speech  # noqa: E402
 import bot_graph  # noqa: E402
 import pwa_router  # noqa: E402
@@ -1094,6 +1095,26 @@ async def save_bots_graph(request: Request) -> JSONResponse:
     except bot_graph.GraphError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return _data_response({"graph": record})
+
+
+@router.get("/bots/activity", dependencies=[Depends(_require_dashboard_auth)])
+def bots_activity() -> JSONResponse:
+    """What each bot is working on right now and when it was last active.
+
+    From the turn labels Hermes stamps on every profile's sessions; titles,
+    labels and times only, never message text.
+    """
+    try:
+        payload = bot_activity_cached()
+    except Exception as exc:  # defensive: a corrupt DB must not 500 the tab
+        _file_log.warning("bot activity scan failed: %s", sanitize_error_text(str(exc)))
+        payload = {
+            "scanned_at": time.time(),
+            "working_window_seconds": BOT_WORKING_WINDOW_S,
+            "bots": {},
+            "error": "scan failed",
+        }
+    return _data_response(payload)
 
 
 @router.get("/router", dependencies=[Depends(_require_dashboard_auth)])

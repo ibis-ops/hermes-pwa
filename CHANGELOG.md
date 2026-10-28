@@ -5,6 +5,20 @@ All notable changes are documented here. The format follows
 
 ## Unreleased
 
+### Bots: a list that scrolls, and what each bot is doing
+
+- **The Bots list scrolls.** With Sean's 13 bots the list was cut off at the tab bar with no way to
+  reach the rest, while the Team view scrolled. The rounded list clips its own corners, and a flex
+  item that clips has no minimum height, so it shrank to the screen instead of making the screen
+  scroll. Every scrolling screen now keeps what is on it at full height.
+- **What each bot is working on.** The Team view shows a green "Working" line under every bot in the
+  middle of something: the chat's title or the job another bot handed it, the step it is on in plain
+  words ("Using the terminal", "Searching files", "Thinking") and which bot asked. An idle bot says
+  when it was last active, and a line above the map names the bots at work. It comes from a new
+  read-only plugin route, `/bots/activity`, which reads the step labels Hermes stamps on each bot's
+  sessions during a turn (titles, labels and times, never message text). The map asks again every 8
+  seconds while it is open and on screen.
+
 ### Router: asks for what Sean asked and trusts the answer
 
 - **Handoffs ask for what Sean asked.** Tested on the Mac: "how many events are on my calendar

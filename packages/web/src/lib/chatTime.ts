@@ -64,6 +64,17 @@ export function formatClockTime(ms: number): string {
   return TIME.format(ms);
 }
 
+/** "just now", "4m ago", "3h ago", "2d ago": how long since something happened. */
+export function formatAgo(ms: number, nowMs = Date.now()): string {
+  const seconds = Math.max(0, Math.round((nowMs - ms) / 1000));
+  if (seconds < 60) return 'just now';
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  return `${Math.floor(hours / 24)}d ago`;
+}
+
 /** "12s", "1m 05s", "1h 02m": how long a reply took. */
 export function formatElapsed(seconds: number): string {
   const total = Math.max(0, Math.round(seconds));
