@@ -64,6 +64,17 @@ All notable changes are documented here. The format follows
   one- or two-letter target ("A", "OK") matches a whole word only. In a bot with a connector, a call to
   the built-in browser_* tools is turned back to chrome with one line on how (they drive whichever tab
   of the same Chrome is in front; one bench run spent 17 calls and 80 s on them).
+- **Targets the way the bot writes them, recipes.** Every failed step in a round of 44 bot runs was a
+  target written another way, so these now work: `Delete in Jane Doe` and `Toggle Todo in beta task`
+  (the control in the row that holds that text, as the map shows rows), `text:One way`,
+  `role:searchbox`, `#result` without `css=`, `Login button`, `Card A` (a kind of control named with
+  its name), `select Dropdown List = Option 2` on an unlabelled list under that heading, and `type
+  Search = flatMap` where Search is the button that opens the search box (it clicks, then types into
+  the box). With two equal matches the first on the page wins (two tables with a "Last Name" header)
+  and the reply says `[1 of 2 matches]`; `read list` reads the page's main list. A page counts as
+  settled after 150 ms without changes instead of 250 ms (fixture tests 30% faster, none lost).
+  `save_recipe name = what it does` keeps the steps that just worked, `"vary": {"client": "Jane Doe"}`
+  turns that value into `{client}`, and `recipe` replays it in one step.
 - **Safe by design.** It never types into a password field or returns a password: `login` signs in
   with Hermes's vault, which fills the page without the model seeing the password. Every change is
   logged per session in `chrome/history/`, and `chrome_history` (with `verify`) lets the bot audit its

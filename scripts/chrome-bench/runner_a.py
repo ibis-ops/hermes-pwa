@@ -437,6 +437,57 @@ def _(t):
     return C.check(isinstance(got, dict) and got.get("picked") == "Laptops", "Laptops picked", got or out[-400:])
 
 
+# ---- targets as the bot writes them (round 8 bot runs) ------------------------------------------------------
+
+@test("target_first_of_two", "two tables with the same header: click Last Name sorts the first one, the one read table reads")
+def _(t):
+    out = t.call(f"go {t.base}/targets.html\nclick Last Name\nread table")
+    got = t.state.last("targets")
+    tables = C.read_tables(out)
+    rows = tables[0] if tables else []
+    ok = isinstance(got, dict) and got.get("sorted") == ["t1"] and len(rows) > 1 and rows[1][:1] == ["Bach"]
+    return C.check(ok, "the first table sorted (Bach first) and read", f"{got}; {rows[:2]}; {out[-300:]}")
+
+
+@test("target_in_row", "a control in a row: check Toggle Todo in beta task, click Delete in gamma task")
+def _(t):
+    out = t.call(f"go {t.base}/targets.html\ncheck Toggle Todo in beta task\nclick Delete in gamma task")
+    got = t.state.last("targets")
+    ok = isinstance(got, dict) and got.get("done") == ["beta task"] and got.get("deleted") == ["gamma task"]
+    return C.check(ok, "beta task done, gamma task deleted", f"{got}; {out[-300:]}")
+
+
+@test("target_heading_select", "an unlabelled dropdown list named by the heading above it")
+def _(t):
+    out = t.call(f"go {t.base}/targets.html\nselect Dropdown List = Option 2")
+    got = t.state.last("targets")
+    return C.check(isinstance(got, dict) and got.get("dropdown") == "Option 2", "Option 2 chosen", f"{got}; {out[-300:]}")
+
+
+@test("target_search_button", "type into the search box that a Search button opens")
+def _(t):
+    out = t.call(f"go {t.base}/targets.html\ntype Search = flatMap\npress Enter")
+    got = t.state.last("targets")
+    return C.check(isinstance(got, dict) and got.get("search") == "flatMap", "flatMap searched", f"{got}; {out[-300:]}")
+
+
+@test("target_forms", "forms the bot writes: #id without css=, text:, role:, Login button")
+def _(t):
+    out = t.call(f"go {t.base}/targets.html\nclick #keys\npress Escape\nread #result\nclick Login button\n"
+                 "click text:One way\nclick Search\ntype role:searchbox = abc")
+    got = t.state.last("targets")
+    ok = (isinstance(got, dict) and got.get("key") == "Escape" and got.get("login") is True and got.get("trip") == "One way"
+          and "You entered: ESCAPE" in out and '-> "abc"' in out and "FAILED" not in out)
+    return C.check(ok, "Escape pressed in #keys and read back, Login clicked, One way picked, abc typed", f"{got}; {out[-400:]}")
+
+
+@test("target_drag_card", "drag Card A = Card B on cards named A and B")
+def _(t):
+    out = t.call(f"go {t.base}/targets.html\ndrag Card A = Card B")
+    got = t.state.last("targets")
+    return C.check(isinstance(got, dict) and got.get("cards") == "B,A", "the cards swapped", f"{got}; {out[-300:]}")
+
+
 # ---- main ------------------------------------------------------------------------------------------------
 
 def main(argv: list[str] | None = None) -> int:

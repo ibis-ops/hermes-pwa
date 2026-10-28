@@ -5,7 +5,7 @@
 // CDP, so pages see real events. Password values are never returned.
 (function () {
   'use strict';
-  var VERSION = 9;
+  var VERSION = 10;
   if (window.__hcx && window.__hcx.version >= VERSION) return;
 
   // ---- activity tracking for settle detection ----------------------------------------------
@@ -504,9 +504,186 @@
   // ---- finding a target -------------------------------------------------------------------
   // Forms: e12 (a ref from the map), css=<selector>, role:Name (button:Save, textbox:Email,
   // link:Clients), or plain visible text / label / placeholder. Text matching prefers exact,
-  // then starts-with, then contains; then enabled, inside an open dialog, on screen.
-  function resolve(target) {
+  // then starts-with, then contains; then enabled, inside an open dialog, on screen; the first on
+  // the page wins a tie. Forms models also write are taken too: text:Save, "Save", role:searchbox,
+  // #id or .class without css=, "Delete in Jane Doe" (the control in the row that holds that text),
+  // "Login button" or "Card A" (a kind of control named with the name).
+  // A step's kind (type, select, check) prefers controls of that kind, and an unlabelled field or list
+  // is found by the text just before it.
+  function typeable(el) {
+    if (!el || el.nodeType !== 1) return false;
+    if (el.isContentEditable || el.tagName === 'TEXTAREA') return true;
+    if (el.tagName === 'INPUT') return !/^(checkbox|radio|file|button|submit|reset|image|range|color|hidden)$/i.test(el.type || 'text');
+    return false;
+  }
+
+  // A wrapper that holds one field (a combobox box around its input) types into that field.
+  function typeInside(el) {
+    if (!el || !el.querySelectorAll) return null;
+    var fs = Array.prototype.filter.call(el.querySelectorAll('input,textarea,[contenteditable=""],[contenteditable=true]'),
+      function (x) { return typeable(x) && visible(x); });
+    return fs.length === 1 ? fs[0] : null;
+  }
+
+  function fitsKind(el, kind) {
+    if (kind === 'type') return typeable(el) || !!typeInside(el);
+    if (kind === 'select') return el.tagName === 'SELECT' || /^(combobox|listbox)$/.test(el.getAttribute('role') || '');
+    if (kind === 'check') return checkedOf(el) !== null;
+    return true;
+  }
+
+  var TYPED = /^(textbox|searchbox|combobox|spinbutton)$/;
+  function roleFits(r, role) {
+    // Fields a person types into are one kind: a search box is often a combobox (MDN, Google), a text box
+    // a searchbox or spinbutton.
+    return !role || r === role || (role === 'textbox' && r === 'password') || (TYPED.test(role) && TYPED.test(r)) ||
+      (role === 'select' && r === 'combobox') || (role === 'button' && r === 'clickable');
+  }
+
+  function unquote(s) {
+    s = norm(s);
+    var q = /^["'\u201c\u2018](.*)["'\u201d\u2019]$/.exec(s);
+    return q ? norm(q[1]) : s;
+  }
+
+  // Every control whose name fits `w` (all of a role when `w` is empty), with a score.
+  function scored(w, role, kind, dialog) {
+    var out = [];
+    candidates().forEach(function (el) {
+      if (!roleFits(roleOf(el), role)) return;
+      var n = low(nameOf(el));
+      var score = 0;
+      if (!w) score = 50;
+      else {
+        var alt = low(el.getAttribute('placeholder') || '') + '|' + low(el.getAttribute('title') || '') + '|' + low(el.getAttribute('name') || '');
+        // A dropdown list also answers to the text it shows ("Please select an option").
+        if (el.tagName === 'SELECT' && el.selectedIndex >= 0 && el.options[el.selectedIndex]) alt += '|' + low(el.options[el.selectedIndex].text);
+        if (n === w) score = 100;
+        else if (w.length <= 2) {
+          // A one- or two-letter target ("A", "OK") is a whole word, never a piece of another name.
+          if (new RegExp('(^|[^a-z0-9])' + w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '($|[^a-z0-9])').test(n)) score = 60;
+          else return;
+        }
+        else if (n.indexOf(w) === 0) score = 70;
+        else if (n.indexOf(w) > 0) score = 50;
+        else if (alt.indexOf(w) >= 0) score = 40;
+        else return;
+      }
+      if (!(el.disabled || el.getAttribute('aria-disabled') === 'true')) score += 8;
+      if (dialog && dialog.contains(el)) score += 12;
+      if (inViewport(el)) score += 3;
+      score -= Math.min(10, Math.max(0, n.length - w.length) / 20);
+      if (kind && fitsKind(el, kind)) score += 100;
+      out.push({ el: el, score: score });
+    });
+    return out;
+  }
+
+  function top(list) {
+    var best = null;
+    list.forEach(function (c) { if (!best || c.score > best.score) best = c; });
+    return best;
+  }
+
+  // The smallest visible element whose own text is the target (clickable divs, table headers). Nested
+  // matches are one (the label inside its list item: the inner one wins); apart from that the first on
+  // the page wins, and the count says how many there are.
+  function textMatch(w) {
+    var small = null, group = null, groups = 0;
+    roots(document).forEach(function (r) {
+      var walker = (r.ownerDocument || r).createTreeWalker(r, NodeFilter.SHOW_ELEMENT);
+      var n = walker.currentNode;
+      while (n) {
+        if (n.nodeType === 1 && n.childElementCount < 4 && (n.textContent || '').length <= w.length + 40 &&
+            low(n.innerText || '') === w && visible(n)) {
+          if (group && group.contains(n)) { if (groups === 1) small = n; }
+          else { groups++; group = n; if (groups === 1) small = n; }
+        }
+        n = walker.nextNode();
+      }
+    });
+    return small ? { el: small, count: groups, loose: true } : null;
+  }
+
+  // An unlabelled field or list named by the text before it ("Dropdown List" over a <select>, a "Name"
+  // line over its input): the first such control after that text, in the same box.
+  function controlAfter(el, kind) {
+    var css = kind === 'select' ? 'select,[role=combobox],[role=listbox]' :
+      'input,textarea,[contenteditable=""],[contenteditable=true],[role=textbox],[role=searchbox],[role=combobox]';
+    var node = el;
+    for (var i = 0; i < 3 && node && node.nodeType === 1 && node !== document.body; i++) {
+      var list = node.querySelectorAll(css);
+      for (var j = 0; j < list.length; j++) {
+        var c = list[j];
+        if (!(visible(c) || proxyOf(c)) || !fitsKind(c, kind)) continue;
+        if (el.contains(c) || el.compareDocumentPosition(c) & 4) return c;
+      }
+      node = node.parentElement;
+    }
+    return null;
+  }
+
+  // "Delete in Jane Doe", "Toggle Todo in beta task", "Edit for Invoice 7": the control named X that sits
+  // closest to the text Y (its row, card or item; the map shows such rows as: checkbox "Toggle" e19 in "beta").
+  function scopedMatch(want, role, kind, dialog) {
+    var splits = [], m;
+    var re = /\s+(?:in|inside|within|for|of|on|at|next to|beside|near)\s+(?:the\s+)?(?:(?:row|item|card|line|entry|task|section|box)\s+)?(?:(?:with|containing|named|called)\s+)?/ig;
+    while ((m = re.exec(want))) splits.push([want.slice(0, m.index), want.slice(m.index + m[0].length)]);
+    var colon = want.indexOf(':');
+    if (colon > 0) splits.push([want.slice(0, colon), want.slice(colon + 1)]);
+    for (var i = 0; i < splits.length; i++) {
+      var x = low(unquote(splits[i][0])), y = low(unquote(splits[i][1]));
+      if (!x || !y) continue;
+      var hits = scored(x, role, kind, dialog);
+      var best = null, bestD = 99, bestS = -1;
+      hits.forEach(function (h) {
+        var node = h.el, d = 0;
+        while (node && d < 9) {
+          var tc = node.textContent || '';
+          if (tc.length > 20000) { node = null; break; }
+          if (low(node.innerText || tc).indexOf(y) >= 0) break;
+          node = node.parentElement;
+          d++;
+        }
+        if (!node || d >= 9) return;
+        if (d < bestD || d === bestD && h.score > bestS) { best = h.el; bestD = d; bestS = h.score; }
+      });
+      if (best) return { el: best, count: 1, loose: true };
+    }
+    return null;
+  }
+
+  // "Login button", "the Search box", "Card A", "searchbox": a kind of control named with the name.
+  var NOUN_ROLE = {
+    'button': 'button', 'link': 'link', 'checkbox': 'checkbox', 'check box': 'checkbox', 'radio button': 'radio',
+    'radio': 'radio', 'field': 'textbox', 'input': 'textbox', 'textbox': 'textbox', 'text box': 'textbox',
+    'text field': 'textbox', 'search box': 'textbox', 'searchbox': 'textbox', 'search field': 'textbox',
+    'box': 'textbox', 'combobox': 'combobox', 'dropdown': 'select', 'drop-down': 'select', 'select': 'select',
+    'tab': 'tab', 'option': 'option', 'menu': '', 'icon': '', 'card': '', 'column': '', 'item': '', 'row': '',
+    'entry': '', 'toggle': '', 'switch': 'switch', 'heading': '', 'label': '', 'title': ''
+  };
+  var NOUNS = Object.keys(NOUN_ROLE).sort(function (a, b) { return b.length - a.length; })
+    .map(function (k) { return k.replace(/[-]/g, '\\-').replace(/ /g, '\\s+'); }).join('|');
+  var NOUN_END = new RegExp('^(.+?)\\s+(' + NOUNS + ')$', 'i');
+  var NOUN_START = new RegExp('^(' + NOUNS + ')\\s+(.+)$', 'i');
+  function nounForms(want, role) {
+    var s = norm(want).replace(/^the\s+/i, ''), rest = null, noun = null, m = NOUN_END.exec(s);
+    if (m) { rest = m[1]; noun = m[2]; } else if ((m = NOUN_START.exec(s))) { noun = m[1]; rest = m[2]; }
+    if (!rest) {
+      var only = NOUN_ROLE[low(s)];
+      return only && !role ? ['role:' + only] : [];
+    }
+    var nr = NOUN_ROLE[low(noun)];
+    var out = [];
+    if (nr && !role) out.push(nr + ':' + rest);
+    // Without its kind, a name of one or two letters ("Option 2") would match too much.
+    if (!nr || role || norm(rest).length > 2) out.push((role ? role + ':' : '') + rest);
+    return out;
+  }
+
+  function resolve(target, kind, depth) {
     target = norm(target);
+    depth = depth || 0;
     if (!target) return { error: 'empty target' };
     if (/^e\d+$/.test(target)) {
       var el = byRef(target);
@@ -531,64 +708,48 @@
       if (hits.length) return { el: hits[0], count: hits.length, hidden: true };
       return { error: 'no element matches ' + css };
     }
-    var role = null, want = target;
-    var m = ROLE_WORDS.exec(target);
-    if (m) { role = m[1].toLowerCase(); want = m[2]; }
+    var t = unquote(target.replace(/^text\s*[:=]\s*/i, ''));
+    var role = null, want = t;
+    var rm = /^role\s*[:=]\s*([a-z]+)\s*(?:\[\s*name\s*=\s*(.*?)\s*\]|[:=\s]\s*(.*))?$/i.exec(t);
+    var m = ROLE_WORDS.exec(t);
+    if (rm) { role = rm[1].toLowerCase(); want = unquote(rm[2] || rm[3] || ''); }
+    else if (m) { role = m[1].toLowerCase(); want = unquote(m[2]); }
     var w = low(want);
     var dialog = openDialog();
-    var best = null, bestScore = -1, names = [];
-    candidates().forEach(function (el) {
-      var r = roleOf(el);
-      // Fields a person types into are one kind: a search box is often a combobox (MDN, Google), a text box
-      // a searchbox or spinbutton.
-      var typed = /^(textbox|searchbox|combobox|spinbutton)$/;
-      if (role && r !== role && !(role === 'textbox' && r === 'password') && !(typed.test(role) && typed.test(r)) &&
-          !(role === 'select' && r === 'combobox') && !(role === 'button' && r === 'clickable')) return;
-      var n = low(nameOf(el));
-      var alt = low(el.getAttribute('placeholder') || '') + '|' + low(el.getAttribute('title') || '') + '|' + low(el.getAttribute('name') || '');
-      // A dropdown list also answers to the text it shows ("Please select an option").
-      if (el.tagName === 'SELECT' && el.selectedIndex >= 0 && el.options[el.selectedIndex]) alt += '|' + low(el.options[el.selectedIndex].text);
-      var score = 0;
-      if (n === w) score = 100;
-      else if (w.length <= 2) {
-        // A one- or two-letter target ("A", "OK") is a whole word, never a piece of another name.
-        if (new RegExp('(^|[^a-z0-9])' + w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '($|[^a-z0-9])').test(n)) score = 60;
-        else return;
+    var found = scored(w, role, kind, dialog);
+    var best = top(found);
+    if (best) return { el: best.el, count: found.length, loose: !w };
+    if (!w) return { error: 'no ' + role + ' on the page' };
+    var small = textMatch(w);
+    if (small) {
+      var after = (kind === 'type' || kind === 'select') && !fitsKind(small.el, kind) ? controlAfter(small.el, kind) : null;
+      if (after) return { el: after, count: 1, loose: true };
+      return small;
+    }
+    if (depth < 2) {
+      var sc = scopedMatch(want, role, kind, dialog);
+      if (sc) return sc;
+      var forms = nounForms(want, role);
+      for (var i = 0; i < forms.length; i++) {
+        var r2 = resolve(forms[i], kind, depth + 1);
+        if (r2.el) { r2.loose = true; return r2; }
       }
-      else if (n.indexOf(w) === 0) score = 70;
-      else if (n.indexOf(w) > 0) score = 50;
-      else if (alt.indexOf(w) >= 0) score = 40;
-      else return;
-      if (!(el.disabled || el.getAttribute('aria-disabled') === 'true')) score += 8;
-      if (dialog && dialog.contains(el)) score += 12;
-      if (inViewport(el)) score += 3;
-      score -= Math.min(10, Math.max(0, n.length - w.length) / 20);
-      names.push(cut(nameOf(el), 40));
-      if (score > bestScore) { best = el; bestScore = score; }
-    });
-    if (best) return { el: best, count: names.length };
-    // Last resort: the smallest visible element whose own text is the target (clickable divs).
-    var small = null, smallLen = 1e9;
-    roots(document).forEach(function (r) {
-      var walker = (r.ownerDocument || r).createTreeWalker(r, NodeFilter.SHOW_ELEMENT);
-      var n = walker.currentNode;
-      while (n) {
-        if (n.nodeType === 1 && n.childElementCount < 4 && (n.textContent || '').length <= w.length + 40) {
-          var t = low(n.innerText || '');
-          // On a tie the later element wins: it is inside the earlier one (the label, not its list item).
-          if (t === w && visible(n) && t.length <= smallLen) { small = n; smallLen = t.length; }
-        }
-        n = walker.nextNode();
-      }
-    });
-    if (small) return { el: small, count: 1, loose: true };
+    }
+    if (/^[#.][A-Za-z_-]|^\[[A-Za-z_-]|^[a-z][a-z0-9-]*[#.\[]|\s>\s/.test(want)) {
+      var ch = deepQueryAll(want), cv = ch.filter(function (h) { return visible(h) || proxyOf(h); });
+      if (cv.length) return { el: cv[0], count: cv.length, loose: true };
+    }
+    if (depth) return { error: 'no match' };
     var words = w.split(' ').filter(function (x) { return x.length > 2; });
+    var short = w.split(' ').filter(function (x) { return x && x.length <= 2; });
     var near = [];
     candidates().forEach(function (el) {
       if (near.length >= 6) return;
       var n = nameOf(el);
       var ln = low(n);
-      if (n && words.some(function (x) { return ln.indexOf(x) >= 0; })) near.push(roleOf(el) + ' "' + cut(n, 40) + '" ' + refOf(el));
+      if (n && (words.some(function (x) { return ln.indexOf(x) >= 0; }) || short.indexOf(ln) >= 0)) {
+        near.push(roleOf(el) + ' "' + cut(n, 40) + '" ' + refOf(el));
+      }
     });
     return { error: 'nothing on the page matches "' + want + '"' + (role ? ' as ' + role : '') +
       (near.length ? '. Close: ' + near.join(', ') : '') };
@@ -637,6 +798,12 @@
 
   // Focus a field and select what is in it, so the typed text replaces it.
   function prepareType(el, clear) {
+    // A button or link is not a field: the caller clicks it (a search button opens the search box) and
+    // types into the field that appears.
+    if (el.tagName === 'SELECT') return { notField: true, list: true, what: describe(el) };
+    var field = typeable(el) || el.tagName === 'INPUT' && /^(range|color)$/i.test(el.type) ? el : typeInside(el);
+    if (!field) return { notField: true, what: describe(el) };
+    el = field;
     var target = el;
     if (roleOf(el) === 'password') return { error: 'password field: never type passwords. Use browser_vault (action=fill) for saved logins.' };
     if (el.disabled || el.readOnly) return { error: describe(el) + ' is ' + (el.disabled ? 'disabled' : 'read-only') };
@@ -656,7 +823,7 @@
       try { var L = String(el.value || '').length; el.setSelectionRange(L, L); } catch (e) { /* not a text input */ }
     }
     var active = el.ownerDocument.activeElement;
-    return { before: before, focused: active === el || el.contains(active), what: describe(el), kind: el.type || '' };
+    return { before: before, focused: active === el || el.contains(active), what: describe(el), kind: el.type || '', ref: refOf(el) };
   }
 
   function finishType(el, text, clear) {
@@ -730,6 +897,8 @@
   function read(spec, opts) {
     spec = norm(spec || 'text');
     var limit = (opts && opts.limit) || 8000;
+    // "read #result", "read .price": a selector written without css=.
+    if (/^[#.][A-Za-z_-][\w-]*$/.test(spec) && deepQueryAll(spec).some(visible)) spec = 'css=' + spec;
     if (spec === 'text') {
       var mt = mainText(limit);
       return { text: mt, heads: mt.length > 2500 ? sectionHeads() : [] };
@@ -738,6 +907,18 @@
     if (spec === 'all') return { text: (document.body.innerText || '').slice(0, limit) };
     if (spec === 'form') return readForm();
     if (spec === 'table') return readTable(null);
+    if (/^(the )?(list|items|list items|results|search results|entries)$/i.test(spec)) {
+      // The page's main list: the visible list with the most items outside the header, menus and footer.
+      var lists = deepQueryAll('ul,ol,[role=list],[role=listbox],[role=feed]').filter(visible), bestL = null, nL = 0;
+      lists.forEach(function (l) {
+        if (l.closest('nav,header,footer,[role=navigation],[role=menu]')) return;
+        var k = Array.prototype.filter.call(l.children, function (c) { return visible(c) && norm(c.innerText); }).length;
+        if (k > nL) { bestL = l; nL = k; }
+      });
+      if (!bestL) return { items: [] };
+      var kids = Array.prototype.filter.call(bestL.children, function (c) { return visible(c) && norm(c.innerText); });
+      return { items: kids.slice(0, 300).map(function (c) { return cut(fullText(c), 400); }), more: Math.max(0, kids.length - 300) };
+    }
     if (/^table\s*[:=]/.test(spec)) {
       var tr = resolve(spec.replace(/^table\s*[:=]\s*/, ''));
       return tr.error ? tr : readTable(tr.el);
@@ -809,8 +990,11 @@
       if (pt) return { what: describe(cell), value: pt, ref: refOf(cell), block: pt.indexOf('\n') >= 0 };
       var box = null;
       try {
-        var esc = CSS.escape(norm(want));
-        box = deepQueryAll('#' + esc + ',.' + esc + ',[aria-label="' + norm(want).replace(/"/g, '') + '" i]').filter(visible)[0];
+        // As written, lower case and hyphenated: "section:Infobox" finds .infobox, "section:Price box" .price-box.
+        var forms = [norm(want), low(want), low(want).replace(/ /g, '-')], sels = [];
+        forms.forEach(function (f) { var esc = CSS.escape(f); sels.push('#' + esc, '.' + esc); });
+        sels.push('[aria-label="' + norm(want).replace(/"/g, '') + '" i]');
+        box = deepQueryAll(sels.join(',')).filter(visible)[0];
       } catch (e) { box = null; }
       if (box) return { what: describe(box), value: clip(blockText(fullText(box)), limit), ref: refOf(box), block: true };
       return { error: 'no heading named "' + want + '". Headings: ' +
@@ -901,6 +1085,7 @@
     if (/^e\d+$/.test(spec)) { var el = byRef(spec); return !!el && visible(el); }
     if (/^url:/i.test(spec)) return location.href.indexOf(spec.slice(4).trim()) >= 0;
     if (ROLE_WORDS.test(spec)) { var hit = resolve(spec); return !!hit.el && (visible(hit.el) || !!proxyOf(hit.el)); }
+    if (/^[#.][A-Za-z_-][\w-]*$/.test(spec) && deepQueryAll(spec).some(visible)) return true;
     var w = low(spec.replace(/^text:/i, ''));
     var docs = roots(document);
     for (var i = 0; i < docs.length; i++) {
@@ -929,8 +1114,8 @@
   }
 
   // ---- entry points used from Python (each returns plain JSON) ---------------------------
-  function withTarget(target, fn) {
-    var r = resolve(target);
+  function withTarget(target, fn, kind) {
+    var r = resolve(target, kind);
     if (r.error) return { error: r.error };
     var out = fn(r.el) || {};
     out.ref = out.ref || refOf(r.el);
@@ -957,10 +1142,26 @@
         return { x: r.left + r.width / 2, y: r.top + r.height / 2, what: describe(el), inView: inView };
       });
     },
-    prepareType: function (t, clear) { return withTarget(t, function (el) { return prepareType(el, clear); }); },
-    finishType: function (t, text, clear) { return withTarget(t, function (el) { return finishType(el, text, clear); }); },
-    select: function (t, want) { return withTarget(t, function (el) { return selectOption(el, want); }); },
-    state: function (t) {
+    prepareType: function (t, clear) { return withTarget(t, function (el) { return prepareType(el, clear); }, 'type'); },
+    finishType: function (t, text, clear) { return withTarget(t, function (el) { return finishType(el, text, clear); }, 'type'); },
+    select: function (t, want) { return withTarget(t, function (el) { return selectOption(el, want); }, 'select'); },
+    // After a click on a search button: the field to type in (one named like the target, or the one
+    // that took the focus).
+    fieldFor: function (t) {
+      var r = resolve(t, 'type');
+      var el = r.el ? (typeable(r.el) ? r.el : typeInside(r.el)) : null;
+      if (!el) {
+        var a = document.activeElement;
+        try {
+          while (a && a.shadowRoot && a.shadowRoot.activeElement) a = a.shadowRoot.activeElement;
+          while (a && (a.tagName === 'IFRAME' || a.tagName === 'FRAME') && a.contentDocument) a = a.contentDocument.activeElement;
+        } catch (e) { /* a cross-origin frame has the focus */ }
+        if (a && typeable(a) && visible(a)) el = a;
+      }
+      if (!el) return { error: describe(r.el) + ' is not a field, and clicking it opened none to type in' };
+      return { ref: refOf(el), what: describe(el) };
+    },
+    state: function (t, kind) {
       return withTarget(t, function (el) {
         var out = { what: describe(el), checked: checkedOf(el), value: valueOf(el), role: roleOf(el), disabled: !!el.disabled };
         // A group label (fieldset legend, radiogroup): list its radio options so fill can pick one.
@@ -971,7 +1172,7 @@
           }).map(function (r) { return [refOf(r), nameOf(r)]; });
         }
         return out;
-      });
+      }, kind);
     },
     jsClick: function (t) { return withTarget(t, function (el) { (proxyOf(el) || el).click(); return { what: describe(el) }; }); },
     // The one checkbox, radio or switch in the row of a target that is not one itself ("check milk" on a

@@ -50,7 +50,7 @@ JS_PATH = Path(__file__).with_name("chrome_connector.js")
 
 STEP_TIMEOUT_S = 30.0
 CALL_BUDGET_S = 150.0
-SETTLE_QUIET_MS = 250
+SETTLE_QUIET_MS = 150
 NET_SETTLE_MS = 150  # after the last response, before a page counts as quiet (its data is still being drawn)
 SETTLE_MAX_S = 4.0
 NAV_TIMEOUT_S = 30.0
@@ -622,6 +622,7 @@ class AgentSession:
     active: Optional[Tab] = None
     last_used: float = field(default_factory=time.monotonic)
     lock: threading.RLock = field(default_factory=threading.RLock)
+    last_steps: list = field(default_factory=list)  # the last call that worked, for save_recipe without steps
 
 
 class Browser:
@@ -1051,12 +1052,28 @@ def type_text(tab: Tab, target: str, text: str, *, clear: bool = True, enter: bo
         p = view.hcx("point", target)
         if isinstance(p, dict) and p.get("reach"):
             _mouse_click(view, p["x"], p["y"])
-    prep = _check(view.hcx("prepareType", target, bool(clear)))
+    prep = view.hcx("prepareType", target, bool(clear))
+    via = ""
+    if isinstance(prep, dict) and prep.get("notField"):
+        if prep.get("list"):  # "type Country = France" on a dropdown list: pick that option
+            res = select_option(tab, _ref(view, prep.get("ref")) or target, text)
+            return {"what": res.get("what"), "ref": res.get("ref"), "before": res.get("before"),
+                    "after": res.get("after"), "want": None}
+        # A search button that opens the search box (MDN, many site headers): click it, then type into the
+        # box it opened (named like the target, or the field that took the focus).
+        opened = click(tab, _ref(view, prep.get("ref")) or target)
+        via = f"{opened.get('what')} {opened.get('ref') or ''}".strip()
+        field = _check(view.hcx("fieldFor", target))
+        target = field["ref"]
+        prep = view.hcx("prepareType", target, bool(clear))
+        if isinstance(prep, dict) and prep.get("notField"):
+            raise ConnectorError(f"{prep.get('what')} is not a field to type in")
+    prep = _check(prep)
     if text and prep.get("focused"):
         view.send("Input.insertText", {"text": text})
     done = _check(view.hcx("finishType", prep.get("ref") or target, text, bool(clear)))
     out = {"what": _where(view, prep.get("what", target)), "ref": _ref(view, prep.get("ref")), "before": prep.get("before"),
-           "after": done.get("after"), "want": text if clear else None, "loose": prep.get("loose")}
+           "after": done.get("after"), "want": text if clear else None, "loose": prep.get("loose"), "via": via}
     if enter:
         out["enter"] = press(tab, "Enter")
     return out
@@ -1067,7 +1084,7 @@ def select_option(tab: Tab, target: str, option: str) -> dict:
     res = view.hcx("select", target, option)
     if isinstance(res, dict) and "not a dropdown list" in str(res.get("error", "")):
         # A custom dropdown (a button or combobox that opens a listbox): open it, click the option.
-        st = _check(view.hcx("state", target))
+        st = _check(view.hcx("state", target, "select"))
         ref = st.get("ref") or target
         before = view.hcx("read", ref, {"limit": 200}) or {}
         click(tab, _ref(view, ref))
@@ -1085,7 +1102,7 @@ def select_option(tab: Tab, target: str, option: str) -> dict:
 
 def set_checked(tab: Tab, target: str, on: bool) -> dict:
     view, target = locate(tab, target)
-    st = _check(view.hcx("state", target))
+    st = _check(view.hcx("state", target, "check"))
     if st.get("checked") is None:
         # "check milk" on a to-do list: the one box in that item's row.
         alt = view.hcx("toggleFor", target)
@@ -1454,6 +1471,7 @@ class Run:
         self.fast = False
         self.dialogs_before: Optional[int] = None  # dialogs on the tab when the call began
         self.read_ok = False  # the last step was a read that found something
+        self.done_steps: list = []  # steps of this call that worked so far (save_recipe without steps)
 
     @property
     def tab(self) -> Tab:
@@ -1505,11 +1523,15 @@ class Run:
                     line = getattr(self, f"do_{action}")(step, step[action])
                     self.lines.append(f"{label}. {line}")
                     ok = True
+                    if action not in ("save_recipe", "recipe", "recipes") and not prefix:
+                        self.done_steps.append(step)
                 except ConnectorError as exc:
                     opt = step.get("optional")
                     self.lines.append(f"{label}. {'skipped (optional)' if opt else 'FAILED'} {action} "
                                       f"{_q(step[action])[:80]}: {exc}")
                     ok = bool(opt)
+                    if opt and not prefix:
+                        self.done_steps.append(step)  # a recipe keeps it: next time the banner may be there
                 except Exception as exc:  # a bug or a dropped connection: say so, keep the process up
                     self.lines.append(f"{label}. FAILED {action}: {type(exc).__name__}: {str(exc)[:200]}")
                     ok = False
@@ -1560,8 +1582,10 @@ class Run:
             parts.append(f"[dialog: {'; '.join(dialogs)}]")
         if r.get("note"):
             parts.append(f"[{r['note']}]")
-        if r.get("loose") or (r.get("matches") or 0) > 1 and not re.match(r"^e\d+$", str(target)):
-            parts.append(f"[matched by text; {r.get('matches') or 1} candidates]")
+        if (r.get("matches") or 0) > 1 and not re.match(r"^e\d+$", str(target)):
+            parts.append(f"[1 of {r['matches']} matches]")
+        elif r.get("loose"):
+            parts.append("[closest match]")
         notices = self.notices()
         if notices:
             parts.append(f"[page says: {_cut(notices, 200)}]")
@@ -1589,7 +1613,7 @@ class Run:
     def do_drag(self, step: dict, source: Any) -> str:
         to = step.get("to")
         if not to:
-            raise ConnectorError("drag needs a target: drag Card A = Done column (or {\"drag\": \"A\", \"to\": \"B\"})")
+            raise ConnectorError("drag needs a target: drag Task 3 = Done (or {\"drag\": \"A\", \"to\": \"B\"})")
         url = self.url()
         r = drag(self.tab, str(source), str(to))
         self.record({"kind": "drag", "what": f"{r.get('what')} {r.get('ref') or ''}".strip(), "url": url,
@@ -1614,6 +1638,8 @@ class Run:
                      "before": _cut(r.get("before"), VALUE_CAP), "after": _cut(r.get("after"), VALUE_CAP),
                      "want": None if r.get("want") is None else _cut(r.get("want"), VALUE_CAP), "ok": ok})
         line = f"type {r.get('what')} {r.get('ref') or ''}: {_q(_cut(r.get('before'), 80))} -> {_q(_cut(r.get('after'), 120))}"
+        if r.get("via"):
+            line += f" (opened by clicking {r['via']})"
         if not ok:
             line += f" (DIFFERS from wanted {_q(_cut(r.get('want'), 80))}; check it)"
         if enter:
@@ -2005,8 +2031,15 @@ class Run:
         steps = step.get("steps")
         if isinstance(steps, str):
             steps = parse_lines(steps)
+        if steps is None:
+            # No steps given: the last call that worked in this session, with the values named in "vary"
+            # turned into placeholders ({"client": "Jane Doe"} makes every "Jane Doe" {client}).
+            steps = json.loads(json.dumps(self.done_steps or self.sess.last_steps))
+            for key, literal in (step.get("vary") or {}).items():
+                if re.match(r"^[a-z_][a-z0-9_]*$", str(key)) and str(literal):
+                    steps = json.loads(json.dumps(steps).replace(json.dumps(str(literal))[1:-1], "{" + str(key) + "}"))
         if not name or not isinstance(steps, list) or not steps:
-            raise ConnectorError('save_recipe needs a name and "steps"')
+            raise ConnectorError('save_recipe needs a name, and "steps" or a call that worked before it in this session')
         for s in steps:
             if not isinstance(s, dict) or not any(a in s for a in ACTIONS) or "save_recipe" in s:
                 raise ConnectorError(f"not a step: {_q(s)[:80]}")
@@ -2229,6 +2262,11 @@ def parse_line(line: str) -> dict:
                 step = {"fill": fields}
         elif verb == "select":
             step = {"select": target, "option": value or ""}
+        elif verb == "save_recipe":
+            # save_recipe name = what it does: the steps that worked just before it (this call, or the last one)
+            step = {"save_recipe": target}
+            if value:
+                step["about"] = value.strip()
         elif verb == "drag":
             if value is None:
                 raise ConnectorError(f"write it as: drag <what> = <onto>  ({line[:60]})")
@@ -2457,6 +2495,9 @@ def chrome_tool(args: dict, task_id: Optional[str] = None, session_id: Optional[
                 set_fast(tab, bool(args.get("fast")))
             run.fast = tab.fast
             run.run(steps, stop_on_error=args.get("stop_on_error", True) is not False)
+            if not run.failed and not any(isinstance(s, dict) and ({"save_recipe", "recipe", "recipes"} & set(s))
+                                          for s in steps):
+                sess.last_steps = [s for s in steps if isinstance(s, dict)]
             mode = str(args.get("map", "auto"))
             if mode == "auto" and run.read_ok and not run.failed:
                 mode = "brief"  # the call ended reading what it came for: the page line, not every control
@@ -2529,9 +2570,9 @@ CHROME_DESCRIPTION = """Your web browser for EVERY site (any site, not only Kahu
 
 FASTEST: put every step you already know into ONE call; do not spend a call just to look at a page first: open it and act in the same call, and mark steps that may not apply with ? (a missing banner or item is skipped in about a second). The reply says what each step did, every change with its value before and after (read back from the page), and a map of the page with refs (e12) for the next call; after the first map only what changed, and after a call that ends with a read just the page line and the controls on screen.
 
-steps: one per line (short form) or a list of objects. Targets: visible text or label (Save, Email), role:text (button:Save, link:Next, checkbox:Remember me), css=selector, or a ref (e12) from a map you have already seen. A page has no refs until you see its map: in the call that opens a page, target by text.
+steps: one per line (short form) or a list of objects. Targets: visible text or label (Save, Email), role:text (button:Save, link:Next, checkbox:Remember me), one of many by its row (Delete in Jane Doe, as the map shows rows), css=selector, or a ref (e12) from a map you have already seen. A page has no refs until you see its map: in the call that opens a page, target by text.
   go example.com/pricing | back | forward | reload
-  click Sign in | dblclick e12 | rightclick e12 | hover Products | drag Card A = Done (drag and drop)
+  click Sign in | dblclick e12 | rightclick e12 | hover Products | drag Task 3 = Done (drag and drop)
   type Search = blue shoes (replaces) | append e5 = more | press Enter | press Ctrl+A
   fill Email = a@b.co ; Plan = Yearly ; Notify client = on   (text, lists, checkboxes and radio groups in one step)
   select Size = Large | check Remember me | uncheck e9
@@ -2544,7 +2585,7 @@ steps: one per line (short form) or a list of objects. Targets: visible text or 
   login (signs in with the Hermes vault; never type passwords) | fast on (skip images, fonts and trackers)
   screenshot | screenshot e12 (only when the layout itself matters)
   each: JSON {"each": ["url1", "url2"], "do": "read table"} reads many pages in parallel tabs
-  recipes | recipe: JSON {"recipe": "name", "with": {"client": "X"}} | save_recipe: JSON {"save_recipe": "name", "about": "...", "steps": "..."}
+  save_recipe name = what it does (keeps the steps that just worked; JSON {"save_recipe": "name", "vary": {"client": "Jane Doe"}} turns that value into {client}) | recipes | recipe: JSON {"recipe": "name", "with": {"client": "X"}} replays one in a single step
   browser show (a visible window for Sean, e.g. to sign in) | browser hide
   ?click Accept all   (a leading ? marks a step that may fail harmlessly: banners, popups)
   A frame from another site (payment fields, a consent box) is listed as Frame f1 with refs like f1:e3; text targets reach it too.

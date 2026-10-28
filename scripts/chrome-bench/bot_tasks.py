@@ -117,6 +117,12 @@ def _kind_history(kind: str, what: str = ""):
     return check
 
 
+def _only_b(answer: str, _truth: Any) -> tuple:
+    a = _norm(answer)
+    ok = bool(re.search(r"\bB\b", a)) and not re.search(r"\bA\b", a)
+    return ok, "B" if ok else "expected B (and not A) in the left box"
+
+
 def _pizza_check(answer: str, _truth: Any) -> tuple:
     a = _norm(answer).lower()
     ok = "medium" in a and "cheese" in a and "onion" in a and "bacon" not in a
@@ -234,7 +240,7 @@ TASKS: list[BotTask] = [
     BotTask("heroku_windows",
             "On the-internet.herokuapp.com/windows, click the 'Click Here' link and tell me the heading of the page "
             "that opens. Reply with the heading only.",
-            _has(r"^\W*New Window\W*$", "New Window"), about="a link that opens a new window", group="extra"),
+            _has(r"\bNew Window\b", "New Window"), about="a link that opens a new window", group="extra"),
     BotTask("heroku_tables",
             "On the-internet.herokuapp.com/tables, sort the first table by Last Name by clicking that column's "
             "header, then tell me the email address in its first row. Reply with the email only.",
@@ -247,7 +253,7 @@ TASKS: list[BotTask] = [
     BotTask("heroku_drag",
             "On the-internet.herokuapp.com/drag_and_drop, drag box A onto box B, then tell me which letter is now "
             "in the left box. Reply with the letter only.",
-            _has(r"^\W*B\W*$", "B"), history=_kind_history("drag"), about="HTML5 drag and drop", group="extra"),
+            _only_b, history=_kind_history("drag"), about="HTML5 drag and drop", group="extra"),
     BotTask("heroku_context",
             "On the-internet.herokuapp.com/context_menu, right-click the box and tell me the text of the alert "
             "that appears. Reply with the text only.",
@@ -261,5 +267,5 @@ TASKS: list[BotTask] = [
     BotTask("heroku_frames",
             "On the-internet.herokuapp.com/nested_frames, what text is shown in the middle frame? Reply with the "
             "text only.",
-            _has(r"^\W*MIDDLE\W*$", "MIDDLE"), about="nested frames", group="extra"),
+            _has(r"\bMIDDLE\b", "MIDDLE"), about="nested frames", group="extra"),
 ]

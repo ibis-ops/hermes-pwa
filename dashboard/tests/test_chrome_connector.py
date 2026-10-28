@@ -66,6 +66,44 @@ class ParseLineTests(unittest.TestCase):
             cc.parse_line("frobnicate e1")
 
 
+class RecipeTests(unittest.TestCase):
+    def _run(self, home: Path, last: list) -> "cc.Run":
+        from types import SimpleNamespace
+        sess = cc.AgentSession(key="s1", last_steps=last)
+        browser = SimpleNamespace(settings=SimpleNamespace(home=home))
+        return cc.Run(browser, sess, cc.History(home, "s1"), deadline=1e12)
+
+    def test_parse_save_recipe_with_about(self) -> None:
+        self.assertEqual(cc.parse_line("save_recipe client-notes = open a client's notes"),
+                         {"save_recipe": "client-notes", "about": "open a client's notes"})
+        self.assertEqual(cc.parse_line("save_recipe notes"), {"save_recipe": "notes"})
+
+    def test_saves_the_last_call_with_a_placeholder(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            run = self._run(home, [{"go": "kahunas.io/clients"}, {"type": "Search", "text": "Jane Doe"},
+                                   {"click": "Jane Doe"}, {"read": "section:Notes"}])
+            line = run.do_save_recipe({"save_recipe": "notes", "vary": {"client": "Jane Doe"}, "about": "notes"}, "notes")
+            self.assertIn("needs client", line)
+            data = json.loads((home / "recipes" / "notes.json").read_text(encoding="utf-8"))
+            self.assertEqual(data["needs"], ["client"])
+            self.assertEqual(data["steps"][1], {"type": "Search", "text": "{client}"})
+            self.assertEqual(data["steps"][2], {"click": "{client}"})
+
+    def test_steps_of_this_call_come_first(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            run = self._run(Path(tmp), [{"go": "old.example"}])
+            run.done_steps = [{"go": "new.example"}, {"click": "Next"}]
+            self.assertIn("2 steps", run.do_save_recipe({"save_recipe": "x"}, "x"))
+
+    def test_nothing_to_save_says_how(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            run = self._run(Path(tmp), [])
+            with self.assertRaises(cc.ConnectorError) as err:
+                run.do_save_recipe({"save_recipe": "x"}, "x")
+            self.assertIn("a call that worked", str(err.exception))
+
+
 class PlaceholderTests(unittest.TestCase):
     def test_fills_nested_strings_only(self) -> None:
         steps = [{"go": "x.y/{client}"}, {"fill": {"Name": "{client}"}}, {"wait": 5}]

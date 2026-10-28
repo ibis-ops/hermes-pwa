@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Targets</title>
+<style>
+body{font:15px/1.5 system-ui,sans-serif;margin:24px;max-width:760px}
+table{border-collapse:collapse;margin:8px 0}
+th,td{border:1px solid #bbb;padding:2px 8px}
+th{cursor:pointer;background:#eee}
+li{list-style:none;margin:2px 0}
+.cards{display:flex;gap:12px}
+.card{width:90px;height:60px;border:2px solid #555;display:flex;align-items:center;justify-content:center;cursor:move}
+#searchbox{display:none;position:fixed;top:40px;left:40px;background:#fff;border:1px solid #333;padding:12px}
+#searchbox.open{display:block}
+#keys{width:120px}
+.trip span{display:inline-block;padding:2px 8px;border:1px solid #888;cursor:pointer}
+</style></head>
+<body>
+<header><button type="button" id="searchbtn">Search</button></header>
+<div id="searchbox" role="dialog" aria-label="Site search">
+  <input type="search" role="combobox" aria-label="Search" placeholder="Search the site">
+</div>
+<main>
+<h1>Targets</h1>
+<h2>Data Tables</h2>
+<p>Example 1</p>
+<table id="t1"><thead><tr><th><span>Last Name</span></th><th><span>First Name</span></th></tr></thead>
+<tbody><tr><td>Smith</td><td>John</td></tr><tr><td>Bach</td><td>Frank</td></tr><tr><td>Doe</td><td>Jason</td></tr></tbody></table>
+<p>Example 2</p>
+<table id="t2"><thead><tr><th><span class="last-name">Last Name</span></th><th><span>First Name</span></th></tr></thead>
+<tbody><tr><td>Smith</td><td>John</td></tr><tr><td>Bach</td><td>Frank</td></tr><tr><td>Doe</td><td>Jason</td></tr></tbody></table>
+
+<h2>To do</h2>
+<ul class="todo-list">
+  <li><input class="toggle" type="checkbox" aria-label="Toggle Todo"><label>alpha task</label><button class="destroy" aria-label="Delete">x</button></li>
+  <li><input class="toggle" type="checkbox" aria-label="Toggle Todo"><label>beta task</label><button class="destroy" aria-label="Delete">x</button></li>
+  <li><input class="toggle" type="checkbox" aria-label="Toggle Todo"><label>gamma task</label><button class="destroy" aria-label="Delete">x</button></li>
+</ul>
+
+<div class="example">
+  <h3>Dropdown List</h3>
+  <select id="dropdown"><option value="" disabled selected>Please select an option</option><option value="1">Option 1</option><option value="2">Option 2</option></select>
+</div>
+
+<h2>Keys</h2>
+<input id="keys" type="text">
+<p id="result"></p>
+
+<h2>Sign in</h2>
+<button type="button" id="login">Login</button>
+<div class="trip"><span id="rt">Round trip</span> <span id="ow">One way</span></div>
+
+<h2>Board</h2>
+<div class="cards">
+  <div class="card" id="column-a" draggable="true"><header>A</header></div>
+  <div class="card" id="column-b" draggable="true"><header>B</header></div>
+</div>
+</main>
+<script>
+// Everything the page does is posted to /api/submit/targets, so a test checks what really happened.
+var S = { sorted: [], done: [], deleted: [], dropdown: '', search: '', key: '', login: false, trip: '', cards: 'A,B' };
+function post() { fetch('/api/submit/targets', { method: 'POST', body: JSON.stringify(S) }); }
+// Sortable tables: the header cells take the click (a jQuery-style handler, no role or tabindex).
+['t1', 't2'].forEach(function (id) {
+  var t = document.getElementById(id);
+  t.tHead.rows[0].cells[0].addEventListener('click', function () {
+    var body = t.tBodies[0], rows = Array.prototype.slice.call(body.rows);
+    rows.sort(function (a, b) { return a.cells[0].textContent.localeCompare(b.cells[0].textContent); });
+    rows.forEach(function (r) { body.appendChild(r); });
+    S.sorted.push(id); post();
+  });
+});
+document.querySelectorAll('.todo-list li').forEach(function (li) {
+  var name = li.querySelector('label').textContent;
+  li.querySelector('.toggle').addEventListener('change', function (e) {
+    S.done = S.done.filter(function (x) { return x !== name; });
+    if (e.target.checked) S.done.push(name);
+    post();
+  });
+  li.querySelector('.destroy').addEventListener('click', function () { li.remove(); S.deleted.push(name); post(); });
+});
+document.getElementById('dropdown').addEventListener('change', function (e) {
+  S.dropdown = e.target.options[e.target.selectedIndex].text; post();
+});
+// The search button opens a search box that takes the focus (MDN and many site headers work this way).
+document.getElementById('searchbtn').addEventListener('click', function () {
+  var box = document.getElementById('searchbox');
+  box.classList.add('open');
+  box.querySelector('input').focus();
+});
+document.querySelector('#searchbox input').addEventListener('keydown', function (e) {
+  if (e.key === 'Enter') { S.search = e.target.value; post(); }
+});
+document.getElementById('keys').addEventListener('keydown', function (e) {
+  document.getElementById('result').textContent = 'You entered: ' + e.key.toUpperCase();
+  S.key = e.key; post();
+});
+document.getElementById('login').addEventListener('click', function () { S.login = true; post(); });
+['rt', 'ow'].forEach(function (id) {
+  document.getElementById(id).addEventListener('click', function (e) { S.trip = e.target.textContent; post(); });
+});
+// Two cards that swap places when one is dropped on the other (HTML5 drag and drop).
+var dragged = null;
+document.querySelectorAll('.card').forEach(function (c) {
+  c.addEventListener('dragstart', function (e) { dragged = c; e.dataTransfer.setData('text/plain', c.id); });
+  c.addEventListener('dragover', function (e) { e.preventDefault(); });
+  c.addEventListener('drop', function (e) {
+    e.preventDefault();
+    if (!dragged || dragged === c) return;
+    var a = dragged.querySelector('header'), b = c.querySelector('header'), t = a.textContent;
+    a.textContent = b.textContent; b.textContent = t;
+    S.cards = Array.prototype.map.call(document.querySelectorAll('.card header'), function (h) { return h.textContent; }).join(',');
+    post();
+  });
+});
+</script>
+</body>
+</html>
