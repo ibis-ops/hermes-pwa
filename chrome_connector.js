@@ -5,7 +5,7 @@
 // CDP, so pages see real events. Password values are never returned.
 (function () {
   'use strict';
-  var VERSION = 14;
+  var VERSION = 15;
   if (window.__hcx && window.__hcx.version >= VERSION) return;
 
   // ---- activity tracking for settle detection ----------------------------------------------
@@ -769,6 +769,10 @@
     return n < 0 ? best.links[best.links.length - 1] : best.links[n - 1] || null;
   }
 
+  // Role names models write that are not ARIA's: role:search (MDN), role:input, role:dropdown.
+  var ROLE_ALIAS = { search: 'searchbox', input: 'textbox', textfield: 'textbox', field: 'textbox', text: 'textbox',
+    dropdown: 'select', a: 'link', btn: 'button' };
+
   function resolve(target, kind, depth) {
     target = norm(target);
     depth = depth || 0;
@@ -800,7 +804,7 @@
     var role = null, want = t;
     var rm = /^role\s*[:=]\s*([a-z]+)\s*(?:\[\s*name\s*=\s*(.*?)\s*\]|[:=\s]\s*(.*))?$/i.exec(t);
     var m = ROLE_WORDS.exec(t);
-    if (rm) { role = rm[1].toLowerCase(); want = unquote(rm[2] || rm[3] || ''); }
+    if (rm) { role = rm[1].toLowerCase(); role = ROLE_ALIAS[role] || role; want = unquote(rm[2] || rm[3] || ''); }
     else if (m) { role = m[1].toLowerCase(); want = unquote(m[2]); }
     var w = low(want);
     var dialog = openDialog();
@@ -912,6 +916,23 @@
     return [ox, oy];
   }
 
+  // The control that opens the closed list or menu an option sits in: the one naming the list in
+  // aria-controls or aria-owns, else the nearest popup button or combobox around the list.
+  function openerFor(el) {
+    var lb = el.closest && el.closest('[role=listbox],[role=menu]');
+    if (!lb) return null;
+    if (lb.id) {
+      var named = deepQueryAll('[aria-controls~="' + lb.id + '"],[aria-owns~="' + lb.id + '"]').filter(visible);
+      if (named.length) return named[0];
+    }
+    var node = lb.parentElement;
+    for (var k = 0; k < 4 && node && node !== document.body; k++, node = node.parentElement) {
+      var cs = Array.prototype.filter.call(node.querySelectorAll('[aria-haspopup],[role=combobox],[aria-expanded]'), visible);
+      if (cs.length) return cs[0];
+    }
+    return null;
+  }
+
   // A control that shows only while the mouse is over its row (row actions, TodoMVC's delete button):
   // the row to hover first, and the control's ref to act on once it shows. "Delete in gamma task" picks
   // the row that holds that text.
@@ -938,6 +959,9 @@
         if (!y) break;
       }
       if (best) {
+        // An option of a closed dropdown list ("click One way"): open the list first.
+        var op = openerFor(best[0]);
+        if (op) return { ref: refOf(best[0]), opener: refOf(op), what: describe(best[0]) };
         try { best[1].scrollIntoView({ block: 'center', behavior: 'instant' }); } catch (e) { /* ignore */ }
         var r = best[1].getBoundingClientRect(), off = topOffset(best[1].ownerDocument);
         return { ref: refOf(best[0]), x: r.left + r.width / 2 + off[0], y: r.top + r.height / 2 + off[1], what: describe(best[0]) };

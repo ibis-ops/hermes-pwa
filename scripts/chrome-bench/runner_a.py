@@ -147,6 +147,13 @@ def _(t):
     return C.check(isinstance(got, dict) and got.get("size") == "L", "size L saved", got or out[-400:])
 
 
+@test("custom_select_option_click", "custom ARIA dropdown: click Large while its list is closed (opens it first)")
+def _(t):
+    out = t.call(f"go {t.base}/combobox.html\nclick Large\nclick Save shipping")
+    got = t.state.last("combobox")
+    return C.check(isinstance(got, dict) and got.get("size") == "L", "size L saved", got or out[-400:])
+
+
 @test("custom_select_via_select", "custom ARIA dropdown with the select step (select Size = Large)")
 def _(t):
     out = t.call(f"go {t.base}/combobox.html\nselect Size = Large\nclick Save shipping")

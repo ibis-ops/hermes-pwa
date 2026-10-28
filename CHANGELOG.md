@@ -84,7 +84,9 @@ All notable changes are documented here. The format follows
   the page's main result list (the biggest group of repeated cards or rows with a link, outside the
   header, menus, filters and footer); on IKEA's search page that is the first product. `hover second
   User Avatar`, `click third Delete` and `click last Edit` take that match in page order, and pictures
-  answer to their alt text.
+  answer to their alt text. `click One way` on an option of a closed dropdown list opens the list
+  first (checked on Google Flights), and `role:search`, `role:input` and `role:dropdown` mean the
+  search box, a text field and a dropdown list.
 - **No more leaked tabs.** Every one-shot run of a connector bot (a cron job, `hermes -z`, a bench
   turn) left its tab open, because only the process that made a tab closed it; after a few hundred
   runs the bot's Chrome held hundreds of tabs and about 13 GB. Now a process that connects closes the

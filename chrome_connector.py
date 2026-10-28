@@ -1061,12 +1061,17 @@ def _point(view: Any, target: str) -> dict:
     if isinstance(p, dict) and "nothing on the page matches" in str(p.get("error", "")):
         rv = view.hcx("reveal", target)
         if isinstance(rv, dict) and rv.get("ref"):
-            view.send("Input.dispatchMouseEvent", {"type": "mouseMoved", "x": rv["x"], "y": rv["y"]})
+            if rv.get("opener"):  # an option of a closed dropdown list: open the list, as a person would
+                po = view.hcx("point", rv["opener"])
+                if isinstance(po, dict) and not po.get("error"):
+                    _mouse_click(view, po["x"], po["y"])
+            else:
+                view.send("Input.dispatchMouseEvent", {"type": "mouseMoved", "x": rv["x"], "y": rv["y"]})
             settle(view, 1.0)
             if view.hcx("has", rv["ref"]):
                 p = view.hcx("point", rv["ref"])
                 if isinstance(p, dict) and not p.get("error"):
-                    p["revealed"] = True
+                    p["revealed"] = "list" if rv.get("opener") else "row"
     return _check(p)
 
 
@@ -1085,7 +1090,8 @@ def click(tab: Tab, target: str, *, double: bool = False) -> dict:
     time.sleep(0.05)
     took, ok = settle(view, nav_before=nav_before)
     out = {"what": _where(view, p.get("what", target)), "ref": _ref(view, p.get("ref")), "took": took, "settled": ok,
-           "note": note or ("shown by moving the mouse over its row" if p.get("revealed") else ""),
+           "note": note or {"row": "shown by moving the mouse over its row", "list": "its list opened first"}.get(
+               str(p.get("revealed")), ""),
            "loose": p.get("loose"), "matches": p.get("matches")}
     try:
         url_after = tab.evaluate("location.href")
