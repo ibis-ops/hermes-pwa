@@ -13,6 +13,8 @@ li{list-style:none;margin:2px 0}
 #searchbox.open{display:block}
 #keys{width:120px}
 .trip span{display:inline-block;padding:2px 8px;border:1px solid #888;cursor:pointer}
+.clients .act{display:none;margin-left:8px}
+.clients li:hover .act{display:inline-block}
 </style></head>
 <body>
 <header><button type="button" id="searchbtn">Search</button></header>
@@ -49,6 +51,12 @@ li{list-style:none;margin:2px 0}
 <button type="button" id="login">Login</button>
 <div class="trip"><span id="rt">Round trip</span> <span id="ow">One way</span></div>
 
+<h2>Clients</h2>
+<ul class="clients">
+  <li><span>Jane Doe</span><button type="button" class="act">Archive</button></li>
+  <li><span>John Roe</span><button type="button" class="act">Archive</button></li>
+</ul>
+
 <h2>Board</h2>
 <div class="cards">
   <div class="card" id="column-a" draggable="true"><header>A</header></div>
@@ -57,7 +65,7 @@ li{list-style:none;margin:2px 0}
 </main>
 <script>
 // Everything the page does is posted to /api/submit/targets, so a test checks what really happened.
-var S = { sorted: [], done: [], deleted: [], dropdown: '', search: '', key: '', login: false, trip: '', cards: 'A,B' };
+var S = { sorted: [], done: [], deleted: [], dropdown: '', search: '', key: '', login: false, trip: '', cards: 'A,B', archived: [] };
 function post() { fetch('/api/submit/targets', { method: 'POST', body: JSON.stringify(S) }); }
 // Sortable tables: the header cells take the click (a jQuery-style handler, no role or tabindex).
 ['t1', 't2'].forEach(function (id) {
@@ -93,6 +101,10 @@ document.querySelector('#searchbox input').addEventListener('keydown', function 
 document.getElementById('keys').addEventListener('keydown', function (e) {
   document.getElementById('result').textContent = 'You entered: ' + e.key.toUpperCase();
   S.key = e.key; post();
+});
+// Row actions that show only while the mouse is over the row.
+document.querySelectorAll('.clients li').forEach(function (li) {
+  li.querySelector('.act').addEventListener('click', function () { S.archived.push(li.querySelector('span').textContent); post(); });
 });
 document.getElementById('login').addEventListener('click', function () { S.login = true; post(); });
 ['rt', 'ow'].forEach(function (id) {

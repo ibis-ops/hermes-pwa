@@ -77,7 +77,15 @@ All notable changes are documented here. The format follows
   turns that value into `{client}`, and `recipe` replays it in one step. `read text` on a frameset
   page gives each frame's text under its name (it gave nothing), `read css=frame[name=middle]` reads
   that frame, and a ref from the map of a page the bot opens again (refs restart on every load) still
-  reaches its control by role, name and row.
+  reaches its control by role, name and row. A row action that shows only while the mouse is over its
+  row (`click Archive in John Roe`) is revealed by moving the mouse there first, `read table:2` reads
+  the second table, and `role:searchbox` prefers a real search field, then the Search button that
+  opens one.
+- **No more leaked tabs.** Every one-shot run of a connector bot (a cron job, `hermes -z`, a bench
+  turn) left its tab open, because only the process that made a tab closed it; after a few hundred
+  runs the bot's Chrome held hundreds of tabs and about 13 GB. Now a process that connects closes the
+  tabs nobody is attached to any more (headless Chrome only, so a window Sean is using is never
+  touched).
 - **Safe by design.** It never types into a password field or returns a password: `login` signs in
   with Hermes's vault, which fills the page without the model seeing the password. Every change is
   logged per session in `chrome/history/`, and `chrome_history` (with `verify`) lets the bot audit its

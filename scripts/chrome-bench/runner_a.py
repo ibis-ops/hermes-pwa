@@ -501,6 +501,29 @@ def _(t):
                    f"{got}; {out2[-300:]}")
 
 
+@test("target_hover_row", "a row action that shows only on hover: click Archive in John Roe")
+def _(t):
+    out = t.call(f"go {t.base}/targets.html\nclick Archive in John Roe")
+    got = t.state.last("targets")
+    return C.check(isinstance(got, dict) and got.get("archived") == ["John Roe"], "John Roe archived (only him)",
+                   f"{got}; {out[-300:]}")
+
+
+@test("target_role_searchbox", "type role:searchbox = flatMap when only a Search button shows (it opens the box)")
+def _(t):
+    out = t.call(f"go {t.base}/targets.html\ntype role:searchbox = flatMap\npress Enter")
+    got = t.state.last("targets")
+    return C.check(isinstance(got, dict) and got.get("search") == "flatMap", "flatMap searched", f"{got}; {out[-300:]}")
+
+
+@test("table_by_number", "read table:2 reads the second table on the page")
+def _(t):
+    out = t.call(f"go {t.base}/targets.html\nclick css=#t2 th\nread table:2\nread table:1")
+    tables = C.read_tables(out)
+    ok = len(tables) == 2 and tables[0][1][:1] == ["Bach"] and tables[1][1][:1] == ["Smith"]
+    return C.check(ok, "table 2 sorted (Bach first), table 1 as it was (Smith first)", f"{[x[:2] for x in tables]}; {out[-300:]}")
+
+
 @test("target_drag_card", "drag Card A = Card B on cards named A and B")
 def _(t):
     out = t.call(f"go {t.base}/targets.html\ndrag Card A = Card B")

@@ -5,7 +5,7 @@
 // CDP, so pages see real events. Password values are never returned.
 (function () {
   'use strict';
-  var VERSION = 11;
+  var VERSION = 12;
   if (window.__hcx && window.__hcx.version >= VERSION) return;
 
   // ---- activity tracking for settle detection ----------------------------------------------
@@ -657,27 +657,38 @@
 
   // "Delete in Jane Doe", "Toggle Todo in beta task", "Edit for Invoice 7": the control named X that sits
   // closest to the text Y (its row, card or item; the map shows such rows as: checkbox "Toggle" e19 in "beta").
-  function scopedMatch(want, role, kind, dialog) {
+  function scopeSplits(want) {
     var splits = [], m;
     var re = /\s+(?:in|inside|within|for|of|on|at|next to|beside|near)\s+(?:the\s+)?(?:(?:row|item|card|line|entry|task|section|box)\s+)?(?:(?:with|containing|named|called)\s+)?/ig;
     while ((m = re.exec(want))) splits.push([want.slice(0, m.index), want.slice(m.index + m[0].length)]);
     var colon = want.indexOf(':');
     if (colon > 0) splits.push([want.slice(0, colon), want.slice(colon + 1)]);
+    return splits;
+  }
+
+  // How far up from el the nearest box holding the text y is (99: none within 9 levels or 20k characters).
+  function depthTo(el, y) {
+    var node = el, d = 0;
+    while (node && d < 9) {
+      var tc = node.textContent || '';
+      if (tc.length > 20000) return 99;
+      if (low(node.innerText || tc).indexOf(y) >= 0) return d;
+      node = node.parentElement;
+      d++;
+    }
+    return 99;
+  }
+
+  function scopedMatch(want, role, kind, dialog) {
+    var splits = scopeSplits(want);
     for (var i = 0; i < splits.length; i++) {
       var x = low(unquote(splits[i][0])), y = low(unquote(splits[i][1]));
       if (!x || !y) continue;
       var hits = scored(x, role, kind, dialog);
       var best = null, bestD = 99, bestS = -1;
       hits.forEach(function (h) {
-        var node = h.el, d = 0;
-        while (node && d < 9) {
-          var tc = node.textContent || '';
-          if (tc.length > 20000) { node = null; break; }
-          if (low(node.innerText || tc).indexOf(y) >= 0) break;
-          node = node.parentElement;
-          d++;
-        }
-        if (!node || d >= 9) return;
+        var d = depthTo(h.el, y);
+        if (d >= 9) return;
         if (d < bestD || d === bestD && h.score > bestS) { best = h.el; bestD = d; bestS = h.score; }
       });
       if (best) return { el: best, count: 1, loose: true };
@@ -748,6 +759,14 @@
     else if (m) { role = m[1].toLowerCase(); want = unquote(m[2]); }
     var w = low(want);
     var dialog = openDialog();
+    if (!w && role === 'searchbox') {
+      // "role:searchbox": a field that is one (type=search, role searchbox) or is named for search; else the
+      // Search button that opens one (MDN, many site headers); else any field.
+      var sb = top(scored('', 'searchbox', kind, dialog).filter(function (h) { return roleOf(h.el) === 'searchbox'; })) ||
+        top(scored('search', 'searchbox', kind, dialog)) ||
+        top(scored('search', null, null, dialog).filter(function (h) { return !typeable(h.el); }));
+      if (sb) return { el: sb.el, count: 1, loose: true };
+    }
     var found = scored(w, role, kind, dialog);
     var best = top(found);
     if (best) return { el: best.el, count: found.length, loose: !w };
@@ -815,6 +834,54 @@
       }
     } catch (e) { /* cross-origin parent: leave the offset */ }
     return { x: x + ox, y: y + oy, reach: reach, cover: reach ? '' : describe(hit), what: describe(el) };
+  }
+
+  // Offset of el's document inside the top page (same-site frames).
+  function topOffset(doc) {
+    var ox = 0, oy = 0, w = doc.defaultView;
+    try {
+      while (w && w !== window && w.frameElement) {
+        var fr = w.frameElement.getBoundingClientRect();
+        ox += fr.left + (w.frameElement.clientLeft || 0);
+        oy += fr.top + (w.frameElement.clientTop || 0);
+        w = w.parent;
+      }
+    } catch (e) { /* cross-origin parent: leave the offset */ }
+    return [ox, oy];
+  }
+
+  // A control that shows only while the mouse is over its row (row actions, TodoMVC's delete button):
+  // the row to hover first, and the control's ref to act on once it shows. "Delete in gamma task" picks
+  // the row that holds that text.
+  function reveal(t) {
+    var s = unquote(norm(t).replace(/^text\s*[:=]\s*/i, '')), role = null;
+    var m = ROLE_WORDS.exec(s);
+    if (m) { role = m[1].toLowerCase(); s = unquote(m[2]); }
+    var tries = [[s, '']].concat(scopeSplits(s));
+    var all = deepQueryAll(SEL);
+    for (var i = 0; i < tries.length; i++) {
+      var w = low(unquote(tries[i][0])), y = low(unquote(tries[i][1]));
+      if (!w || (tries[i][1] && !y)) continue;
+      var best = null, bestD = 99;
+      for (var j = 0; j < all.length; j++) {
+        var el = all[j];
+        if (visible(el) || proxyOf(el) || !roleFits(roleOf(el), role)) continue;
+        var n = low(nameOf(el));
+        if (!(n === w || (w.length > 2 && n.indexOf(w) >= 0))) continue;
+        var row = el.parentElement, k;
+        for (k = 0; k < 4 && row && !visible(row); k++) row = row.parentElement;
+        if (!row || !visible(row) || row === document.body) continue;
+        var d = y ? depthTo(el, y) : 0;
+        if (d < bestD) { best = [el, row]; bestD = d; }
+        if (!y) break;
+      }
+      if (best) {
+        try { best[1].scrollIntoView({ block: 'center', behavior: 'instant' }); } catch (e) { /* ignore */ }
+        var r = best[1].getBoundingClientRect(), off = topOffset(best[1].ownerDocument);
+        return { ref: refOf(best[0]), x: r.left + r.width / 2 + off[0], y: r.top + r.height / 2 + off[1], what: describe(best[0]) };
+      }
+    }
+    return null;
   }
 
   function fire(el, type) { el.dispatchEvent(new Event(type, { bubbles: true })); }
@@ -950,6 +1017,11 @@
       if (!bestL) return { items: [] };
       var kids = Array.prototype.filter.call(bestL.children, function (c) { return visible(c) && norm(c.innerText); });
       return { items: kids.slice(0, 300).map(function (c) { return cut(fullText(c), 400); }), more: Math.max(0, kids.length - 300) };
+    }
+    if (/^table\s*[:=]\s*\d+$/.test(spec)) {
+      // "read table:2": the second table on the page.
+      var nth = +spec.replace(/^table\s*[:=]\s*/, ''), tabs = deepQueryAll('table').filter(visible);
+      return tabs[nth - 1] ? readTable(tabs[nth - 1]) : { error: 'the page has ' + tabs.length + ' tables' };
     }
     if (/^table\s*[:=]/.test(spec)) {
       var tr = resolve(spec.replace(/^table\s*[:=]\s*/, ''));
@@ -1162,7 +1234,8 @@
     read: read,
     busy: busy,
     has: has,
-    found: function (t) { return !resolve(t).error; },
+    found: function (t) { return !resolve(t).error || !!reveal(t); },
+    reveal: reveal,
     wall: wallOf,
     scroll: scroll,
     point: function (t) { return withTarget(t, point); },

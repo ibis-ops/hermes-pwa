@@ -8,6 +8,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from typing import Any
 
 ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
@@ -128,6 +129,46 @@ class SeenRefTests(unittest.TestCase):
         tab = self.FakeTab("https://x.y/other")
         cc._remember_refs(tab, {"url": "https://x.y/list", "els": [["e3", "button", "Delete", {}]]})
         self.assertIsNone(cc._ref_by_name(tab, "e3"))
+
+
+class OrphanTabTests(unittest.TestCase):
+    """Tabs left by connector processes that ended are closed when a process connects (headless only)."""
+
+    class FakeCDP:
+        def __init__(self, targets: list) -> None:
+            self.targets = targets
+            self.closed_ids: list = []
+
+        def send(self, method: str, params: Any = None, session: Any = None, timeout: float = 0) -> dict:
+            return {"targetInfos": self.targets}
+
+        def post(self, method: str, params: Any = None, session: Any = None) -> int:
+            self.closed_ids.append(params["targetId"])
+            return 1
+
+    TARGETS = [
+        {"targetId": "a", "type": "page", "attached": False, "url": "https://shop.example/item"},
+        {"targetId": "b", "type": "page", "attached": True, "url": "https://live.example/"},
+        {"targetId": "c", "type": "page", "attached": False, "url": "about:blank"},
+        {"targetId": "d", "type": "browser_ui", "attached": False, "url": "chrome://x"},
+        {"targetId": "e", "type": "page", "attached": False, "url": "https://old.example/"},
+    ]
+
+    def _browser(self) -> "cc.Browser":
+        from types import SimpleNamespace
+        b = cc.Browser(SimpleNamespace())
+        b.cdp = self.FakeCDP(list(self.TARGETS))
+        return b
+
+    def test_headless_closes_unattached_pages_only(self) -> None:
+        b = self._browser()
+        self.assertEqual(b._close_orphans({"User-Agent": "Mozilla/5.0 HeadlessChrome/156.0"}), 2)
+        self.assertEqual(b.cdp.closed_ids, ["a", "e"])
+
+    def test_visible_chrome_is_left_alone(self) -> None:
+        b = self._browser()
+        self.assertEqual(b._close_orphans({"User-Agent": "Mozilla/5.0 Chrome/156.0"}), 0)
+        self.assertEqual(b.cdp.closed_ids, [])
 
 
 class PlaceholderTests(unittest.TestCase):

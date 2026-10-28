@@ -652,12 +652,35 @@ class Browser:
                 sess.tabs.clear()
                 sess.active = None
             self.cdp.send("Target.setDiscoverTargets", {"discover": True})
+            self._close_orphans(info)
             try:
                 self.settings.downloads_dir.mkdir(parents=True, exist_ok=True)
                 self.cdp.send("Browser.setDownloadBehavior", {"behavior": "allowAndName", "eventsEnabled": True,
                                                               "downloadPath": str(self.settings.downloads_dir)})
             except (ConnectorError, OSError):
                 pass
+
+    def _close_orphans(self, info: dict) -> int:
+        """Close the tabs that connector processes which have ended left behind (a one-shot run, a cron job,
+        a crash): nobody is attached to them any more, and in a headless Chrome nobody else can use them, so
+        they only cost memory and CPU (the bench found hundreds, 13 GB, after a few hundred one-shot runs).
+        A visible Chrome is left alone (Sean may be using a tab there), and so is a blank tab (another
+        process may have just made it and not attached yet)."""
+        if "HeadlessChrome" not in str(info.get("User-Agent", "")) or self.cdp is None:
+            return 0
+        try:
+            targets = self.cdp.send("Target.getTargets", {}, timeout=5).get("targetInfos") or []
+        except ConnectorError:
+            return 0
+        n = 0
+        for t in targets:
+            if t.get("type") == "page" and not t.get("attached") and t.get("url") not in ("", "about:blank"):
+                try:
+                    self.cdp.post("Target.closeTarget", {"targetId": t.get("targetId")})
+                    n += 1
+                except Exception:
+                    break
+        return n
 
     def _on_event(self, msg: dict) -> None:
         sid = msg.get("sessionId")
@@ -1005,9 +1028,25 @@ def refuse_if_walled(tab: Tab) -> None:
                              "tell Sean (he can look at it with browser show).")
 
 
+def _point(view: Any, target: str) -> dict:
+    """Where to click a target. A control that shows only while the mouse is over its row (row actions,
+    a to-do's delete button) is revealed first: the mouse goes over the row, as a person's would."""
+    p = view.hcx("point", target)
+    if isinstance(p, dict) and "nothing on the page matches" in str(p.get("error", "")):
+        rv = view.hcx("reveal", target)
+        if isinstance(rv, dict) and rv.get("ref"):
+            view.send("Input.dispatchMouseEvent", {"type": "mouseMoved", "x": rv["x"], "y": rv["y"]})
+            settle(view, 1.0)
+            if view.hcx("has", rv["ref"]):
+                p = view.hcx("point", rv["ref"])
+                if isinstance(p, dict) and not p.get("error"):
+                    p["revealed"] = True
+    return _check(p)
+
+
 def click(tab: Tab, target: str, *, double: bool = False) -> dict:
     view, target = locate(tab, target)
-    p = _check(view.hcx("point", target))
+    p = _point(view, target)
     url_before = tab.evaluate("location.href")
     nav_before = tab.nav_seq
     opened_before = len(tab.browser.opened)
@@ -1015,12 +1054,13 @@ def click(tab: Tab, target: str, *, double: bool = False) -> dict:
     if p.get("reach"):
         _mouse_click(view, p["x"], p["y"], 2 if double else 1)
     else:
-        _check(view.hcx("jsClick", target))
+        _check(view.hcx("jsClick", p.get("ref") or target))
         note = f"clicked by script ({p.get('cover') or 'something'} was on top)"
     time.sleep(0.05)
     took, ok = settle(view, nav_before=nav_before)
     out = {"what": _where(view, p.get("what", target)), "ref": _ref(view, p.get("ref")), "took": took, "settled": ok,
-           "note": note, "loose": p.get("loose"), "matches": p.get("matches")}
+           "note": note or ("shown by moving the mouse over its row" if p.get("revealed") else ""),
+           "loose": p.get("loose"), "matches": p.get("matches")}
     try:
         url_after = tab.evaluate("location.href")
     except ConnectorError:
@@ -1158,7 +1198,7 @@ def set_checked(tab: Tab, target: str, on: bool) -> dict:
 
 def hover(tab: Tab, target: str) -> dict:
     view, target = locate(tab, target)
-    p = _check(view.hcx("point", target))
+    p = _point(view, target)
     view.send("Input.dispatchMouseEvent", {"type": "mouseMoved", "x": p["x"], "y": p["y"]})
     took, _ = settle(view, 1.5)
     return {"what": _where(view, p.get("what")), "ref": _ref(view, p.get("ref")), "took": took}
@@ -1167,7 +1207,7 @@ def hover(tab: Tab, target: str) -> dict:
 def right_click(tab: Tab, target: str) -> dict:
     """A right click (context menu) where a person would make it."""
     view, target = locate(tab, target)
-    p = _check(view.hcx("point", target))
+    p = _point(view, target)
     view.send("Input.dispatchMouseEvent", {"type": "mouseMoved", "x": p["x"], "y": p["y"]})
     view.send("Input.dispatchMouseEvent", {"type": "mousePressed", "x": p["x"], "y": p["y"], "button": "right", "clickCount": 1})
     view.send("Input.dispatchMouseEvent", {"type": "mouseReleased", "x": p["x"], "y": p["y"], "button": "right", "clickCount": 1})
