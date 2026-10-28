@@ -605,6 +605,14 @@ def _(t):
     return C.check(items == [["hello"]] and "FAILED" not in out, "hello typed into the page's one field", items or out[-300:])
 
 
+@test("css_in_row", "click css=.destroy in gamma task: a selector scoped to the row holding the text")
+def _(t):
+    out = t.call(f"go {t.base}/targets.html\nclick css=.destroy in gamma task\nclick css=.act in John Roe")
+    got = t.state.last("targets")
+    ok = isinstance(got, dict) and got.get("deleted") == ["gamma task"] and got.get("archived") == ["John Roe"]
+    return C.check(ok, "gamma task deleted and John Roe archived (a hidden row action)", f"{got}; {out[-300:]}")
+
+
 @test("target_drag_card", "drag Card A = Card B on cards named A and B")
 def _(t):
     out = t.call(f"go {t.base}/targets.html\ndrag Card A = Card B")

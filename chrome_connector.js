@@ -5,7 +5,7 @@
 // CDP, so pages see real events. Password values are never returned.
 (function () {
   'use strict';
-  var VERSION = 17;
+  var VERSION = 18;
   if (window.__hcx && window.__hcx.version >= VERSION) return;
 
   // ---- activity tracking for settle detection ----------------------------------------------
@@ -851,6 +851,13 @@
       var vis = hits.filter(function (h) { return visible(h) || proxyOf(h); });
       if (vis.length) return { el: vis[0], count: vis.length };
       if (hits.length) return { el: hits[0], count: hits.length, hidden: true };
+      // "css=.destroy in alpha task": that selector in the row or card holding the text.
+      var cm = /^(.+?)\s+in\s+(.+)$/i.exec(css);
+      if (cm) {
+        var y = low(unquote(cm[2])), near = null, nearD = 99;
+        deepQueryAll(cm[1]).forEach(function (h) { var d = depthTo(h, y); if (d < nearD) { near = h; nearD = d; } });
+        if (near) return { el: near, count: 1, loose: true, hidden: !(visible(near) || proxyOf(near)) };
+      }
       return { error: 'no element matches ' + css };
     }
     var t = unquote(target.replace(/^text\s*[:=]\s*/i, ''));

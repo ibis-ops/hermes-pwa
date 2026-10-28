@@ -92,7 +92,8 @@ All notable changes are documented here. The format follows
   is taken (`click Search MDN` finds "Search the site"); and a step line holding a literal `\n` before
   another step is split even when the other lines use real newlines. `type Add item = milk` on a page
   with a single field (TodoMVC calls it "What needs to be done?") types there once the page has
-  settled, and the reply names the field.
+  settled, and the reply names the field. `click css=.destroy in alpha task` scopes a selector to the
+  row holding that text.
 - **No more leaked tabs.** Every one-shot run of a connector bot (a cron job, `hermes -z`, a bench
   turn) left its tab open, because only the process that made a tab closed it; after a few hundred
   runs the bot's Chrome held hundreds of tabs and about 13 GB. Now a process that connects closes the
