@@ -105,6 +105,59 @@ class RecipeTests(unittest.TestCase):
             self.assertIn("a call that worked", str(err.exception))
 
 
+class AutoLoginTests(unittest.TestCase):
+    """A go that lands on a sign-in page signs in with this bot's saved login and opens the address again."""
+    NOTE = " [this is a sign-in page: run login (the Hermes vault fills it) or tell Sean; never type a password]"
+
+    def _go(self, login_result=None, login_error=None, step=None):
+        from types import SimpleNamespace
+        from unittest.mock import patch
+        sess = cc.AgentSession(key="s1", last_steps=[])
+        with tempfile.TemporaryDirectory() as tmp:
+            run = cc.Run(SimpleNamespace(settings=SimpleNamespace(home=Path(tmp))), sess,
+                         cc.History(Path(tmp), "s1"), deadline=1e12)
+            urls = ["https://kahunas.io/login?redirect=x"]
+            opened = []
+
+            def navigate(_tab, url):
+                opened.append(url)
+                if len(opened) > 1:
+                    urls.append("https://kahunas.io/coach/clients")
+                return {"took": 0.3, "settled": True}
+
+            def do_login(_step, _handle):
+                if login_error:
+                    raise cc.ConnectorError(login_error)
+                urls.append("https://kahunas.io/coach/dashboard")
+                return login_result
+            notes = iter([self.NOTE, ""])
+            with patch.object(cc, "navigate", navigate), patch.object(cc, "_status_problem", lambda *a: ""), \
+                    patch.object(cc.Run, "tab", None), patch.object(run, "url", lambda: urls[-1]), \
+                    patch.object(run, "_signin_note", lambda: next(notes, "")), patch.object(run, "do_login", do_login):
+                return run.do_go(step or {}, "https://kahunas.io/coach/clients"), opened
+
+    def test_signs_in_with_the_saved_login_and_opens_the_address_again(self):
+        line, opened = self._go("login on https://kahunas.io: signed in as coach@example.com (password filled by the vault)")
+        self.assertEqual(opened, ["https://kahunas.io/coach/clients"] * 2)
+        self.assertIn("the session had expired: login on https://kahunas.io: signed in as coach@example.com", line)
+        self.assertIn("now on kahunas.io/coach/clients", line)
+        self.assertNotIn("run login", line)
+
+    def test_without_a_saved_login_the_note_stays(self):
+        line, opened = self._go(login_error="no saved login for https://kahunas.io. Tell Sean: ...")
+        self.assertTrue(line.endswith(self.NOTE))
+        self.assertEqual(len(opened), 1)
+
+    def test_a_login_that_fails_says_so(self):
+        line, _ = self._go(login_error="vault fill failed: no password field")
+        self.assertIn("the saved login did not work: vault fill failed", line)
+
+    def test_login_false_keeps_the_page(self):
+        line, opened = self._go("signed in as x", step={"login": False})
+        self.assertTrue(line.endswith(self.NOTE))
+        self.assertEqual(len(opened), 1)
+
+
 class SeenRefTests(unittest.TestCase):
     """A ref from a map of a page that was opened again (refs restart on every load) is found by role and name."""
 

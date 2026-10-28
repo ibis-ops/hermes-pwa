@@ -1237,6 +1237,10 @@
     var limit = (opts && opts.limit) || 8000;
     // "read #result", "read .price": a selector written without css=.
     if (/^[#.][A-Za-z_-][\w-]*$/.test(spec) && deepQueryAll(spec).some(visible)) spec = 'css=' + spec;
+    // The page's title (a <title> is never visible, so css=title would find nothing).
+    if (/^(?:(?:page|document)\s+title|css=(?:head\s*>\s*)?title)$/i.test(spec)) {
+      return { what: 'page title', value: document.title };
+    }
     if (spec === 'text') {
       var mt = mainText(limit);
       return { text: mt, heads: mt.length > 2500 ? sectionHeads() : [] };

@@ -37,6 +37,7 @@ import signal
 import subprocess
 import threading
 import time
+import urllib.parse
 import urllib.request
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -1872,7 +1873,28 @@ class Run:
         line = f"go {_short_url(self.url())} ({_secs(r['took'])}{'' if r['settled'] else ', still loading'})"
         if r.get("retried"):
             line += f" [the server answered {r['retried']} at first; it loaded on a retry a second later]"
-        return line + self._signin_note()
+        note = self._signin_note()
+        if note and step.get("login", True) is not False:
+            # A session that expired: with this bot's saved login for the site, sign in and open the address
+            # again in this call (round 26: a routed Kahunas task spent a model call and 17 s on it).
+            return line + self._auto_login(str(url), note)
+        return line + note
+
+    def _auto_login(self, url: str, note: str) -> str:
+        try:
+            said = self.do_login({}, "auto")
+        except ConnectorError as exc:
+            return note if str(exc).startswith("no saved login") else f"{note} [the saved login did not work: {exc}]"
+        if "signed in as" not in said:
+            return f" [a sign-in page; {said}]"
+        want = urllib.parse.urlsplit(url if "://" in url else "https://" + url)
+        here = urllib.parse.urlsplit(self.url())
+        if (here.netloc, here.path.rstrip("/")) != (want.netloc, want.path.rstrip("/")):
+            r = navigate(self.tab, url)
+            problem = _status_problem(r, _short_url(self.url()), self.tab)
+            if problem:
+                raise ConnectorError(problem)
+        return f" [the session had expired: {said}; now on {_short_url(self.url())}]" + self._signin_note()
 
     def _signin_note(self) -> str:
         try:
@@ -2475,6 +2497,17 @@ class Run:
         return _autopilot().ask(self, step, str(question))
 
     # -- the page summary -------------------------------------------------------------------------
+    def page_line(self) -> str:
+        """map none: still the one line saying where the call ended (round 26: without it a bot spent four
+        calls looking for the page title)."""
+        try:
+            t = self.tab.evaluate("[document.title, location.href, document.readyState]")
+        except ConnectorError:
+            return ""
+        if not isinstance(t, list) or len(t) < 3:
+            return ""
+        return f"Page: {_q(_cut(t[0], 120))} {t[1]}" + ("" if t[2] == "complete" else " (still loading)")
+
     def page_map(self, mode: str = "auto", *, force: bool = False) -> str:
         tab = self.tab
         if mode == "brief":
@@ -2880,7 +2913,7 @@ def chrome_tool(args: dict, task_id: Optional[str] = None, session_id: Optional[
             mode = str(args.get("map", "auto"))
             if mode == "auto" and run.read_ok and not run.failed:
                 mode = "brief"  # the call ended reading what it came for: the page line, not every control
-            page = "" if mode == "none" else run.page_map(mode)
+            page = run.page_line() if mode == "none" else run.page_map(mode)
         except ConnectorError as exc:
             run.lines.append(f"FAILED: {exc}")
             run.failed = True

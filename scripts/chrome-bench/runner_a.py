@@ -503,6 +503,14 @@ def _(t):
     return C.check(ok, f"the whole page saved, with '{fact}'", f"saved {len(saved)} chars; {out[-300:]}")
 
 
+@test("page_title_map_none", "map none still ends with the Page line; read css=title and read page title give the title")
+def _(t):
+    out = t.call(f"go {t.base}/targets.html\nread css=title\nread page title", map="none")
+    ok = (out.count('"Targets"') >= 3 and re.search(r"^Page: \"Targets\" http", out, re.M) is not None
+          and "FAILED" not in out)
+    return C.check(ok, "the title read twice and a Page line with map none", out[-400:])
+
+
 @test("target_in_row", "a control in a row: check Toggle Todo in beta task, click Delete in gamma task")
 def _(t):
     out = t.call(f"go {t.base}/targets.html\ncheck Toggle Todo in beta task\nclick Delete in gamma task")
