@@ -2581,6 +2581,10 @@ def _session_key(task_id: Optional[str], session_id: Optional[str]) -> str:
     return str(session_id or task_id or "default")
 
 
+_LITERAL_NL = re.compile(r"\\n(?=\??(?:" + "|".join(sorted(set(ACTIONS) | set(_LINE_ALIASES) | {"append"}, key=len, reverse=True))
+                         + r")\b)")
+
+
 def chrome_tool(args: dict, task_id: Optional[str] = None, session_id: Optional[str] = None, **_: Any) -> str:
     t0 = time.monotonic()
     settings = load_settings()
@@ -2589,6 +2593,9 @@ def chrome_tool(args: dict, task_id: Optional[str] = None, session_id: Optional[
     steps = args.get("steps")
     if isinstance(steps, str) and "\n" not in steps and "\\n" in steps:
         steps = steps.replace("\\n", "\n")  # one line per step written as a literal \n
+    elif isinstance(steps, str) and "\\n" in steps:
+        # Both kinds in one string ("dialog accept\\nrightclick e5"): split a literal \n that starts a step.
+        steps = _LITERAL_NL.sub("\n", steps)
     try:
         if isinstance(steps, str):
             steps = parse_lines(steps)

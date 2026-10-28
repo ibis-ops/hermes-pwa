@@ -86,7 +86,11 @@ All notable changes are documented here. The format follows
   User Avatar`, `click third Delete` and `click last Edit` take that match in page order, and pictures
   answer to their alt text. `click One way` on an option of a closed dropdown list opens the list
   first (checked on Google Flights), and `role:search`, `role:input` and `role:dropdown` mean the
-  search box, a text field and a dropdown list.
+  search box, a text field and a dropdown list. `hover second image` and `hover second figure` count
+  pictures or boxes of that kind (or class) within the biggest repeated group, so a logo does not
+  count; as a last resort a name that starts with the target's first word and shares half its words
+  is taken (`click Search MDN` finds "Search the site"); and a step line holding a literal `\n` before
+  another step is split even when the other lines use real newlines.
 - **No more leaked tabs.** Every one-shot run of a connector bot (a cron job, `hermes -z`, a bench
   turn) left its tab open, because only the process that made a tab closed it; after a few hundred
   runs the bot's Chrome held hundreds of tabs and about 13 GB. Now a process that connects closes the

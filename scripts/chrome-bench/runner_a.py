@@ -575,6 +575,29 @@ def _(t):
     return C.check(ok, "only the second caption (name: user2) shows", out[-400:])
 
 
+@test("target_nth_kind", "hover second image / second figure: the second of the three avatars, not the logo")
+def _(t):
+    out = t.call(f"go {t.base}/targets.html\nhover second image\nread text")
+    out2 = t.call(f"go {t.base}/targets.html\nhover second figure\nread text")
+    ok = all("name: user2" in o and "name: user1" not in o and "name: user3" not in o for o in (out, out2))
+    return C.check(ok, "only the second caption shows, both ways", f"{out[-250:]} || {out2[-250:]}")
+
+
+@test("target_word_match", "click Search Targets finds the Search button (first word and half the words)")
+def _(t):
+    out = t.call(f"go {t.base}/targets.html\nclick Search Targets\ntype Search = flatMap\npress Enter")
+    got = t.state.last("targets")
+    return C.check(isinstance(got, dict) and got.get("search") == "flatMap", "flatMap searched", f"{got}; {out[-300:]}")
+
+
+@test("steps_mixed_newlines", "steps with real newlines and a literal \\n inside one line both run")
+def _(t):
+    out = t.call(f"go {t.base}/targets.html\nclick Login button\\nclick text:One way")
+    got = t.state.last("targets")
+    ok = isinstance(got, dict) and got.get("login") is True and got.get("trip") == "One way"
+    return C.check(ok, "Login clicked and One way picked", f"{got}; {out[-300:]}")
+
+
 @test("target_drag_card", "drag Card A = Card B on cards named A and B")
 def _(t):
     out = t.call(f"go {t.base}/targets.html\ndrag Card A = Card B")

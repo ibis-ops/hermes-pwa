@@ -5,7 +5,7 @@
 // CDP, so pages see real events. Password values are never returned.
 (function () {
   'use strict';
-  var VERSION = 15;
+  var VERSION = 16;
   if (window.__hcx && window.__hcx.version >= VERSION) return;
 
   // ---- activity tracking for settle detection ----------------------------------------------
@@ -773,6 +773,59 @@
   var ROLE_ALIAS = { search: 'searchbox', input: 'textbox', textfield: 'textbox', field: 'textbox', text: 'textbox',
     dropdown: 'select', a: 'link', btn: 'button' };
 
+  // "second image", "third figure", "first row": elements of that kind (or with that class), taken from
+  // the biggest group of repeated boxes when there is one, so a logo or a ribbon picture does not count.
+  var KIND_SEL = {
+    image: 'img,[role=img]', images: 'img,[role=img]', picture: 'img,[role=img]', photo: 'img,[role=img]',
+    avatar: 'img,[role=img]', thumbnail: 'img,[role=img]', img: 'img,[role=img]', figure: 'figure,.figure',
+    row: 'tr,[role=row]', button: 'button,[role=button]', link: 'a[href]', checkbox: 'input[type=checkbox],[role=checkbox]',
+    field: 'input:not([type=hidden]),textarea', input: 'input:not([type=hidden]),textarea', card: '.card,[class*=card]',
+    heading: 'h1,h2,h3,h4', item: 'li,[role=listitem]', tab: '[role=tab]', option: '[role=option],option'
+  };
+  function kindPool(rest) {
+    var word = rest.replace(/s$/, ''), sel = KIND_SEL[rest] || KIND_SEL[word];
+    if (!sel && /^[a-z][\w-]*$/.test(word)) sel = '.' + word + ',.' + rest;  // a class name: "second figure"
+    if (!sel) return [];
+    var els = [];
+    try { els = deepQueryAll(sel).filter(visible); } catch (e) { return []; }
+    if (els.length < 2) return els;
+    var groups = [], keys = [];
+    els.forEach(function (el) {
+      var node = el;
+      for (var hops = 0; node.parentElement && hops < 6; hops++) {
+        var same = 0;
+        for (var c = node.parentElement.firstElementChild; c && same < 2; c = c.nextElementSibling) {
+          if (c.tagName === node.tagName && c.className === node.className) same++;
+        }
+        if (same >= 2) break;
+        node = node.parentElement;
+      }
+      var i = keys.indexOf(node.parentElement);
+      if (i < 0) { keys.push(node.parentElement); groups.push([]); i = keys.length - 1; }
+      groups[i].push(el);
+    });
+    var best = groups.reduce(function (a, g) { return g.length > a.length ? g : a; }, []);
+    return best.length >= 2 ? best : els;
+  }
+
+  // Last resort: a control whose name starts with the target's first word and shares at least half of
+  // its words ("Search MDN" finds the Search button, not "Skip to search"). The first word must match, so
+  // "Accept all cookies" never lands on "Reject all cookies".
+  function wordMatch(w, role, dialog) {
+    var ws = w.split(' ').filter(Boolean);
+    if (ws.length < 2 || ws[0].length < 3) return null;
+    var best = null, bestS = 0;
+    candidates().forEach(function (el) {
+      if (!roleFits(roleOf(el), role)) return;
+      var nw = low(nameOf(el)).split(' ');
+      if (nw[0] !== ws[0]) return;
+      var hit = ws.filter(function (x) { return nw.indexOf(x) >= 0; }).length / ws.length;
+      if (dialog && dialog.contains(el)) hit += 0.01;
+      if (hit >= 0.5 && hit > bestS) { best = el; bestS = hit; }
+    });
+    return best;
+  }
+
   function resolve(target, kind, depth) {
     target = norm(target);
     depth = depth || 0;
@@ -844,6 +897,7 @@
       var pool = scored(rest, role, kind, dialog).map(function (h) { return h.el; });
       if (!pool.length) pool = textMatches(rest);
       if (!pool.length) pool = altMatches(rest);
+      if (!pool.length) pool = kindPool(rest);
       var pick = nth < 0 ? pool[pool.length - 1] : pool[nth - 1];
       if (pick) return { el: pick, count: pool.length, loose: true };
     }
@@ -857,6 +911,8 @@
       if (cv.length) return { el: cv[0], count: cv.length, loose: true };
     }
     if (depth) return { error: 'no match' };
+    var wm = wordMatch(w, role, dialog);
+    if (wm) return { el: wm, count: 1, loose: true };
     var words = w.split(' ').filter(function (x) { return x.length > 2; });
     var short = w.split(' ').filter(function (x) { return x && x.length <= 2; });
     var near = [];
