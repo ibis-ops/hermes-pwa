@@ -36,10 +36,10 @@ FILES_DIR = OUT_DIR / "files"
 # ---------------------------------------------------------------------------------------------
 
 def setup_home() -> None:
-    """chrome/connector.json {"port": 9334, "headless": true} and an empty profile folder."""
+    """chrome/connector.json (port 9334, headless, no zero data retention needed) and an empty profile folder."""
     (BENCH_CHROME / "profile").mkdir(parents=True, exist_ok=True)
     cfg = BENCH_CHROME / "connector.json"
-    want = {"port": BENCH_PORT, "headless": True}
+    want = {"port": BENCH_PORT, "headless": True, "zero_data_retention": False}  # Sean, 2026-10-28
     try:
         current = json.loads(cfg.read_text(encoding="utf-8"))
     except (OSError, ValueError):
@@ -47,6 +47,14 @@ def setup_home() -> None:
     if current != want:
         cfg.write_text(json.dumps(want) + "\n", encoding="utf-8")
     os.environ["HERMES_HOME"] = str(BENCH_HOME)
+    # The bench home has no .env: Jev's key (auto, ask) comes from Hermes's own, into this process only.
+    try:
+        for line in (Path.home() / ".hermes/.env").read_text(encoding="utf-8").splitlines():
+            m = re.match(r"^\s*(?:export\s+)?(HERMES_PWA_JEV_API_KEY|AI_GATEWAY_API_KEY|OPENROUTER_API_KEY)\s*=(.*)$", line)
+            if m and m.group(2).strip().strip("'\"") and m.group(1) not in os.environ:
+                os.environ[m.group(1)] = m.group(2).strip().strip("'\"")
+    except OSError:
+        pass
 
 
 CONNECTOR_DIR = REPO

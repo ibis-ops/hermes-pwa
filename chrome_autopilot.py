@@ -65,7 +65,8 @@ CHAT_URLS = {
     "vercel": "https://ai-gateway.vercel.sh/v1/chat/completions",
     "openrouter": "https://openrouter.ai/api/v1/chat/completions",
 }
-# Tests and public-page measurements on a plan without zero data retention turn this off; the tool never does.
+# Tests turn this off. A bot turns it off for itself with "zero_data_retention": false in its connector.json
+# (Sean, 2026-10-28: retention by the gateway's providers is acceptable).
 REQUIRE_ZDR = True
 
 HEADS = {"CLICK": "click_target", "TYPE_TEXT": "type_text_target", "SELECT": "select_target"}
@@ -236,6 +237,11 @@ class Gateway:
     jev_model: str
     fast_model: str
     post: Poster
+    need_zdr: bool = True
+
+    @property
+    def wants_zdr(self) -> bool:
+        return REQUIRE_ZDR and self.need_zdr
 
     @property
     def chat_url(self) -> str:
@@ -249,7 +255,7 @@ class Gateway:
 
     def zdr(self) -> dict:
         """The zero data retention request: Vercel's gateway flag, OpenRouter's provider preference."""
-        if not REQUIRE_ZDR:
+        if not self.wants_zdr:
             return {}
         if self.provider.name == "openrouter":
             return {"provider": {"zdr": True}}
@@ -261,17 +267,26 @@ class Gateway:
         return out if isinstance(out, dict) else {}
 
 
+def _settings(run: Any) -> dict:
+    try:
+        raw = json.loads((run.browser.settings.home / "connector.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError, AttributeError, TypeError):
+        return {}
+    return raw if isinstance(raw, dict) else {}
+
+
 def fast_model(run: Any) -> str:
     """The small model: ``fast_model`` in the connector's settings, else Claude Haiku 5.5 (zero data
     retention on every provider that serves it; Mercury is faster but has none on the gateway)."""
-    try:
-        raw = json.loads((run.browser.settings.home / "connector.json").read_text(encoding="utf-8"))
-        model = str(raw.get("fast_model") or "").strip() if isinstance(raw, dict) else ""
-        if model and pwa_router.MODEL_RE.match(model):
-            return model
-    except (OSError, ValueError, AttributeError, TypeError):
-        pass
+    model = str(_settings(run).get("fast_model") or "").strip()
+    if model and pwa_router.MODEL_RE.match(model):
+        return model
     return DEFAULT_FAST_MODEL
+
+
+def need_zdr(run: Any) -> bool:
+    """False only when the bot's connector.json says "zero_data_retention": false."""
+    return _settings(run).get("zero_data_retention") is not False
 
 
 def gateway(run: Any, post: Optional[Poster] = None) -> Gateway:
@@ -281,7 +296,7 @@ def gateway(run: Any, post: Optional[Poster] = None) -> Gateway:
                              "OPENROUTER_API_KEY in Hermes's .env); do the steps yourself")
     provider, key = credentials
     return Gateway(provider, key, pwa_router.jev_model(provider, pwa_router.load_settings()), fast_model(run),
-                   post or _POOL.post)
+                   post or _POOL.post, need_zdr(run))
 
 
 def _fail_reason(exc: BaseException, gw: Gateway, what: str = "Jev") -> str:
@@ -336,7 +351,7 @@ def _zdr_why(exc: BaseException, gw: Gateway, model: str) -> str:
 
 
 def _not_applied(response: dict, gw: Gateway, model: str) -> str:
-    if REQUIRE_ZDR and pwa_router._zdr_applied(_gateway_meta(response)) is False:
+    if gw.wants_zdr and pwa_router._zdr_applied(_gateway_meta(response)) is False:
         return f"{gw.provider.label} took the zero data retention request for {model} but did not apply it"
     return ""
 
@@ -344,7 +359,7 @@ def _not_applied(response: dict, gw: Gateway, model: str) -> str:
 def zdr_refusal(gw: Gateway, model: str, kind: str) -> str:
     """Why ``model``'s requests would not be kept free of retention ("" when they will). Asks once with
     a request that carries nothing from the page, then remembers the answer for a while."""
-    if not REQUIRE_ZDR:
+    if not gw.wants_zdr:
         return ""
     with _zdr_lock:
         seen = _zdr_seen.get((gw.provider.name, model))

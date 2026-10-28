@@ -494,6 +494,16 @@ class ZeroDataRetentionTests(_Base):
         self.assertEqual(gw.urls(), [EVALUATE])
         self.assertNotIn("providerOptions", gw.calls[0]["body"])
 
+    def test_switched_off_by_the_bots_connector_settings(self):
+        refusal = "Zero data retention is only available on Pro and Enterprise plans (current plan: hobby)"
+        self.assertIn("only on Pro and Enterprise", self.auto_fails([WIKI], FakeGateway(decisions=[("DONE", None)],
+                                                                                         refuse=refusal)))
+        (Path(self.tmp.name) / "connector.json").write_text(json.dumps({"zero_data_retention": False}))
+        gw = FakeGateway(decisions=[("DONE", None)], refuse=refusal)
+        self.assertTrue(self.auto([WIKI], gw).startswith(f"auto {GOAL}: DONE in 1 step"))
+        self.assertEqual(gw.urls(), [EVALUATE])  # no check first, and no retention flag sent
+        self.assertNotIn("providerOptions", gw.calls[0]["body"])
+
 
 class AskTests(_Base):
     TEXT = "The Eiffel Tower is 330 metres (1,083 ft) tall. It was completed on 31 March 1889."
