@@ -5,7 +5,7 @@
 // CDP, so pages see real events. Password values are never returned.
 (function () {
   'use strict';
-  var VERSION = 18;
+  var VERSION = 19;
   if (window.__hcx && window.__hcx.version >= VERSION) return;
 
   // ---- activity tracking for settle detection ----------------------------------------------
@@ -913,6 +913,11 @@
       var nr = nthResult(ORDINAL[om[1].toLowerCase()]);
       if (nr) return { el: nr, count: 1, loose: true };
     }
+    // An element id written bare ("drag column-a = column-b").
+    if (/^[A-Za-z][\w-]*$/.test(want)) {
+      var byId = deepQueryAll('[id="' + want + '"]').filter(function (h) { return visible(h) || proxyOf(h); });
+      if (byId.length === 1) return { el: byId[0], count: 1, loose: true };
+    }
     if (/^[#.][A-Za-z_-]|^\[[A-Za-z_-]|^[a-z][a-z0-9-]*[#.\[]|\s>\s/.test(want)) {
       var ch = deepQueryAll(want), cv = ch.filter(function (h) { return visible(h) || proxyOf(h); });
       if (cv.length) return { el: cv[0], count: cv.length, loose: true };
@@ -1040,6 +1045,62 @@
       }
     }
     return null;
+  }
+
+  // ---- trouble ----------------------------------------------------------------------------
+  // The HTTP status this document arrived with (0 when the browser does not say).
+  function docStatus() {
+    try { var e = performance.getEntriesByType('navigation')[0]; return (e && e.responseStatus) || 0; } catch (x) { return 0; }
+  }
+
+  function signin() { return deepQueryAll('input[type=password]').some(visible); }
+
+  // A page that says it is not there (a 404 page), as opposed to an app that answers 404 but still shows its
+  // content (some single-page sites are served that way).
+  function notFoundPage() {
+    var heads = [document.title].concat(Array.prototype.map.call(document.querySelectorAll('h1,h2'), function (h) { return h.innerText; }));
+    if (heads.some(function (t) { return /\b404\b|not found|n.?t exist|no longer (available|exists)|page (is )?missing|can.?t be found|cannot be found/i.test(t || ''); })) return true;
+    return norm(document.body ? document.body.innerText : '').length < 200;
+  }
+
+  // Whether the target is what a click at (x, y) would hit now: a page can slide content in or re-render a
+  // control as the pointer arrives.
+  function hitsAt(t, x, y) {
+    var r = resolve(t);
+    if (!r.el) return false;
+    var el = proxyOf(r.el) || r.el, doc = el.ownerDocument, off = topOffset(doc);
+    var scope = el.getRootNode ? el.getRootNode() : doc;
+    var hit = (scope && scope.elementFromPoint ? scope : doc).elementFromPoint(x - off[0], y - off[1]);
+    return !!hit && (hit === el || el.contains(hit) || (hit.control && hit.control === r.el) ||
+      (hit.tagName === 'LABEL' && r.el.labels && Array.prototype.indexOf.call(r.el.labels, hit) >= 0));
+  }
+
+  // What covers a target, when it is a cookie banner or a promotional popup, and the button that clears it
+  // without agreeing to anything: Reject all, Only necessary, No thanks, Close.
+  var CLEAR_RE = /^(reject( all)?( cookies)?|decline( all)?( cookies)?|deny( all)?|refuse( all)?|(use )?(only )?(strictly )?(necessary|essential)( cookies)?( only)?|continue without (accepting|agreeing)|no,? thanks|not now|maybe later|close|dismiss|skip|\u00d7|\u2715|x)$/i;
+  var REJECT_FIRST = /^(reject|decline|deny|refuse|only|use|strictly|necessary|essential|continue)/i;
+  function cover(t) {
+    var r = resolve(t);
+    if (!r.el) return null;
+    var el = proxyOf(r.el) || r.el, rc = el.getBoundingClientRect();
+    var hit = el.ownerDocument.elementFromPoint(rc.left + rc.width / 2, rc.top + rc.height / 2);
+    if (!hit || hit === el || el.contains(hit)) return null;
+    var box = hit;
+    while (box && box !== el.ownerDocument.body) {
+      var cs = getComputedStyle(box), role = box.getAttribute('role') || '';
+      if (cs.position === 'fixed' || cs.position === 'sticky' || /dialog/.test(role) || box.getAttribute('aria-modal') === 'true') break;
+      box = box.parentElement;
+    }
+    if (!box || box === el.ownerDocument.body) return null;
+    var text = low(box.innerText || '');
+    var kind = /cookie|consent|privacy|gdpr|tracking/.test(text) ? 'a cookie banner' :
+      /newsletter|subscribe|discount|offer|sign up|signup|promo/.test(text) ? 'a popup' : '';
+    if (!kind) return null;
+    var btns = Array.prototype.filter.call(box.querySelectorAll('button,[role=button],a,[aria-label]'), function (b) {
+      return visible(b) && (CLEAR_RE.test(norm(nameOf(b))) || /^(close|dismiss)/i.test(b.getAttribute('aria-label') || ''));
+    });
+    btns.sort(function (a, b) { return (REJECT_FIRST.test(nameOf(b)) ? 1 : 0) - (REJECT_FIRST.test(nameOf(a)) ? 1 : 0); });
+    return btns.length ? { kind: kind, ref: refOf(btns[0]), name: cut(nameOf(btns[0]), 40) } : { kind: kind, ref: '' };
   }
 
   function fire(el, type) { el.dispatchEvent(new Event(type, { bubbles: true })); }
@@ -1392,6 +1453,11 @@
     read: read,
     busy: busy,
     has: has,
+    docStatus: docStatus,
+    signin: signin,
+    notFoundPage: notFoundPage,
+    hits: hitsAt,
+    cover: cover,
     found: function (t, kind) { return !resolve(t, kind || undefined, 0, true).error || !!reveal(t); },
     reveal: reveal,
     wall: wallOf,

@@ -199,6 +199,42 @@ class DownloadOwnerTests(unittest.TestCase):
         self.assertEqual(sorted(b.downloads), ["g5"])
 
 
+class TroubleLineTests(unittest.TestCase):
+    """When a page comes back as an error, the model gets one clear line on what to do next."""
+
+    class FakeTab:
+        def __init__(self, not_found: bool) -> None:
+            self.not_found = not_found
+
+        def hcx(self, fn: str, *args: Any, **_: Any) -> Any:
+            return self.not_found if fn == "notFoundPage" else None
+
+    def test_server_error_after_a_retry(self) -> None:
+        line = cc._status_problem({"status": 503, "retried": 503}, "x.y/a")
+        self.assertIn("503", line)
+        self.assertIn("twice", line)
+        self.assertIn("tell Sean", line)
+
+    def test_missing_page_unless_it_shows_content(self) -> None:
+        self.assertIn("missing page (404", cc._status_problem({"status": 404}, "x.y/a", self.FakeTab(True)))
+        self.assertEqual(cc._status_problem({"status": 404}, "x.y/a", self.FakeTab(False)), "")
+        self.assertEqual(cc._status_problem({"status": 200}, "x.y/a"), "")
+
+    def test_sizes(self) -> None:
+        self.assertEqual(cc._kb(512), "512 bytes")
+        self.assertEqual(cc._kb(2048), "2.0 KB")
+        self.assertEqual(cc._kb(3 * 1048576), "3.0 MB")
+
+    def test_dialogs_named_once(self) -> None:
+        from types import SimpleNamespace
+        tab = SimpleNamespace(dialogs=['alert "Session ends soon" accepted'], dialogs_shown=0)
+        run = cc.Run.__new__(cc.Run)
+        run.browser = SimpleNamespace(active_tab=lambda _s: tab)
+        run.sess = None
+        self.assertIn("Session ends soon", run._new_dialogs("waited 800 ms"))
+        self.assertEqual(run._new_dialogs("click button"), "")
+
+
 class PlaceholderTests(unittest.TestCase):
     def test_fills_nested_strings_only(self) -> None:
         steps = [{"go": "x.y/{client}"}, {"fill": {"Name": "{client}"}}, {"wait": 5}]

@@ -652,8 +652,9 @@ def _(t):
 @test("trouble_login_bounce", "an address that bounces to a sign-in page: one clear line")
 def _(t):
     out = t.call(f"go {t.base}/account\nread text")
-    ok = re.search(r"sign-in page", out, re.I) and "fixture-not-a-secret" not in out
-    return C.check(bool(ok), "the reply says the address led to a sign-in page", out[-500:])
+    first = out.split("\n2.")[0]  # the go step's own line, not the page's text
+    ok = re.search(r"sign-in page", first, re.I) and "fixture-not-a-secret" not in out
+    return C.check(bool(ok), "the go step says the address led to a sign-in page", out[-500:])
 
 
 @test("trouble_late_banner", "a cookie banner arrives late and covers Continue, which takes only real clicks")

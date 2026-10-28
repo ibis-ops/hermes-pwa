@@ -94,6 +94,16 @@ All notable changes are documented here. The format follows
   with a single field (TodoMVC calls it "What needs to be done?") types there once the page has
   settled, and the reply names the field. `click css=.destroy in alpha task` scopes a selector to the
   row holding that text.
+- **It heals itself when a site or the browser misbehaves.** A page that answers a server error is
+  loaded again a second later (once), and a second error fails the step with one line: the site has
+  trouble, try later or tell Sean. A missing page (404 that says so) fails the step instead of
+  reading an error page as content. An address that lands on a sign-in page says so: run `login` or
+  tell Sean. A cookie banner or promo popup over the target is cleared with its Reject all, Only
+  necessary, No thanks or Close button (never Accept), then the real click goes through. A button
+  that slides away or re-renders as the pointer arrives is followed, so the click does not land on
+  the promo that took its place. Every step names the dialogs it met (an alert nobody asked for),
+  a download the server cuts off fails at once with how far it got, and a crashed or hung tab is
+  reopened on the same page at the next call (it used to hang the call for 32 s).
 - **No more leaked tabs.** Every one-shot run of a connector bot (a cron job, `hermes -z`, a bench
   turn) left its tab open, because only the process that made a tab closed it; after a few hundred
   runs the bot's Chrome held hundreds of tabs and about 13 GB. Now a process that connects closes the

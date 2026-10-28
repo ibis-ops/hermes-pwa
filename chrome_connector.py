@@ -508,6 +508,9 @@ class Tab(_Scripted):
         self.drag_data: Optional[dict] = None  # an HTML5 drag Chrome held back for us (drag step)
         self.seen_refs: dict[str, dict] = {}  # page address -> {ref: [role, name, row]} from the maps shown
         self.frame_ids: set = set()  # frames this tab has shown (a download names the frame that started it)
+        self.crashed = False  # its renderer died (out of memory, a page bug): reopened at the next call
+        self.last_url = ""
+        self.dialogs_shown = 0  # dialogs already named in a reply
 
     # -- plumbing ------------------------------------------------------------------------------
     def send(self, method: str, params: Optional[dict] = None, timeout: float = STEP_TIMEOUT_S) -> dict:
@@ -532,6 +535,10 @@ class Tab(_Scripted):
             pass
         try:
             self.send("Emulation.setFocusEmulationEnabled", {"enabled": True})
+        except ConnectorError:
+            pass
+        try:
+            self.send("Inspector.enable")  # tells this tab when its renderer crashes
         except ConnectorError:
             pass
         try:
@@ -567,6 +574,8 @@ class Tab(_Scripted):
             frame = params.get("frame") or {}
             if frame.get("id") and len(self.frame_ids) < 500:
                 self.frame_ids.add(frame["id"])
+            if not frame.get("parentId") and str(frame.get("url", "")).startswith("http"):
+                self.last_url = frame["url"]
             if not frame.get("parentId"):
                 self.pending_nav = False
                 self.nav_seq += 1
@@ -583,6 +592,8 @@ class Tab(_Scripted):
             self.file_chooser_event.set()
         elif method == "Input.dragIntercepted":
             self.drag_data = params.get("data")
+        elif method == "Inspector.targetCrashed":
+            self.crashed = True
         elif method == "Target.attachedToTarget":
             info = params.get("targetInfo") or {}
             sid = params.get("sessionId")
@@ -627,6 +638,7 @@ class AgentSession:
     last_used: float = field(default_factory=time.monotonic)
     lock: threading.RLock = field(default_factory=threading.RLock)
     last_steps: list = field(default_factory=list)  # the last call that worked, for save_recipe without steps
+    notes: list = field(default_factory=list)  # what happened to the session's tabs between calls (a crash)
 
 
 class Browser:
@@ -714,6 +726,10 @@ class Browser:
                 self.opened.append({"target": info.get("targetId"), "opener": info.get("openerId"),
                                     "url": info.get("url", ""), "at": time.monotonic()})
                 del self.opened[:-20]
+        elif method == "Target.targetCrashed":
+            for tab in list(self.tabs_by_session.values()):
+                if tab.target_id == params.get("targetId"):
+                    tab.crashed = True
         elif method == "Target.targetDestroyed":
             tid = params.get("targetId")
             for tab in list(self.tabs_by_session.values()):
@@ -739,6 +755,7 @@ class Browser:
             if d is None:
                 return
             d["bytes"] = int(params.get("receivedBytes") or d["bytes"])
+            d["total"] = int(params.get("totalBytes") or d.get("total") or 0)
             state = params.get("state", d["state"])
             if state == "completed" and d["state"] != "completed":
                 # Named off the reader thread: Chrome can report completion a moment before the file is there.
@@ -808,8 +825,29 @@ class Browser:
             finally:
                 sess.lock.release()
 
+    def reopen(self, sess: AgentSession, tab: Tab, why: str) -> Tab:
+        """Replace a tab that crashed or hangs with a fresh one on the same page."""
+        url = tab.last_url
+        self.close_tab(tab)
+        fresh = self.new_tab()
+        if url:
+            try:
+                navigate(fresh, url)
+            except ConnectorError:
+                pass
+        sess.tabs = [fresh if t is tab else t for t in sess.tabs if not t.closed or t is tab]
+        if fresh not in sess.tabs:
+            sess.tabs.append(fresh)
+        if sess.active is tab or sess.active is None or sess.active.closed:
+            sess.active = fresh
+        sess.notes.append(f"the tab {why}; reopened {_short_url(url) if url else 'a blank tab'} (anything typed there "
+                          "and not saved is gone)")
+        return fresh
+
     def active_tab(self, sess: AgentSession) -> Tab:
         self.connect()
+        for t in [t for t in sess.tabs if t.crashed and not t.closed]:
+            self.reopen(sess, t, "had crashed (the page or the memory gave out)")
         sess.tabs = [t for t in sess.tabs if not t.closed]
         if sess.active is None or sess.active.closed:
             sess.active = sess.tabs[-1] if sess.tabs else None
@@ -922,7 +960,89 @@ def navigate(tab: Tab, url: str) -> dict:
     if res.get("errorText"):
         raise ConnectorError(f"could not open {url}: {res['errorText']}")
     took, ok = settle(tab, NAV_TIMEOUT_S, nav_before=before)
-    return {"settled": ok, "took": took}
+    out = {"settled": ok, "took": took, "status": _status(tab), "retried": 0}
+    if 500 <= out["status"] < 600:
+        out.update(_retry_server_error(tab, out["status"]))
+        out["took"] += took
+    return out
+
+
+def _kb(n: int) -> str:
+    return f"{n} bytes" if n < 1024 else f"{n / 1024:.1f} KB" if n < 1024 * 1024 else f"{n / 1048576:.1f} MB"
+
+
+def _status(tab: Any) -> int:
+    """The HTTP status the page in the tab arrived with (0 when the browser does not say)."""
+    try:
+        return int(tab.hcx("docStatus", timeout=5) or 0)
+    except (ConnectorError, TypeError, ValueError):
+        return 0
+
+
+def _retry_server_error(tab: Any, status: int) -> dict:
+    """A server error is often a moment's trouble (a deploy, a busy server): wait a second, load it again."""
+    time.sleep(1.0)
+    before = tab.nav_seq
+    tab.send("Page.reload", {"ignoreCache": True}, timeout=NAV_TIMEOUT_S)
+    took, ok = settle(tab, NAV_TIMEOUT_S, nav_before=before)
+    return {"settled": ok, "took": 1.0 + took, "status": _status(tab), "retried": status}
+
+
+def _status_problem(r: dict, url: str, tab: Any = None) -> str:
+    """One line for the model when a page came back as an error, or ""."""
+    st = r.get("status") or 0
+    if st in (404, 410) and tab is not None:
+        try:
+            if not tab.hcx("notFoundPage", timeout=5):
+                return ""  # an app that answers 404 but shows its content
+        except ConnectorError:
+            pass
+    if 500 <= st < 600:
+        twice = " twice, a second apart," if r.get("retried") else ""
+        return (f"the server answered {st} (a server error){twice} for {url}: the site has trouble; try again in a "
+                "while or tell Sean")
+    if st in (404, 410):
+        return f"{url} is a missing page ({st} Not Found): check the address, or go back and pick another link"
+    return ""
+
+
+def _hold_still(view: Any, p: dict) -> tuple[dict, str]:
+    """Put the pointer on the target and make sure it is still what a click there hits: pages slide a promo in
+    or re-render a control as the pointer arrives, and the click would land on whatever took its place."""
+    ref, note = p.get("ref"), ""
+    if not ref:
+        return p, note
+    for _ in range(3):
+        view.send("Input.dispatchMouseEvent", {"type": "mouseMoved", "x": p["x"], "y": p["y"]})
+        time.sleep(0.02)
+        try:
+            if view.hcx("hits", ref, p["x"], p["y"], timeout=5) is not False:
+                return p, note
+            p2 = view.hcx("point", ref, timeout=5)
+        except ConnectorError:
+            return p, note
+        if not isinstance(p2, dict) or p2.get("error"):
+            return p, note
+        p, note = {**p, **p2}, "it moved as the pointer reached it; clicked where it went"
+        ref = p.get("ref") or ref
+    return p, note
+
+
+def _clear_cover(view: Any, target: str) -> str:
+    """A cookie banner or a promotional popup over the target: click the button that clears it without
+    agreeing to anything (Reject all, Only necessary, No thanks, Close), as a person would."""
+    try:
+        info = view.hcx("cover", target, timeout=5)
+    except ConnectorError:
+        return ""
+    if not isinstance(info, dict) or not info.get("ref"):
+        return ""
+    q = view.hcx("point", info["ref"], timeout=5)
+    if not isinstance(q, dict) or q.get("error") or not q.get("reach"):
+        return ""
+    _mouse_click(view, q["x"], q["y"])
+    settle(view, 1.5)
+    return f"{info.get('kind', 'a popup')} was in the way: clicked {q.get('what')} first"
 
 
 def _mouse_click(tab: Tab, x: float, y: float, clicks: int = 1) -> None:
@@ -1081,12 +1201,20 @@ def click(tab: Tab, target: str, *, double: bool = False) -> dict:
     url_before = tab.evaluate("location.href")
     nav_before = tab.nav_seq
     opened_before = len(tab.browser.opened)
-    note = ""
+    note, cleared = "", ""
+    if not p.get("reach"):
+        cleared = _clear_cover(view, p.get("ref") or target)
+        if cleared:
+            p2 = view.hcx("point", p.get("ref") or target)
+            if isinstance(p2, dict) and not p2.get("error"):
+                p = {**p, **p2}
     if p.get("reach"):
+        p, moved = _hold_still(view, p)
         _mouse_click(view, p["x"], p["y"], 2 if double else 1)
+        note = "; ".join(x for x in (cleared, moved) if x)
     else:
         _check(view.hcx("jsClick", p.get("ref") or target))
-        note = f"clicked by script ({p.get('cover') or 'something'} was on top)"
+        note = f"clicked by script ({p.get('cover') or 'something'} was on top)" + (f"; {cleared}" if cleared else "")
     time.sleep(0.05)
     took, ok = settle(view, nav_before=nav_before)
     out = {"what": _where(view, p.get("what", target)), "ref": _ref(view, p.get("ref")), "took": took, "settled": ok,
@@ -1443,7 +1571,9 @@ def _download(tab: Tab, browser: "Browser", known: set, spec: str, timeout: floa
                                          "download it again")
                 return {"path": d["path"], "bytes": d["bytes"], "took": time.monotonic() - t0}
             if d["state"] == "canceled":
-                raise ConnectorError(f"the download of {d['name']} was canceled")
+                got = f" after {_kb(d['bytes'])} of {_kb(d['total'])}" if d.get("total") else ""
+                raise ConnectorError(f"the download of {d['name']} stopped before it finished{got} (the server or the "
+                                     "connection cut it off): try it again, or tell Sean if it keeps failing")
         elif time.monotonic() - t0 > 8:
             raise ConnectorError("no download started (the link may open a page instead; open it and read it)")
         time.sleep(0.1)
@@ -1639,6 +1769,7 @@ class Run:
                     self.read_ok = False
                     self.tab.auto_wait = OPTIONAL_WAIT_S if step.get("optional") else AUTO_WAIT_S
                     line = getattr(self, f"do_{action}")(step, step[action])
+                    line += self._new_dialogs(line)
                     self.lines.append(f"{label}. {line}")
                     ok = True
                     if action not in ("save_recipe", "recipe", "recipes") and not prefix:
@@ -1659,6 +1790,17 @@ class Run:
                     self._skip(steps, i, prefix)
                     return
 
+    def _new_dialogs(self, line: str) -> str:
+        """Dialogs the page opened during a step that its line does not name yet (an alert nobody asked for)."""
+        try:
+            tab = self.tab
+        except ConnectorError:
+            return ""
+        new = tab.dialogs[tab.dialogs_shown:]
+        tab.dialogs_shown = len(tab.dialogs)
+        new = [d for d in new if d not in line]
+        return f" [dialog: {'; '.join(new)}]" if new else ""
+
     def _skip(self, steps: list, i: int, prefix: str) -> None:
         rest = len(steps) - i
         if rest > 0:
@@ -1668,7 +1810,22 @@ class Run:
     # -- navigation -----------------------------------------------------------------------------
     def do_go(self, step: dict, url: str) -> str:
         r = navigate(self.tab, str(url))
-        return f"go {_short_url(self.url())} ({_secs(r['took'])}{'' if r['settled'] else ', still loading'})"
+        problem = _status_problem(r, _short_url(self.url()), self.tab)
+        if problem:
+            raise ConnectorError(problem)
+        line = f"go {_short_url(self.url())} ({_secs(r['took'])}{'' if r['settled'] else ', still loading'})"
+        if r.get("retried"):
+            line += f" [the server answered {r['retried']} at first; it loaded on a retry a second later]"
+        return line + self._signin_note()
+
+    def _signin_note(self) -> str:
+        try:
+            if self.tab.hcx("signin", timeout=5):
+                return (" [this is a sign-in page: run login (the Hermes vault fills it) or tell Sean; never type a "
+                        "password]")
+        except ConnectorError:
+            pass
+        return ""
 
     def do_back(self, step: dict, _v: Any) -> str:
         r = history_nav(self.tab, "back")
@@ -1709,7 +1866,18 @@ class Run:
             parts.append(f"[page says: {_cut(notices, 200)}]")
         self.record({"kind": "click", "what": f"{r.get('what')} {r.get('ref') or ''}".strip(), "url": url_before,
                      "to": r.get("url"), "dialog": "; ".join(dialogs), "notices": _cut(notices, 200)})
-        return " ".join(parts)
+        if r.get("url"):
+            # The click opened another page: say plainly when that page is an error or a sign-in page.
+            st = {"status": _status(tab), "retried": 0}
+            if 500 <= st["status"] < 600:
+                st.update(_retry_server_error(tab, st["status"]))
+                if not (500 <= (st.get("status") or 0) < 600):
+                    parts.append(f"[the server answered {st['retried']} at first; it loaded on a retry]")
+            problem = _status_problem(st, _short_url(self.url()), tab)
+            if problem:
+                raise ConnectorError(f"it led to an error page: {problem}")
+            parts.append(self._signin_note().strip())
+        return " ".join(x for x in parts if x)
 
     def do_click(self, step: dict, target: Any) -> str:
         return self._click(step, target, bool(step.get("double")))
@@ -2585,6 +2753,17 @@ _LITERAL_NL = re.compile(r"\\n(?=\??(?:" + "|".join(sorted(set(ACTIONS) | set(_L
                          + r")\b)")
 
 
+def _alive(tab: Tab) -> bool:
+    """A tab whose page still runs script within 2 s (a crashed or hung renderer does not)."""
+    if tab.last_url == "":
+        return True  # a blank new tab
+    try:
+        tab.send("Runtime.evaluate", {"expression": "1", "returnByValue": True}, timeout=2.0)
+        return True
+    except ConnectorError:
+        return False
+
+
 def chrome_tool(args: dict, task_id: Optional[str] = None, session_id: Optional[str] = None, **_: Any) -> str:
     t0 = time.monotonic()
     settings = load_settings()
@@ -2620,6 +2799,11 @@ def chrome_tool(args: dict, task_id: Optional[str] = None, session_id: Optional[
     with sess.lock:
         try:
             tab = browser.active_tab(sess)
+            if not _alive(tab):
+                tab = browser.reopen(sess, tab, "stopped answering (a page stuck in a loop, or a crash)")
+            for n in sess.notes:
+                run.lines.append(f"0. {n}")
+            sess.notes.clear()
             run.dialogs_before = len(tab.dialogs)
             if args.get("fast") is not None:
                 set_fast(tab, bool(args.get("fast")))
