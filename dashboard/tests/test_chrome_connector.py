@@ -197,6 +197,27 @@ class FrameRefTests(unittest.TestCase):
         self.assertIn("frame f3 is not on the page any more", str(err.exception))
 
 
+class WaitTests(unittest.TestCase):
+    """A missing target is waited for only while the page may still bring it."""
+
+    def test_a_still_page_stops_the_wait(self) -> None:
+        import time
+
+        class FakeTab:
+            def __init__(self, busy):
+                self.busy = busy
+
+            def hcx(self, fn, *args, **kw):
+                return self.busy
+
+        still = {"ready": "complete", "inflight": 0, "quiet": 5000, "net": 5000}
+        t0 = time.monotonic() - 1.0
+        self.assertTrue(cc._hopeless(FakeTab(still), t0))
+        self.assertFalse(cc._hopeless(FakeTab({**still, "inflight": 1}), t0))  # a request is out
+        self.assertFalse(cc._hopeless(FakeTab({**still, "quiet": 300}), t0))  # the page just changed
+        self.assertFalse(cc._hopeless(FakeTab(still), time.monotonic()))  # always a short first look
+
+
 class UploadGateTests(unittest.TestCase):
     def test_uploads_only_from_usual_folders(self) -> None:
         s = cc.Settings(home=Path(tempfile.gettempdir()) / "cx-test-home")

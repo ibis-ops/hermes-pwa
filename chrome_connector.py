@@ -503,6 +503,7 @@ class Tab(_Scripted):
         self.frames: dict[str, Frame] = {}
         self.frame_count = 0
         self.last_frames: list[str] = []
+        self.auto_wait = 3.0  # how long a missing target may take to appear (shorter for a ?-step)
 
     # -- plumbing ------------------------------------------------------------------------------
     def send(self, method: str, params: Optional[dict] = None, timeout: float = STEP_TIMEOUT_S) -> dict:
@@ -882,6 +883,8 @@ def _check(res: Any) -> dict:
 
 
 AUTO_WAIT_S = 3.0
+OPTIONAL_WAIT_S = 1.0  # a ?-step (a banner that may not be there) waits less for its target
+STILL_MS = 1200  # a loaded page with no change and no request for this long will not grow a missing target
 
 
 _FRAME_REF = re.compile(r"^f(\d+):(.+)$")
@@ -894,7 +897,20 @@ def _found(view: _Scripted, target: str) -> bool:
         return False
 
 
-def locate(tab: Tab, target: str, timeout: float = AUTO_WAIT_S) -> tuple[Any, str]:
+def _hopeless(tab: Any, t0: float) -> bool:
+    """The page is loaded, nothing is in flight and nothing has changed for a while: what is missing
+    will not come (a wrong selector, a banner that is not there), so waiting longer only costs time."""
+    if time.monotonic() - t0 < 0.4:
+        return False
+    try:
+        b = tab.hcx("busy", timeout=5)
+    except ConnectorError:
+        return False
+    return (isinstance(b, dict) and b.get("ready") == "complete" and not b.get("inflight")
+            and b.get("quiet", 0) >= STILL_MS and b.get("net", 0) >= STILL_MS)
+
+
+def locate(tab: Tab, target: str, timeout: Optional[float] = None) -> tuple[Any, str]:
     """Where a target is: the page, or one of its cross-origin frames (a frame ref like f2:e5 from the
     map, or text the page itself does not have). A target that is not there yet gets a moment to appear
     (a list still loading, suggestions after typing, a menu opening), as a person would; this is free
@@ -908,6 +924,8 @@ def locate(tab: Tab, target: str, timeout: float = AUTO_WAIT_S) -> tuple[Any, st
         return view, m.group(2)
     if re.match(r"^e\d+$", target):
         return tab, target
+    if timeout is None:
+        timeout = getattr(tab, "auto_wait", AUTO_WAIT_S)
     t0 = time.monotonic()
     first = True
     while True:
@@ -920,7 +938,7 @@ def locate(tab: Tab, target: str, timeout: float = AUTO_WAIT_S) -> tuple[Any, st
         if first:
             first = False
             refuse_if_walled(tab)
-        if time.monotonic() - t0 >= timeout:
+        if time.monotonic() - t0 >= timeout or _hopeless(tab, t0):
             return tab, target  # the action itself reports what is missing
         time.sleep(0.1)
 
@@ -1423,6 +1441,7 @@ class Run:
             else:
                 try:
                     self.read_ok = False
+                    self.tab.auto_wait = OPTIONAL_WAIT_S if step.get("optional") else AUTO_WAIT_S
                     line = getattr(self, f"do_{action}")(step, step[action])
                     self.lines.append(f"{label}. {line}")
                     ok = True
@@ -1650,7 +1669,8 @@ class Run:
             res = self._read_frames(spec, opts) or res  # it may be inside a cross-origin frame
             # What the read is for may still be loading (a list fetched after the page loads).
             t0 = time.monotonic()
-            while _empty_read(res) and time.monotonic() - t0 < AUTO_WAIT_S:
+            wait = getattr(self.tab, "auto_wait", AUTO_WAIT_S)
+            while _empty_read(res) and time.monotonic() - t0 < wait and not _hopeless(self.tab, t0):
                 time.sleep(0.15)
                 res = self.tab.hcx("read", spec, opts)
             if not _empty_read(res) and not res.get("frame"):
@@ -2422,7 +2442,7 @@ def _verify(settings: Settings, key: str, entries: list) -> str:
 
 CHROME_DESCRIPTION = """Your web browser for EVERY site (any site, not only Kahunas): this bot's own Google Chrome, headless, always running, signed in to Sean's sites. Use it to open, search, click, fill forms, answer dialogs, upload, download and read live data. Do not use web_extract (it can return an old cached copy), curl or wget, or the browser_* tools for web pages.
 
-FASTEST: put every step you already know into ONE call. The reply says what each step did, every change with its value before and after (read back from the page), and a map of the page with refs (e12) for the next call; after the first map only what changed, and after a call that ends with a read just the page line and the controls on screen.
+FASTEST: put every step you already know into ONE call; do not spend a call just to look at a page first: open it and act in the same call, and mark steps that may not apply with ? (a missing banner or item is skipped in about a second). The reply says what each step did, every change with its value before and after (read back from the page), and a map of the page with refs (e12) for the next call; after the first map only what changed, and after a call that ends with a read just the page line and the controls on screen.
 
 steps: one per line (short form) or a list of objects. Targets: visible text or label (Save, Email), role:text (button:Save, link:Next, checkbox:Remember me), css=selector, or a ref (e12) from a map you have already seen. A page has no refs until you see its map: in the call that opens a page, target by text.
   go example.com/pricing | back | forward | reload
