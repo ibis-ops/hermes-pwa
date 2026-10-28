@@ -178,5 +178,45 @@ class EvalGateTests(unittest.TestCase):
                 cc.run_eval(None, expr)  # refused before any page is touched
 
 
+class PrewarmTests(unittest.TestCase):
+    """The dashboard starts the connector Chromes in the background, only inside the real dashboard."""
+
+    def test_only_the_dashboard_prewarms_and_never_waits(self) -> None:
+        import threading
+        import types
+        from unittest import mock
+
+        from dashboard import plugin_api
+
+        calls = []
+        done = threading.Event()
+
+        def fake_prewarm():
+            calls.append(1)
+            done.set()
+            return ["kahunas-connector"]
+
+        with mock.patch.object(cc, "prewarm_all", fake_prewarm), mock.patch.object(plugin_api, "_PREWARM_DELAY_S", 0):
+            sys.modules.pop("hermes_cli.web_server_dashboard", None)
+            self.assertFalse(plugin_api._start_chrome_prewarm())  # tests and other importers: never
+            with mock.patch.dict(sys.modules, {"hermes_cli.web_server_dashboard": types.ModuleType("x")}):
+                with mock.patch.dict(os.environ, {"HERMES_PWA_CHROME_PREWARM": "0"}):
+                    self.assertFalse(plugin_api._start_chrome_prewarm())
+                self.assertTrue(plugin_api._start_chrome_prewarm())
+                self.assertTrue(done.wait(5))
+        self.assertEqual(calls, [1])
+
+    def test_a_failing_prewarm_is_swallowed(self) -> None:
+        from unittest import mock
+
+        from dashboard import plugin_api
+
+        def boom():
+            raise RuntimeError("no Chrome here")
+
+        with mock.patch.object(cc, "prewarm_all", boom), mock.patch.object(plugin_api, "_PREWARM_DELAY_S", 0):
+            self.assertEqual(plugin_api._prewarm_connector_chromes(), [])
+
+
 if __name__ == "__main__":
     unittest.main()

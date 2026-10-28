@@ -12,8 +12,10 @@ All notable changes are documented here. The format follows
   connector now gets two tools instead, `chrome` and `chrome_history`, shown only in a profile that
   has `<HERMES_HOME>/chrome/connector.json` (port, headless). Today that is Kahunas.
 - **Its own Chrome.** The real Google Chrome binary on a separate profile folder (a copy of Sean's,
-  so sites stay signed in), headless by default, on a fixed local port. It starts on first use (1.3 s)
-  and stays up between tasks; Sean's own Chrome is never touched or quit. `browser show` opens a
+  so sites stay signed in), headless by default, on a fixed local port. It starts when the dashboard
+  starts (in the background; a failure never holds the dashboard up, `HERMES_PWA_CHROME_PREWARM=0`
+  turns it off) or on first use (1.3 s), and stays up between tasks; Sean's own Chrome is never
+  touched or quit. `browser show` opens a
   visible window when Sean needs to watch or sign in; `browser hide` goes back to headless.
 - **One call, many steps.** Steps go one per line (`go`, `click`, `type e5 = text`, `fill A = 1 ; B = 2`,
   `select`, `check`, `press`, `wait text:Saved`, `read table`, `upload`, `download`, tabs, dialogs) and

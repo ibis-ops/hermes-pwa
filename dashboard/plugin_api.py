@@ -93,6 +93,40 @@ _DATA_HEADERS = {
     "Cache-Control": "private, no-store",
 }
 
+# The Chrome connector's own Chrome (one per profile that has chrome/connector.json) starts when the
+# dashboard starts, in the background, so a bot's first chrome call does not wait for the launch.
+_PREWARM_DELAY_S = 3.0
+
+
+def _prewarm_connector_chromes() -> list[str]:
+    """Best effort: a failure is logged and never reaches the dashboard."""
+    log = logging.getLogger("hermes_pwa.chrome")
+    try:
+        time.sleep(_PREWARM_DELAY_S)
+        import chrome_connector  # noqa: E402  (the plugin root is on sys.path)
+        started = chrome_connector.prewarm_all()
+        if started:
+            log.info("Chrome connector ready for: %s", ", ".join(started))
+        return started
+    except Exception as exc:  # pragma: no cover - depends on the Mac
+        log.debug("Chrome connector prewarm skipped: %s", exc)
+        return []
+
+
+def _start_chrome_prewarm() -> bool:
+    """Only inside the real dashboard (the module that mounts plugin APIs is loaded), never in tests or
+    other importers; HERMES_PWA_CHROME_PREWARM=0 turns it off."""
+    if "hermes_cli.web_server_dashboard" not in sys.modules or os.environ.get("HERMES_PWA_CHROME_PREWARM") == "0":
+        return False
+    try:
+        threading.Thread(target=_prewarm_connector_chromes, name="hermes-pwa-chrome-prewarm", daemon=True).start()
+    except Exception:  # pragma: no cover - a thread that cannot start leaves the first call to launch Chrome
+        return False
+    return True
+
+
+_start_chrome_prewarm()
+
 
 def _data_response(payload: object, status_code: int = 200) -> JSONResponse:
     """A JSON response for data the dashboard session may read (see ``_DATA_HEADERS``)."""
