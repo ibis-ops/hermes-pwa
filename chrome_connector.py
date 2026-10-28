@@ -1622,7 +1622,8 @@ def _download(tab: Tab, browser: "Browser", known: set, spec: str, timeout: floa
                                          "download it again")
                 return {"path": d["path"], "bytes": d["bytes"], "took": time.monotonic() - t0}
             if d["state"] == "canceled":
-                got = f"after {_kb(d['bytes'])} of {_kb(d['total'])}" if d.get("total") else "part way"
+                got = (f"after {_kb(d['bytes'])} of {_kb(d['total'])} ({d['bytes']:,} of {d['total']:,} bytes)"
+                       if d.get("total") else "part way")
                 raise _CutOff(f"the download of {d['name']} stopped before it finished, {got} (the server or the "
                               "connection cut it off)", got)
         elif time.monotonic() - t0 > 8:

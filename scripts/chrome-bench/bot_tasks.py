@@ -312,7 +312,7 @@ TASKS += [
             about="an alert nobody asked for", group="trouble"),
     BotTask("trouble_download",
             "On {base}/trouble.html download the Large export and tell me its size in bytes.",
-            _says(r"fail|interrupt|cut (it )?off|incomplete|could ?n.?t|canceled|cancelled|error|did not|didn.?t|stopped",
+            _says(r"fail|interrupt|cuts? (it )?off|incomplete|could ?n.?t|can.?t|cannot|canceled|cancelled|error|did not|didn.?t|stopped",
                   "the download failed, said plainly"),
             about="a download the server cuts off", group="trouble"),
     BotTask("trouble_slow",

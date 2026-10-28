@@ -536,7 +536,8 @@
       notices: notices(), heads: heads, frames: frames, login: pw.length > 0, wall: wallOf(),
       els: out, total: total, cut: Math.max(0, total - out.length - (opts.full ? 0 : behindCount)),
       text: opts.text === 0 ? '' : mainText(opts.text || 1200),
-      scroll: [Math.round(scrollY), Math.max(0, Math.round(document.documentElement.scrollHeight - innerHeight))]
+      // An error page or a document still being replaced can have no root element.
+      scroll: [Math.round(scrollY), Math.max(0, Math.round((document.documentElement ? document.documentElement.scrollHeight : 0) - innerHeight))]
     };
   }
 
