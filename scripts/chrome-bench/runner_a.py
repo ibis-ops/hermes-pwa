@@ -665,6 +665,14 @@ def _(t):
     return C.check(ok, "Continue went through with a real click", f"{got}; {out[-400:]}")
 
 
+@test("trouble_banner_on_hover", "a cookie banner arrives exactly as the pointer reaches Continue")
+def _(t):
+    out = t.call(f"go {t.base}/late-banner.html?on=hover\nclick Continue\nread css=#code")
+    got = t.state.get("late")
+    ok = {"continued": True} in got and {"banner": "reject"} in got and "CONT-OK-4417" in out
+    return C.check(ok, "the banner rejected, then a real click on Continue", f"{got}; {out[-400:]}")
+
+
 @test("trouble_shift", "the button moves under the pointer (a promo slides in; Save re-renders and moves)")
 def _(t):
     out = t.call(f"go {t.base}/shift.html\nclick Pay\nread css=#receipt\nclick Save\nread css=#saved")
@@ -731,6 +739,43 @@ def _(t):
     out = t.call("read text")
     ok = "PLAIN-7Q2X" in out and re.search(r"crash", out, re.I)
     return C.check(bool(ok), "the page read again, and the reply says the tab had crashed", out[-400:])
+
+
+@test("trouble_long_poll", "a page that keeps a request open (a long poll): steps do not wait on it")
+def _(t):
+    out = t.call(f"go {t.base}/hang.html\nclick Refresh\nread css=#status")
+    items = C.read_items(out, "css=#status")
+    return C.check(items == [["Refreshed"]] and t.calls[-1].wall < 2.5, "Refreshed read, the call under 2.5 s",
+                   f"{t.calls[-1].wall:.2f}s; {out[-300:]}")
+
+
+@test("trouble_app_error", "the page's own data request fails once and it offers Try again")
+def _(t):
+    out = t.call(f"go {t.base}/retry.html?k=a\nclick Try again\nread css=#code")
+    items = C.read_items(out, "css=#code")
+    return C.check(items == [["DATA-OK-a"]], "DATA-OK-a after Try again", out[-400:])
+
+
+@test("trouble_429", "a site that rate-limits the first visit (429): one retry, then the page")
+def _(t):
+    out = t.call(f"go {t.base}/ratelimit/a.html\nread css=#code")
+    items = C.read_items(out, "css=#code")
+    return C.check(items == [["RATE-OK-a"]], "RATE-OK-a after the 429", out[-400:])
+
+
+@test("trouble_redirect_loop", "an address that redirects to itself forever: one clear line")
+def _(t):
+    out = t.call(f"go {t.base}/loop.html\nread text")
+    ok = "FAILED" in out and re.search(r"redirect", out, re.I) and "ERR_" not in out
+    return C.check(bool(ok), "a plain line about the redirect loop (no raw net::ERR code)", out[-300:])
+
+
+@test("trouble_no_such_site", "an address whose site does not exist: one clear line")
+def _(t):
+    out = t.call("go https://no-such-host.invalid/page\nread text")
+    ok = "FAILED" in out and re.search(r"does not exist|no such site|not found|cannot be reached|can.?t be reached", out, re.I) \
+        and "ERR_" not in out
+    return C.check(bool(ok), "a plain line that the site does not exist (no raw net::ERR code)", out[-300:])
 
 
 # ---- main ------------------------------------------------------------------------------------------------

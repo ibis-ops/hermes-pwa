@@ -307,6 +307,25 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/always500.html":
             return self._send(500, b"<!doctype html><title>500 Internal Server Error</title><h1>Internal Server Error</h1>",
                               "text/html; charset=utf-8")
+        if path == "/api/hang":
+            # A request that never answers in time (a long poll, a stuck analytics call).
+            time.sleep(30)
+            return self._json({"ok": True})
+        if path.startswith("/api/flaky-data/"):
+            key = path[len("/api/flaky-data/"):]
+            if self.state.add(f"flaky-data:{key}", 1) == 1:
+                return self._json({"error": "upstream timeout"}, 500)
+            return self._json({"code": f"DATA-OK-{key}"})
+        if path.startswith("/ratelimit/") and path.endswith(".html"):
+            key = path[len("/ratelimit/"):-5]
+            if self.state.add(f"ratelimit:{key}", 1) == 1:
+                return self._send(429, b"<!doctype html><title>429 Too Many Requests</title><h1>Too Many Requests</h1>",
+                                  "text/html; charset=utf-8", {"Retry-After": "1"})
+            body = (f"<!doctype html><html><head><meta charset=utf-8><title>Rates</title></head><body><main>"
+                    f"<h1>Rates</h1><p id=code>RATE-OK-{html.escape(key)}</p></main></body></html>").encode()
+            return self._send(200, body, "text/html; charset=utf-8")
+        if path == "/loop.html":
+            return self._send(302, b"", "text/html", {"Location": "/loop.html"})
         if path == "/account":
             # A session that has run out: the account page bounces to the sign-in page.
             return self._send(302, b"", "text/html", {"Location": "/login.html?next=/account"})

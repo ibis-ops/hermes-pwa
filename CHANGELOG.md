@@ -103,7 +103,13 @@ All notable changes are documented here. The format follows
   that slides away or re-renders as the pointer arrives is followed, so the click does not land on
   the promo that took its place. Every step names the dialogs it met (an alert nobody asked for),
   a download the server cuts off fails at once with how far it got, and a crashed or hung tab is
-  reopened on the same page at the next call (it used to hang the call for 32 s).
+  reopened on the same page at the next call (it used to hang the call for 32 s). A rate limit (429)
+  gets the same one retry as a server error; network errors come out in words (the site does not
+  exist, a redirect loop, refused, timed out, a bad certificate) instead of `net::ERR_` codes; and a
+  request the page started long before a step (a long poll) no longer holds the step up (a click on
+  such a page: 1.5 s to 0.2 s). A cut-off download is tried once more by itself before it is
+  reported (the bot used to retry it by hand and then reach for curl), and a banner that arrives
+  just as the pointer reaches the target is cleared before the click instead of swallowing it.
 - **No more leaked tabs.** Every one-shot run of a connector bot (a cron job, `hermes -z`, a bench
   turn) left its tab open, because only the process that made a tab closed it; after a few hundred
   runs the bot's Chrome held hundreds of tabs and about 13 GB. Now a process that connects closes the

@@ -925,7 +925,8 @@ def settle(tab: Tab, max_s: float = SETTLE_MAX_S, *, nav_before: Optional[int] =
         state = None
         if not tab.pending_nav:
             try:
-                state = tab.hcx("busy", timeout=5)
+                # Requests started before this wait began and older than 1.5 s (a long poll) do not hold it.
+                state = tab.hcx("busy", max(1500, int((now - t0) * 1000) + 300), timeout=5)
             except ConnectorError:
                 state = None  # the document is being replaced
         # Ready once the DOM is parsed and quiet: images, fonts and ads may still be loading. A response that
@@ -958,10 +959,10 @@ def navigate(tab: Tab, url: str) -> dict:
     before = tab.nav_seq
     res = tab.send("Page.navigate", {"url": url}, timeout=NAV_TIMEOUT_S)
     if res.get("errorText"):
-        raise ConnectorError(f"could not open {url}: {res['errorText']}")
+        raise ConnectorError(_net_error(url, str(res["errorText"])))
     took, ok = settle(tab, NAV_TIMEOUT_S, nav_before=before)
     out = {"settled": ok, "took": took, "status": _status(tab), "retried": 0}
-    if 500 <= out["status"] < 600:
+    if 500 <= out["status"] < 600 or out["status"] == 429:
         out.update(_retry_server_error(tab, out["status"]))
         out["took"] += took
     return out
@@ -969,6 +970,28 @@ def navigate(tab: Tab, url: str) -> dict:
 
 def _kb(n: int) -> str:
     return f"{n} bytes" if n < 1024 else f"{n / 1024:.1f} KB" if n < 1024 * 1024 else f"{n / 1048576:.1f} MB"
+
+
+_NET_ERRORS = [
+    (r"NAME_NOT_RESOLVED|NAME_RESOLUTION_FAILED", "the site does not exist (its name does not resolve): check the address"),
+    (r"TOO_MANY_REDIRECTS", "the site keeps redirecting the browser in a loop (often a sign-in that is not working): "
+                            "tell Sean"),
+    (r"CONNECTION_REFUSED", "the site refused the connection (it may be down): try again later"),
+    (r"TIMED_OUT|CONNECTION_TIMED_OUT", "the site did not answer in time (it may be down or very slow): try again later"),
+    (r"INTERNET_DISCONNECTED|NETWORK_CHANGED", "this Mac has no internet connection right now"),
+    (r"CERT_|SSL_", "the site's security certificate is not valid, so it was not opened: tell Sean"),
+    (r"ADDRESS_UNREACHABLE|CONNECTION_RESET|CONNECTION_CLOSED|EMPTY_RESPONSE", "the connection to the site broke: try again"),
+    (r"ABORTED", "the address did not open as a page (it may be a file: use download <address>)"),
+    (r"BLOCKED_BY_CLIENT", "the browser blocked this address (fast mode skips some of them: fast off)"),
+]
+
+
+def _net_error(url: str, error: str) -> str:
+    """A Chrome network error as one line for the model."""
+    for pattern, line in _NET_ERRORS:
+        if re.search(pattern, error):
+            return f"could not open {url}: {line}"
+    return f"could not open {url} ({error.replace('net::', '')})"
 
 
 def _status(tab: Any) -> int:
@@ -991,6 +1014,9 @@ def _retry_server_error(tab: Any, status: int) -> dict:
 def _status_problem(r: dict, url: str, tab: Any = None) -> str:
     """One line for the model when a page came back as an error, or ""."""
     st = r.get("status") or 0
+    if st == 429:
+        return (f"the site is limiting how often this browser may load pages (429 Too Many Requests) at {url}, "
+                "even after a wait: try again in a few minutes")
     if st in (404, 410) and tab is not None:
         try:
             if not tab.hcx("notFoundPage", timeout=5):
@@ -1023,7 +1049,11 @@ def _hold_still(view: Any, p: dict) -> tuple[dict, str]:
             return p, note
         if not isinstance(p2, dict) or p2.get("error"):
             return p, note
-        p, note = {**p, **p2}, "it moved as the pointer reached it; clicked where it went"
+        if not p2.get("reach"):
+            return {**p, **p2}, note  # something now covers it (a banner that just arrived): the cover path
+        if abs(p2["x"] - p["x"]) > 2 or abs(p2["y"] - p["y"]) > 2 or (p2.get("ref") and p2.get("ref") != ref):
+            note = "it moved as the pointer reached it; clicked where it went"
+        p = {**p, **p2}
         ref = p.get("ref") or ref
     return p, note
 
@@ -1201,15 +1231,18 @@ def click(tab: Tab, target: str, *, double: bool = False) -> dict:
     url_before = tab.evaluate("location.href")
     nav_before = tab.nav_seq
     opened_before = len(tab.browser.opened)
-    note, cleared = "", ""
+    note, cleared, moved = "", "", ""
+    if p.get("reach"):
+        p, moved = _hold_still(view, p)
     if not p.get("reach"):
         cleared = _clear_cover(view, p.get("ref") or target)
         if cleared:
             p2 = view.hcx("point", p.get("ref") or target)
             if isinstance(p2, dict) and not p2.get("error"):
                 p = {**p, **p2}
+                if p.get("reach"):
+                    p, moved = _hold_still(view, p)
     if p.get("reach"):
-        p, moved = _hold_still(view, p)
         _mouse_click(view, p["x"], p["y"], 2 if double else 1)
         note = "; ".join(x for x in (cleared, moved) if x)
     else:
@@ -1549,9 +1582,27 @@ def download(tab: Tab, spec: str, timeout: float = 120.0) -> dict:
     browser.awaiting_downloads += 1
     browser.set_downloads()  # again just before: another process may have ended since the call began
     try:
-        return _download(tab, browser, known, spec, timeout)
+        try:
+            return _download(tab, browser, known, spec, timeout)
+        except _CutOff as first:
+            # A dropped connection is often a moment's trouble: try once more before saying so.
+            time.sleep(1.0)
+            known = set(browser.downloads)
+            try:
+                res = _download(tab, browser, known, spec, timeout)
+                res["retried"] = True
+                return res
+            except _CutOff as second:
+                raise ConnectorError(f"{second}, on two tries a second apart: retrying will not help; tell Sean the "
+                                     "file cannot be downloaded right now") from None
     finally:
         browser.awaiting_downloads -= 1
+
+
+class _CutOff(ConnectorError):
+    def __init__(self, msg: str, got: str) -> None:
+        super().__init__(msg)
+        self.got = got
 
 
 def _download(tab: Tab, browser: "Browser", known: set, spec: str, timeout: float) -> dict:
@@ -1571,9 +1622,9 @@ def _download(tab: Tab, browser: "Browser", known: set, spec: str, timeout: floa
                                          "download it again")
                 return {"path": d["path"], "bytes": d["bytes"], "took": time.monotonic() - t0}
             if d["state"] == "canceled":
-                got = f" after {_kb(d['bytes'])} of {_kb(d['total'])}" if d.get("total") else ""
-                raise ConnectorError(f"the download of {d['name']} stopped before it finished{got} (the server or the "
-                                     "connection cut it off): try it again, or tell Sean if it keeps failing")
+                got = f"after {_kb(d['bytes'])} of {_kb(d['total'])}" if d.get("total") else "part way"
+                raise _CutOff(f"the download of {d['name']} stopped before it finished, {got} (the server or the "
+                              "connection cut it off)", got)
         elif time.monotonic() - t0 > 8:
             raise ConnectorError("no download started (the link may open a page instead; open it and read it)")
         time.sleep(0.1)
@@ -1869,9 +1920,9 @@ class Run:
         if r.get("url"):
             # The click opened another page: say plainly when that page is an error or a sign-in page.
             st = {"status": _status(tab), "retried": 0}
-            if 500 <= st["status"] < 600:
+            if 500 <= st["status"] < 600 or st["status"] == 429:
                 st.update(_retry_server_error(tab, st["status"]))
-                if not (500 <= (st.get("status") or 0) < 600):
+                if not (500 <= (st.get("status") or 0) < 600 or st.get("status") == 429):
                     parts.append(f"[the server answered {st['retried']} at first; it loaded on a retry]")
             problem = _status_problem(st, _short_url(self.url()), tab)
             if problem:
@@ -2169,7 +2220,8 @@ class Run:
         r = download(self.tab, str(spec), float(step.get("timeout", 120)))
         self.record({"kind": "download", "what": _cut(spec, 80), "url": url, "path": r["path"], "bytes": r["bytes"]})
         self.read_ok = True  # the call got what it came for: no control list after it
-        return f"download saved: {r['path']} ({_size(r['path'], r['bytes'])}, {_secs(r['took'])})"
+        again = " [the first try was cut off; this is the second]" if r.get("retried") else ""
+        return f"download saved: {r['path']} ({_size(r['path'], r['bytes'])}, {_secs(r['took'])}){again}"
 
     # -- tabs, dialogs, modes, the browser ------------------------------------------------------
     def do_tab(self, step: dict, spec: Any) -> str:

@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Account data</title>
+<style>body{font:15px/1.5 system-ui,sans-serif;margin:24px;max-width:640px}</style></head>
+<body>
+<main>
+<h1>Account data</h1>
+<div id="panel">Loading...</div>
+</main>
+<script>
+// The data request fails the first time (an upstream timeout); the page offers Try again, as many apps do.
+var key = new URLSearchParams(location.search).get('k') || 'x';
+function load() {
+  var panel = document.getElementById('panel');
+  panel.textContent = 'Loading...';
+  fetch('/api/flaky-data/' + key).then(function (r) {
+    if (!r.ok) throw new Error('bad');
+    return r.json();
+  }).then(function (d) {
+    panel.innerHTML = '<p id="code">' + d.code + '</p>';
+  }).catch(function () {
+    panel.innerHTML = '<p role="alert">Something went wrong while loading your data.</p>' +
+      '<button type="button" id="again">Try again</button>';
+    document.getElementById('again').onclick = load;
+  });
+}
+load();
+</script>
+</body>
+</html>

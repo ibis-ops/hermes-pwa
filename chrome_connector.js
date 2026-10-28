@@ -5,13 +5,14 @@
 // CDP, so pages see real events. Password values are never returned.
 (function () {
   'use strict';
-  var VERSION = 19;
+  var VERSION = 20;
   if (window.__hcx && window.__hcx.version >= VERSION) return;
 
   // ---- activity tracking for settle detection ----------------------------------------------
   var st = window.__hcxState;
   if (!st) {
-    st = window.__hcxState = { inflight: 0, lastMutation: Date.now(), lastNet: 0, seq: 0, api: [], apiSeq: 0 };
+    st = window.__hcxState = { inflight: 0, lastMutation: Date.now(), lastNet: 0, seq: 0, api: [], apiSeq: 0,
+      starts: {}, reqSeq: 0 };
     // JSON the page loads from its own server, kept (last 25, 200 KB each) so the bot can read
     // the data directly instead of scraping the rendered page.
     var keep = function (url, method, status, text) {
@@ -32,8 +33,10 @@
         window.fetch = function (input, init) {
           st.inflight++;
           st.lastNet = Date.now();
+          var rid = ++st.reqSeq;
+          st.starts[rid] = st.lastNet;
           var method = (init && init.method) || (input && input.method) || 'GET';
-          var done = function () { st.inflight = Math.max(0, st.inflight - 1); st.lastNet = Date.now(); };
+          var done = function () { st.inflight = Math.max(0, st.inflight - 1); st.lastNet = Date.now(); delete st.starts[rid]; };
           try {
             var p = origFetch.apply(this, arguments);
             p.then(function (resp) {
@@ -56,9 +59,12 @@
         var x = this;
         st.inflight++;
         st.lastNet = Date.now();
+        var rid = ++st.reqSeq;
+        st.starts[rid] = st.lastNet;
         x.addEventListener('loadend', function () {
           st.inflight = Math.max(0, st.inflight - 1);
           st.lastNet = Date.now();
+          delete st.starts[rid];
           try {
             var ct = x.getResponseHeader('content-type') || '';
             if (/json/i.test(ct) && (x.responseType === '' || x.responseType === 'text')) keep(x.responseURL, x.__hcxMethod, x.status, x.responseText);
@@ -1393,10 +1399,16 @@
     return up && low(up.innerText).replace(/\s*:$/, '') === w ? up : h;
   }
 
-  function busy() {
-    var now = Date.now();
+  // maxAge: count only requests younger than that (ms). A request the page started long before the step
+  // (a long poll, a stuck analytics call) is not what the step waits for.
+  function busy(maxAge) {
+    var now = Date.now(), inflight = st.inflight;
+    if (maxAge && st.starts) {
+      inflight = 0;
+      for (var k in st.starts) if (now - st.starts[k] < maxAge) inflight++;
+    }
     return {
-      ready: document.readyState, url: location.href, inflight: st.inflight,
+      ready: document.readyState, url: location.href, inflight: inflight,
       quiet: now - st.lastMutation, net: st.lastNet ? now - st.lastNet : 1e9
     };
   }

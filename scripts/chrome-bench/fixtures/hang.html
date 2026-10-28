@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Live dashboard</title>
+<style>body{font:15px/1.5 system-ui,sans-serif;margin:24px;max-width:640px}</style></head>
+<body>
+<main>
+<h1>Live dashboard</h1>
+<p id="ready">HANG-PAGE-READY</p>
+<p><button type="button" id="refresh">Refresh</button></p>
+<p id="status" role="status"></p>
+</main>
+<script>
+// A request that stays open (a long poll): the page is ready, but the network is never idle.
+fetch('/api/hang').catch(function () {});
+document.getElementById('refresh').addEventListener('click', function () {
+  document.getElementById('status').textContent = 'Refreshed';
+  fetch('/api/submit/hang', { method: 'POST', body: JSON.stringify({ refreshed: true }) });
+});
+</script>
+</body>
+</html>

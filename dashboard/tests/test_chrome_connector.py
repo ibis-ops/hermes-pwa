@@ -220,6 +220,12 @@ class TroubleLineTests(unittest.TestCase):
         self.assertEqual(cc._status_problem({"status": 404}, "x.y/a", self.FakeTab(False)), "")
         self.assertEqual(cc._status_problem({"status": 200}, "x.y/a"), "")
 
+    def test_network_errors_in_plain_words(self) -> None:
+        self.assertIn("does not exist", cc._net_error("x.invalid", "net::ERR_NAME_NOT_RESOLVED"))
+        self.assertIn("loop", cc._net_error("x.y", "net::ERR_TOO_MANY_REDIRECTS"))
+        self.assertNotIn("net::", cc._net_error("x.y", "net::ERR_SOMETHING_NEW"))
+        self.assertIn("429", cc._status_problem({"status": 429, "retried": 429}, "x.y/a"))
+
     def test_sizes(self) -> None:
         self.assertEqual(cc._kb(512), "512 bytes")
         self.assertEqual(cc._kb(2048), "2.0 KB")

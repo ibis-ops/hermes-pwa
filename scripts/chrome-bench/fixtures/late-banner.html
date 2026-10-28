@@ -17,7 +17,10 @@ body{font:15px/1.5 system-ui,sans-serif;margin:24px;max-width:640px}
 // A cookie banner that arrives late (200 ms after load) and covers the page. Continue only counts a real
 // click (isTrusted), as some sites do, so a click by script does not get through.
 function post(v) { fetch('/api/submit/late', { method: 'POST', body: JSON.stringify(v) }); }
-setTimeout(function () {
+var shown = false;
+function showBanner() {
+  if (shown) return;  // once, as real banners do
+  shown = true;
   var d = document.createElement('div');
   d.id = 'cookie';
   d.setAttribute('role', 'dialog');
@@ -27,7 +30,13 @@ setTimeout(function () {
   document.body.appendChild(d);
   document.getElementById('acc').onclick = function () { post({ banner: 'accept' }); d.remove(); };
   document.getElementById('rej').onclick = function () { post({ banner: 'reject' }); d.remove(); };
-}, 200);
+}
+// ?on=hover: the banner arrives exactly as the pointer reaches Continue (a race, made certain).
+if (/on=hover/.test(location.search)) {
+  document.getElementById('go').addEventListener('pointerenter', showBanner);
+} else {
+  setTimeout(showBanner, 200);
+}
 document.getElementById('go').addEventListener('click', function (e) {
   if (!e.isTrusted) { post({ untrusted: true }); return; }
   document.getElementById('code').textContent = 'Confirmation CONT-OK-4417';
