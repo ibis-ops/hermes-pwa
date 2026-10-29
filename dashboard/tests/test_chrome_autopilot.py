@@ -554,6 +554,15 @@ class RelevantTextTests(unittest.TestCase):
         self.assertLess(len(out), 6000)
         self.assertIn("[...]", out)
 
+    def test_a_value_on_its_own_line_and_a_huge_line_nearby(self):
+        filler = "ledger quarter freight audit route manifest carrier volume " * 8
+        lines = [filler] * 300 + ["Depot", "Harbor depot", "March", "5,230.00"] + [filler] * 300 + \
+            ["Summary: the Harbor depot pallets total for March and every month", "x" * 200000] + [filler] * 50
+        out, picked = ap.relevant_text("\n".join(lines), "How many pallets did the Harbor depot log in March?")
+        self.assertTrue(picked)
+        self.assertIn("5,230.00", out)
+        self.assertLess(len(out), ap.ASK_PICKED + 3 * ap.ASK_LINE_CAP)
+
     def test_short_pages_and_vague_questions_go_whole(self):
         self.assertEqual(ap.relevant_text("short page", "anything?"), ("short page", False))
         text = "\n".join(["ledger quarter freight audit " * 30] * 200)

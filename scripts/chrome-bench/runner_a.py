@@ -499,7 +499,7 @@ def _(t):
     m = re.search(r"saved to (\S+\.txt)", out)
     saved = Path(m.group(1)).read_text(encoding="utf-8") if m and Path(m.group(1)).is_file() else ""
     fact = f"{F.long_fact('bench-a'):,} pallets"
-    ok = "whole page text" in out and fact in saved and len(saved) > 200000
+    ok = "nothing cut" in out and fact in saved and len(saved) > 200000
     return C.check(ok, f"the whole page saved, with '{fact}'", f"saved {len(saved)} chars; {out[-300:]}")
 
 

@@ -977,6 +977,7 @@ def run_auto(run: Any, step: dict, goal: str, *, post: Optional[Poster] = None) 
 # words with the question, each with its neighbours, in page order, up to ASK_PICKED characters.
 ASK_WHOLE = 60000
 ASK_PICKED = 24000
+ASK_LINE_CAP = 2000
 _STOP = frozenset("""the and for that this with from what which who whom whose how many much does did was were are
 is its into onto over under about there their them they then than when where why your you our has have had not
 tell me give show find page reply only number name value please""".split())
@@ -988,7 +989,10 @@ def _terms(question: str) -> list:
 
 
 def relevant_text(text: str, question: str) -> tuple:
-    """(text to send, True when it is a selection of the page)."""
+    """(text to send, True when it is a selection of the page). Every line with two or more of the question's words,
+    best first, each with two lines either side (a label and its value are often on separate lines), until
+    ASK_PICKED characters; lines with one word too when that finds little. No kept line is longer than
+    ASK_LINE_CAP, so one huge line cannot use up the selection (review of round 25's version)."""
     if len(text) <= ASK_WHOLE:
         return text, False
     terms = _terms(question)
@@ -999,25 +1003,32 @@ def relevant_text(text: str, question: str) -> tuple:
     for line in lines:
         stems = {w[:5] for w in re.findall(r"[a-z0-9]+", line.lower())}
         scores.append(sum(1 for t in terms if t in stems))
-    best = max(scores)
-    if best < 2:
+    if max(scores) < 2:
         return text[:ASK_LIMIT], False
-    order = sorted(range(len(lines)), key=lambda i: (-scores[i], i))
-    keep, size = set(), 0
-    for i in order:
-        if scores[i] < max(2, best - 1) or size > ASK_PICKED:
-            break
-        for j in (i - 1, i, i + 1):
-            if 0 <= j < len(lines) and j not in keep:
-                keep.add(j)
-                size += len(lines[j]) + 1
+    keep: set = set()
+    size = 0
+
+    def take(floor: int) -> None:
+        nonlocal size
+        for i in sorted((i for i, sc in enumerate(scores) if sc >= floor), key=lambda i: (-scores[i], i)):
+            if size >= ASK_PICKED:
+                return
+            for j in range(i - 2, i + 3):
+                if 0 <= j < len(lines) and j not in keep:
+                    keep.add(j)
+                    size += min(len(lines[j]), ASK_LINE_CAP) + 1
+
+    take(2)
+    if size < 4000:
+        take(1)
     out, last = [], -2
     for i in sorted(keep):
         if i != last + 1:
             out.append("[...]")
-        out.append(lines[i])
+        line = lines[i]
+        out.append(line if len(line) <= ASK_LINE_CAP else line[:ASK_LINE_CAP] + " [...]")
         last = i
-    return "\n".join(out)[:ASK_PICKED * 2], True
+    return "\n".join(out), True
 
 
 def page_text_of(res: dict) -> str:
@@ -1093,5 +1104,6 @@ def ask(run: Any, step: dict, question: str, *, post: Optional[Poster] = None) -
     part = (f"the first {whole:,} characters of page text (the page has more; not on the page means not "
             f"in that part)" if cut else f"{whole:,} characters of page text")
     if picked:
-        part = f"the {len(text):,} characters that match the question, of {part}"
+        part = (f"the {len(text):,} characters that match the question, of {part}; not on the page means not in "
+                f"those parts (read text saves the whole page to check)")
     return f"ask: {answer}{check} (answered by {model} from {part} in {ms} ms)"

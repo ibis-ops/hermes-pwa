@@ -109,7 +109,10 @@ class AutoLoginTests(unittest.TestCase):
     """A go that lands on a sign-in page signs in with this bot's saved login and opens the address again."""
     NOTE = " [this is a sign-in page: run login (the Hermes vault fills it) or tell Sean; never type a password]"
 
-    def _go(self, login_result=None, login_error=None, step=None):
+    def setUp(self):
+        cc._LOGIN_STATE.clear()
+
+    def _go(self, login_result=None, login_error=None, step=None, bounced=True):
         from types import SimpleNamespace
         from unittest.mock import patch
         sess = cc.AgentSession(key="s1", last_steps=[])
@@ -133,7 +136,8 @@ class AutoLoginTests(unittest.TestCase):
             notes = iter([self.NOTE, ""])
             with patch.object(cc, "navigate", navigate), patch.object(cc, "_status_problem", lambda *a: ""), \
                     patch.object(cc.Run, "tab", None), patch.object(run, "url", lambda: urls[-1]), \
-                    patch.object(run, "_signin_note", lambda: next(notes, "")), patch.object(run, "do_login", do_login):
+                    patch.object(run, "_signin_note", lambda: next(notes, "")), patch.object(run, "do_login", do_login), \
+                    patch.object(run, "_bounced_to_signin", lambda _url: bounced):
                 return run.do_go(step or {}, "https://kahunas.io/coach/clients"), opened
 
     def test_signs_in_with_the_saved_login_and_opens_the_address_again(self):
@@ -152,6 +156,30 @@ class AutoLoginTests(unittest.TestCase):
         line, _ = self._go(login_error="vault fill failed: no password field")
         self.assertIn("the saved login did not work: vault fill failed", line)
 
+    def test_a_sign_in_page_opened_on_purpose_keeps_the_note(self):
+        line, opened = self._go("signed in as x", bounced=False)
+        self.assertTrue(line.endswith(self.NOTE))
+        self.assertEqual(len(opened), 1)
+
+    def test_a_failed_login_is_not_tried_again_for_a_while(self):
+        line, _ = self._go(login_error="vault fill failed: no password field")
+        self.assertIn("did not work", line)
+        line, opened = self._go("login on https://kahunas.io: signed in as coach@example.com")
+        self.assertIn("not tried again", line)
+        self.assertEqual(len(opened), 1)
+
+    def test_a_second_step_page_is_not_reported_as_signed_in(self):
+        line, opened = self._go("login on https://kahunas.io: filled from the vault and submitted, but the site now "
+                                "asks for a sign-in code (2FA): tell Sean (he signs in himself)")
+        self.assertIn("asks for a sign-in code", line)
+        self.assertNotIn("session had expired", line)
+        self.assertEqual(len(opened), 1)
+
+    def test_same_address_counts_query_and_route(self):
+        self.assertTrue(cc._same_address("kahunas.io/coach/clients/", "https://kahunas.io/coach/clients"))
+        self.assertFalse(cc._same_address("https://app.example/clients?search=x", "https://app.example/clients"))
+        self.assertFalse(cc._same_address("https://app.example/#/clients/5", "https://app.example/#/dashboard"))
+
     def test_login_false_keeps_the_page(self):
         line, opened = self._go("signed in as x", step={"login": False})
         self.assertTrue(line.endswith(self.NOTE))
@@ -166,6 +194,21 @@ class LooseActionTests(unittest.TestCase):
             with self.assertRaises(cc.ConnectorError) as err:
                 cc._refuse_loose_action("Supplement Plan", {"loose": loose, "what": 'link "Create Supplement Plan"'})
             self.assertIn("would create something, so nothing was clicked", str(err.exception))
+
+    def test_inflections_and_wider_scope_are_refused(self):
+        for target, what in (("Client", 'button "Delete client"'), ("Plan", 'link "Plan deleted? Restore"'),
+                             ("Delete", 'button "Delete all clients"'), ("Cancel", 'button "Cancel subscription"'),
+                             ("Supplement Plan", 'link "New Supplement Plan"'), ("Account", 'button "Sign out of account"'),
+                             ("Notes", 'button "Removes notes"')):
+            with self.assertRaises(cc.ConnectorError, msg=f"{target} -> {what}"):
+                cc._refuse_loose_action(target, {"what": what})
+
+    def test_ordinals_options_and_plain_names_still_click(self):
+        for target, what in (("first result", 'link "How to Create a Budget"'), ("link 2", 'link "Pay Invoice"'),
+                             ("option:Yearly", 'option "Yearly (Save 20%)"'), ("Next", 'button "Next"'),
+                             ("Supplements", 'link "Supplements"'), ("Fiction", 'link "Fiction Books"'),
+                             ("Save", 'button "Save"')):
+            cc._refuse_loose_action(target, {"what": what})
 
     def test_exact_names_refs_selectors_and_named_actions_still_click(self):
         cc._refuse_loose_action("Create Supplement Plan", {"what": 'link "Create Supplement Plan"'})
@@ -545,3 +588,12 @@ class PrewarmTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class EvalDenyTests(unittest.TestCase):
+    def test_eval_never_reads_a_password_field(self):
+        for expr in ("document.querySelector('input[type=password]').value",
+                     "[...document.querySelectorAll('input')].find(x => x.type == 'password').value",
+                     "document.forms[0].elements.passwd.value"):
+            with self.assertRaises(cc.ConnectorError):
+                cc.run_eval(None, expr)

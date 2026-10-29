@@ -1246,7 +1246,10 @@
       return { text: mt, heads: mt.length > 2500 ? sectionHeads() : [] };
     }
     if (/^section\s*[:=]/i.test(spec)) return readSection(spec.replace(/^section\s*[:=]\s*/i, ''), limit);
-    if (spec === 'all') return { text: (document.body.innerText || '').slice(0, limit) };
+    if (spec === 'all') {
+      var at = document.body ? (document.body.innerText || '') : '';
+      return { text: at.length > limit ? at.slice(0, limit) + '\n[... ' + (at.length - limit) + ' more characters]' : at };
+    }
     if (spec === 'form') return readForm();
     if (spec === 'table') return readTable(null);
     if (/^(the )?(list|items|list items|results|search results|entries)$/i.test(spec)) {
