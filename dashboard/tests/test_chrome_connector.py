@@ -642,3 +642,48 @@ class ExitTabsTests(unittest.TestCase):
     def test_nothing_happens_without_a_connection(self):
         b = cc.Browser(cc.Settings(home=Path("/tmp")))
         self.assertEqual(b.close_own_tabs(), 0)
+
+
+class ReaperTests(unittest.TestCase):
+    def test_the_reaper_starts_once(self):
+        from unittest.mock import patch
+        b = cc.Browser(cc.Settings(home=Path("/tmp")))
+        with patch.object(cc, "REAP_EVERY_S", 3600):
+            b.start_reaper()
+            first = b.reaper
+            b.start_reaper()
+        self.assertIs(b.reaper, first)
+        self.assertTrue(first.daemon)
+
+    def test_idle_sessions_lose_their_tabs(self):
+        from types import SimpleNamespace
+        import threading
+        closed = []
+        b = cc.Browser(cc.Settings(home=Path("/tmp")))
+        b.close_tab = lambda tab: closed.append(tab.target_id)
+        old = cc.AgentSession("old", tabs=[SimpleNamespace(target_id="A")])
+        old.last_used -= cc.TAB_IDLE_S + 1
+        new = cc.AgentSession("new", tabs=[SimpleNamespace(target_id="B")])
+        b.sessions = {"old": old, "new": new}
+        b._reap(keep="")
+        self.assertEqual(closed, ["A"])
+        self.assertEqual(list(b.sessions), ["new"])
+
+
+class FinalizeTests(unittest.TestCase):
+    def test_a_finished_session_loses_its_tabs(self):
+        from types import SimpleNamespace
+        posted = []
+        b = cc.Browser(cc.Settings(home=Path("/tmp"), port=65001))
+        b.cdp = SimpleNamespace(closed=False, post=lambda m, p: posted.append(p["targetId"]))
+        b.sessions = {"s1": cc.AgentSession("s1", tabs=[SimpleNamespace(target_id="A", closed=False)]),
+                      "s2": cc.AgentSession("s2", tabs=[SimpleNamespace(target_id="B", closed=False)])}
+        with cc._BROWSERS_LOCK:
+            cc._BROWSERS[65001] = b
+        try:
+            cc.close_session_tabs(session_id="s1", platform="cli")
+        finally:
+            with cc._BROWSERS_LOCK:
+                cc._BROWSERS.pop(65001, None)
+        self.assertEqual(posted, ["A"])
+        self.assertEqual(list(b.sessions), ["s2"])

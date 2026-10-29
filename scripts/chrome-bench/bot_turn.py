@@ -49,4 +49,6 @@ if opts.get("--json"):
     with open(opts["--json"], "w") as fh:
         json.dump({"response": response, **stats}, fh)
 sys.stdout.flush()
+import atexit  # noqa: E402
+atexit._run_exitfuncs()  # os._exit skips them: the connector closes this turn's tabs there
 os._exit(0)

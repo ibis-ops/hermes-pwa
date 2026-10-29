@@ -74,7 +74,10 @@ SETTLE_MAX_S = 4.0
 NAV_TIMEOUT_S = 30.0
 WAIT_TIMEOUT_S = 10.0
 MAX_TABS = 8
-TAB_IDLE_S = 30 * 60
+TAB_IDLE_S = 20 * 60
+# A long-running process (the gateway, the dashboard) reaps idle tabs on a timer too, not only when a call comes in:
+# an idle dashboard kept 8 phone-chat tabs in the shared web Chrome (2026-10-29).
+REAP_EVERY_S = 5 * 60
 MAX_STEPS = 60
 MAP_LIMIT = 120
 BRIEF_LIMIT = 25  # controls on screen listed after a call that ends with a read
@@ -691,7 +694,25 @@ class Browser:
         self.downloads: dict[str, dict] = {}
         self.awaiting_downloads = 0  # download steps running in this process
         self.lock = threading.RLock()
+        self.reaper: Optional[threading.Thread] = None
         atexit.register(self.close_own_tabs)
+
+    def start_reaper(self) -> None:
+        """Once per process: close tabs idle longer than TAB_IDLE_S every REAP_EVERY_S, calls or not."""
+        if self.reaper is not None:
+            return
+
+        def loop() -> None:
+            while True:
+                time.sleep(REAP_EVERY_S)
+                try:
+                    with self.lock:
+                        self._reap(keep="")
+                except Exception:
+                    pass
+
+        self.reaper = threading.Thread(target=loop, name="chrome-tab-reaper", daemon=True)
+        self.reaper.start()
 
     def close_own_tabs(self) -> int:
         """At exit: a one-shot process (a CLI turn, a kanban worker, the bench) closes the tabs it opened, so a shared
@@ -727,6 +748,7 @@ class Browser:
                 sess.active = None
             self.cdp.send("Target.setDiscoverTargets", {"discover": True})
             self._close_orphans(info)
+            self.start_reaper()
             self.set_downloads()
 
     def set_downloads(self) -> None:
@@ -3284,6 +3306,28 @@ def redirect_browser_tools(tool_name: str = "", args: Any = None, **_: Any) -> O
         "e.g. steps: \"go example.com/list\\nclick Next\\nread text\".")}
 
 
+def close_session_tabs(session_id: str = "", **_: Any) -> None:
+    """on_session_finalize hook: a finished session's tabs close now. One-shot runs (hermes -z, kanban workers)
+    end with os._exit, which skips atexit; Hermes fires this hook first (2026-10-29)."""
+    if not session_id:
+        return None
+    with _BROWSERS_LOCK:
+        browsers = list(_BROWSERS.values())
+    for b in browsers:
+        with b.lock:
+            sess = b.sessions.pop(str(session_id), None)
+        if sess is None or b.cdp is None or b.cdp.closed:
+            continue
+        for tab in sess.tabs:
+            if not tab.closed:
+                tab.closed = True
+                try:
+                    b.cdp.post("Target.closeTarget", {"targetId": tab.target_id})
+                except Exception:
+                    pass
+    return None
+
+
 def register_tools(ctx: Any) -> None:
     """Called from the plugin's register(): the tools show only in profiles with a connector."""
     ctx.register_tool(name=TOOL, toolset="browser", schema=CHROME_SCHEMA, handler=chrome_tool,
@@ -3292,6 +3336,7 @@ def register_tools(ctx: Any) -> None:
                       check_fn=tools_available, description="Audit the Chrome changes of this session", emoji="📜")
     if hasattr(ctx, "register_hook"):
         ctx.register_hook("pre_tool_call", redirect_browser_tools)
+        ctx.register_hook("on_session_finalize", close_session_tabs)
 
 
 def prewarm_all(hermes_root: Optional[Path] = None) -> list[str]:
