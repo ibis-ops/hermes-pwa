@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  TEMPLATE, not loaded. Nothing has copied it to ~/Library/LaunchAgents or run launchctl on it.
+  Runs scripts/chrome-bench/nightly.sh at 03:45 every day (Runner A, Runner B, Runner C on 4 bot tasks).
+  macOS blocks launchd jobs from reading ~/Desktop (the vault) without Full Disk Access, so nothing the job
+  runs may depend on the vault. Everything it touches is in /tmp/hermes-work/bench and ~/Developer.
+  To skip the bot runner (about $0.15 a night), add a second string, the flag no-bot with two leading
+  hyphens, after the script path in ProgramArguments.
+  The job tests whatever branch is checked out in ~/Developer/hermes-pwa at that moment.
+  Its own output goes to ~/Developer/hermes-bench-data (launchd does not create a missing folder, and /tmp is
+  cleared on a reboot); the run's log is /tmp/hermes-work/bench/logs/nightly-<yymmdd>.log.
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>ai.hermes.chrome-bench-nightly</string>
+  <key>ProgramArguments</key>
+  <array><string>/bin/zsh</string><string>/Users/seanwoodward/Developer/hermes-pwa/scripts/chrome-bench/nightly.sh</string></array>
+  <key>StartCalendarInterval</key>
+  <dict><key>Hour</key><integer>3</integer><key>Minute</key><integer>45</integer></dict>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key><string>/Users/seanwoodward/.hermes/hermes-agent/.hermes/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+  </dict>
+  <key>StandardOutPath</key><string>/Users/seanwoodward/Developer/hermes-bench-data/nightly-launchd.log</string>
+  <key>StandardErrorPath</key><string>/Users/seanwoodward/Developer/hermes-bench-data/nightly-launchd.log</string>
+</dict>
+</plist>
