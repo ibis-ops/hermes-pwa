@@ -2617,7 +2617,7 @@ class Run:
             "(function(){var v=function(x){return x.offsetParent!==null&&x.type!=='hidden';};"
             "return {pw:Array.from(document.querySelectorAll('input[type=password]')).some(v),"
             "user:Array.from(document.querySelectorAll('input[type=email],input[autocomplete=username],"
-            "input[name*=email i],input[name*=user i],input[name*=login i]')).some(v)};})()") or {}
+            "input[name*=email i],input[name*=user i],input[name*=login i],input[name*=ident i]')).some(v)};})()") or {}
         if isinstance(form, dict) and not form.get("pw") and not form.get("user"):
             return f"login on {origin}: already signed in (no sign-in form on this page)"
         try:
@@ -2636,10 +2636,17 @@ class Run:
         item = mine[0]
         user = item.get("identifier")
         if user:
+            # By name first, then the text field just before the password field in its form (Kahunas calls its
+            # username field "identity"; a Chrome profile's autofill once hid that it was never typed).
             field_ref = tab.evaluate(
-                "(function(){var s='input[type=email],input[autocomplete=username],input[autocomplete=email],"
-                "input[name*=email i],input[name*=user i],input[name*=login i],input[id*=email i],input[id*=user i]';"
-                "var e=Array.from(document.querySelectorAll(s)).find(function(x){return x.offsetParent!==null && x.type!=='hidden';});"
+                "(function(){var v=function(x){return x.offsetParent!==null && x.type!=='hidden';};"
+                "var s='input[type=email],input[autocomplete=username],input[autocomplete=email],"
+                "input[name*=email i],input[name*=user i],input[name*=login i],input[name*=ident i],input[name*=account i],"
+                "input[id*=email i],input[id*=user i],input[id*=ident i]';"
+                "var e=Array.from(document.querySelectorAll(s)).find(v);"
+                "if(!e){var p=Array.from(document.querySelectorAll('input[type=password]')).find(v);"
+                "var all=Array.from(((p&&p.form)||document).querySelectorAll('input')).filter(v),i=p?all.indexOf(p):-1;"
+                "for(var j=i-1;j>=0;j--){if(/^(text|email|tel)$/.test(all[j].type)){e=all[j];break;}}}"
                 "if(!e) return null; window.__hcx.map({limit:400,text:0}); return e.getAttribute('data-hcx') || null;})()")
             if field_ref:
                 type_text(tab, field_ref, str(user))
