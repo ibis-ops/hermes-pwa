@@ -111,8 +111,8 @@ TESTS: list[Test] = [
          "the first book listed there. Reply with the title only.", text(r"In Her Wake", "In Her Wake")),
     Test("manager-web", "manager", "Open https://www.iana.org/help/example-domains and tell me the page's main heading. "
          "Reply with the heading only.", text(r"Example Domains", "Example Domains")),
-    Test("router-routes", "router", "How many bots can you hand work to? Count the profiles in your delegation routes. "
-         "Reply with the number only.", number(router_routes, "routes"), must_use=""),
+    Test("router-calendar", "router", "How many events are on Sean's Google Calendar for tomorrow? Read only. Reply with "
+         "the number only.", any_number("tomorrow's event count"), route_to="google-calander", must_use=""),
     Test("router-web", "router", "Open https://example.com and tell me the page's main heading. Reply with the heading only.",
          text(r"Example Domain", "Example Domain"), route_to="", must_use="chrome"),
     Test("clientprep-folders", "client-prep", "How many folders are directly inside the vault's Clients folder? Count every "
@@ -149,6 +149,11 @@ TESTS: list[Test] = [
     Test("manager-wikisearch", "manager", "Use the search box on https://en.wikipedia.org to search for Tirzepatide, open "
          "the article, and tell me which company makes it. Reply with the company name only.",
          text(r"Eli Lilly", "Eli Lilly")),
+    Test("default-nosite", "default", "Open https://reports.no-such-host.invalid/q3 and tell me the headline figure on "
+         "that page.", text(r"n.?t exist|not resolve|no such|could ?n.?t|unable|"
+         r"unreachable|invalid|doesn.?t|not (load|open|reach)", "the site does not exist, said plainly")),
+    Test("manager-404", "manager", "Open https://the-internet.herokuapp.com/status_codes/404 and tell me which status code "
+         "the page says it returned. Reply with the number only.", text(r"\b404\b", "404")),
     Test("calendar-count", "google-calander", "How many events are on Sean's Google Calendar for tomorrow? Read only. "
          "Reply with the number only.", any_number("tomorrow's event count"), must_use=""),
     Test("gmail-unread", "gmail-connector", "How many unread emails are in Sean's Gmail inbox right now? Read only. Reply "
