@@ -3,8 +3,9 @@
 ``/hub`` answers at once with what every running Claude Code chat is doing, straight from Claude Hub and with no model
 call. ``/hub all``, ``/hub chat <id> [n]`` and ``/hub search <text>`` read deeper; ``/hub <words>`` searches.
 
-A Claude Hub question typed to the router or the Claude bot gets the same digest added to the message, so the bot
-answers in one model call instead of calling a tool first and then answering (about 9 s became the goal of 3 to 5 s).
+A Claude Hub question typed to the router or the Claude bot gets a digest picked for that question added to the
+message (hubq.py context: the brief view plus the named chats' recent messages, what waits on Sean, problems, a time
+window or search hits), so the bot answers in one model call instead of calling tools first.
 Questions that ask a bot to send or save something are left alone: Hub writes keep their ask-first path.
 
 Reads through hubq.py, the Claude bot's claude-hub-reader skill. Read only.
@@ -83,7 +84,9 @@ def hub_context(session_id: str, user_message: Any, parent_session_id: str = "")
     """Digest to add before the model call, for a Hub question in the router's or the Claude bot's own chat."""
     if parent_session_id or _profile_name() not in HUB_BOTS or not is_hub_question(user_message):
         return None
-    digest = _run(["brief"])
+    # hubq.py picks what this question needs: the brief view, plus the named chats' recent messages, what waits on
+    # Sean, stuck or erroring chats, a time window or search hits. Tuning it there needs no plugin release.
+    digest = _run(["context", "--q", _message_text(user_message).strip()[:400]])
     return ("CLAUDE HUB, read just now with hubq.py (under a second). This is a Claude Hub read: answer it yourself from "
             "this text, without calling a tool or delegating, in a few short plain lines with no numbered lists. Run "
             "hubq.py only if Sean asks for more detail than this shows.\n" + digest)

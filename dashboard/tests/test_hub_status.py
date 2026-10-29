@@ -30,7 +30,7 @@ class HubContextTests(unittest.TestCase):
                 self.assertIsNone(hub_status.hub_context("s1", "how many unread emails"))
             with patch.object(hub_status, "_profile_name", return_value="kahunas-connector"):
                 self.assertIsNone(hub_status.hub_context("s1", "what is claude hub doing"))
-            run.assert_called_once_with(["brief"])
+            run.assert_called_once_with(["context", "--q", "what is claude hub doing"])
 
 
 class HubCommandTests(unittest.TestCase):
