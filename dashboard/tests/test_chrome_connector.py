@@ -624,3 +624,21 @@ class SharedChromeSettingsTests(unittest.TestCase):
             self.assertIn("Chrome for Testing", bin_)
         else:
             self.assertEqual(bin_, cc.GOOGLE_CHROME_BIN)
+
+
+class ExitTabsTests(unittest.TestCase):
+    def test_a_process_closes_its_own_tabs_at_exit(self):
+        from types import SimpleNamespace
+        posted = []
+        b = cc.Browser(cc.Settings(home=Path("/tmp")))
+        b.cdp = SimpleNamespace(closed=False, post=lambda method, params: posted.append((method, params["targetId"])))
+        t1, t2, t3 = (SimpleNamespace(target_id=x, closed=False) for x in ("A", "B", "C"))
+        t3.closed = True
+        b.sessions = {"s1": SimpleNamespace(tabs=[t1, t2]), "s2": SimpleNamespace(tabs=[t3])}
+        self.assertEqual(b.close_own_tabs(), 2)
+        self.assertEqual(posted, [("Target.closeTarget", "A"), ("Target.closeTarget", "B")])
+        self.assertEqual(b.close_own_tabs(), 0)  # already closed: nothing sent twice
+
+    def test_nothing_happens_without_a_connection(self):
+        b = cc.Browser(cc.Settings(home=Path("/tmp")))
+        self.assertEqual(b.close_own_tabs(), 0)

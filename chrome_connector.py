@@ -30,6 +30,7 @@ Sean's usual folders. ``eval`` refuses cookies, storage and network calls.
 
 from __future__ import annotations
 
+import atexit
 import json
 import os
 import re
@@ -690,6 +691,27 @@ class Browser:
         self.downloads: dict[str, dict] = {}
         self.awaiting_downloads = 0  # download steps running in this process
         self.lock = threading.RLock()
+        atexit.register(self.close_own_tabs)
+
+    def close_own_tabs(self) -> int:
+        """At exit: a one-shot process (a CLI turn, a kanban worker, the bench) closes the tabs it opened, so a shared
+        Chrome does not hold them until the next process connects (2026-10-29: 10 left in the web Chrome after a
+        suite; 2.6 GB across the connector Chromes at rest). Fire and forget: exit is not delayed."""
+        n = 0
+        try:
+            if self.cdp is None or self.cdp.closed:
+                return 0
+            for sess in list(self.sessions.values()):
+                for tab in list(sess.tabs):
+                    if not tab.closed:
+                        tab.closed = True
+                        self.cdp.post("Target.closeTarget", {"targetId": tab.target_id})
+                        n += 1
+            if n:
+                time.sleep(0.15)  # let the messages leave before the socket closes
+        except Exception:
+            pass
+        return n
 
     def connect(self) -> None:
         with self.lock:
