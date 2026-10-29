@@ -190,7 +190,7 @@ def classify(tool: str, args: Any, result: Any) -> dict[str, Any] | None:
         if not rules:
             return None
         out: dict[str, Any] = {"kind": "shell", "target": _paths(cmd), "detail": _cut(cmd), "why": rules[:5]}
-        if rules == ["redirect"] and all(_SCRATCH.match(r) for r in redirects):
+        if rules == ["redirect"] and all(_SCRATCH.match(os.path.normpath(r)) for r in redirects):  # /tmp/../x is not scratch
             out["scratch"] = True  # output saved to a scratch file only
         return out
     if tool == "execute_code":

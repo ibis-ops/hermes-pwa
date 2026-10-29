@@ -55,6 +55,7 @@ class ChangesAreRecordedTests(unittest.TestCase):
         e = shell("sqlite3 -readonly a.db 'select 1' > /tmp/a.json")
         self.assertTrue(e["scratch"])
         self.assertNotIn("scratch", shell("cp a /tmp/b > /tmp/log"))
+        self.assertNotIn("scratch", shell("echo x > /tmp/../Users/seanwoodward/Desktop/General/x.md"))
 
     def test_code_chrome_screen_mcp_and_settings(self):
         self.assertIsNotNone(cl.classify("execute_code", {"code": "open(p, 'w').write(x)"}, ""))
