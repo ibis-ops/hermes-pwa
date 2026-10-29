@@ -9,6 +9,7 @@ from typing import Any, Callable
 from .bot_graph import hook_context as team_map_context
 from .pwa_router import hook_context as router_context
 from .hub_status import hub_command, hub_context
+from .change_ledger import on_post_tool_call as record_change
 from .push_common import (
     approval_push_payload,
     claim_push_dedupe,
@@ -250,6 +251,8 @@ def register(ctx: Any) -> None:
     ctx.register_hook("post_approval_response", _on_post_approval_response)
     ctx.register_hook("post_llm_call", _on_post_llm_call)
     ctx.register_hook("pre_llm_call", _on_pre_llm_call)
+    # Every change a bot makes goes into the change ledger, for the Auditor bot to check afterwards.
+    ctx.register_hook("post_tool_call", record_change)
     # /hub: what every running Claude Code chat is doing, straight from Claude Hub, with no model call.
     if hasattr(ctx, "register_command"):
         try:
