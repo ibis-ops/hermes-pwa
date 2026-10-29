@@ -158,6 +158,25 @@ class AutoLoginTests(unittest.TestCase):
         self.assertEqual(len(opened), 1)
 
 
+class LooseActionTests(unittest.TestCase):
+    """A loose match never clicks a control whose name adds a create/delete-like word the target did not have."""
+
+    def test_a_name_that_matched_a_create_link_is_refused(self):
+        for loose in (True, False):  # a contains match is not flagged loose by the page
+            with self.assertRaises(cc.ConnectorError) as err:
+                cc._refuse_loose_action("Supplement Plan", {"loose": loose, "what": 'link "Create Supplement Plan"'})
+            self.assertIn("would create something, so nothing was clicked", str(err.exception))
+
+    def test_exact_names_refs_selectors_and_named_actions_still_click(self):
+        cc._refuse_loose_action("Create Supplement Plan", {"what": 'link "Create Supplement Plan"'})
+        cc._refuse_loose_action("Delete in alpha task", {"loose": True, "what": 'button "Delete"'})
+        cc._refuse_loose_action("second result", {"loose": True, "what": 'link "New York weather"'})
+        cc._refuse_loose_action("Search", {"loose": True, "what": 'button "Search the site"'})
+        cc._refuse_loose_action("e1", {"loose": True, "what": 'button "Add one"'})
+        cc._refuse_loose_action("css=.destroy in gamma task", {"loose": True, "what": 'button "Delete"'})
+        cc._refuse_loose_action("f1:e3", {"what": 'button "Submit"'})
+
+
 class SeenRefTests(unittest.TestCase):
     """A ref from a map of a page that was opened again (refs restart on every load) is found by role and name."""
 

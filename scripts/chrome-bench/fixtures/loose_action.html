@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Client page</title></head>
+<body><main>
+<h1>Client</h1>
+<!-- Round 28 on Kahunas: "click Supplement Plan" matched the "Create Supplement Plan" link (a create page). -->
+<nav class="tabs"><button type="button" id="tab-sup">Supplements</button> <a href="/plan-new.html" id="create">Create Supplement Plan</a></nav>
+<section id="pane" hidden><h2>Supplement plan</h2><table><tr><th>Name</th></tr><tr><td>Creatine</td></tr></table></section>
+</main>
+<script>
+document.getElementById('tab-sup').addEventListener('click', function () {
+  document.getElementById('pane').hidden = false;
+  fetch('/api/submit/loose', { method: 'POST', body: JSON.stringify({ tab: 'Supplements' }) });
+});
+</script>
+</body>
+</html>

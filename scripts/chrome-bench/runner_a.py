@@ -519,6 +519,16 @@ def _(t):
     return C.check(ok, "links resolved against the base (/targets.html, /page/2.html, /table.html)", out[-400:])
 
 
+@test("loose_action_refused", "a loose name never clicks a create link (round 28 on Kahunas); the tab by its name still works")
+def _(t):
+    out1 = t.call(f"go {t.base}/loose_action.html\nclick Supplement Plan")
+    out2 = t.call("click Supplements\nread table")
+    got = t.state.last("loose")
+    ok = ("would create something" in out1 and "/plan-new.html" not in out1 and isinstance(got, dict)
+          and got.get("tab") == "Supplements" and "Creatine" in out2)
+    return C.check(ok, "the create link refused, then the Supplements tab opened and read", f"{got}; {out1[-250:]}")
+
+
 @test("target_in_row", "a control in a row: check Toggle Todo in beta task, click Delete in gamma task")
 def _(t):
     out = t.call(f"go {t.base}/targets.html\ncheck Toggle Todo in beta task\nclick Delete in gamma task")

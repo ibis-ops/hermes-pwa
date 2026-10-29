@@ -1230,9 +1230,34 @@ def _point(view: Any, target: str) -> dict:
     return _check(p)
 
 
+# A loose match must never turn a plain name into an action that changes data (round 28: "click Supplement Plan"
+# matched a "Create ... Supplement Plan" link and opened a create page on Kahunas). Exact names still click.
+_ACTION_WORDS = re.compile(r"\b(create|add|delete|remove|archive|deactivate|save|submit|send|publish|pay|purchase|"
+                           r"buy|cancel|reset|approve|assign|book|import|upload|unsubscribe)\b", re.I)
+
+
+_REF_OR_SELECTOR = re.compile(r"^(?:f\d+:)?e\d+$|^css=|^[#.\[]")
+
+
+def _refuse_loose_action(target: str, p: dict) -> None:
+    """Refs and selectors are the model's own pick; a name that matched a longer name ("Supplement Plan" to "Create
+    Supplement Plan", a contains match) must not gain a create/delete-like word on the way."""
+    t = str(target).strip()
+    if _REF_OR_SELECTOR.match(t):
+        return
+    what = str(p.get("what") or "")
+    m = re.search(r'"([^"]*)"', what)
+    name = m.group(1) if m else ""
+    extra = sorted({w.lower() for w in _ACTION_WORDS.findall(name)} - {w.lower() for w in _ACTION_WORDS.findall(t)})
+    if extra:
+        raise ConnectorError(f"the closest match for {_q(target)} is {what}, which would {extra[0]} something, so "
+                             f"nothing was clicked; to click it, name it exactly")
+
+
 def click(tab: Tab, target: str, *, double: bool = False) -> dict:
     view, target = locate(tab, target)
     p = _point(view, target)
+    _refuse_loose_action(target, p)
     url_before = tab.evaluate("location.href")
     nav_before = tab.nav_seq
     opened_before = len(tab.browser.opened)
