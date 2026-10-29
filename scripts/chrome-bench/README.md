@@ -33,7 +33,7 @@ A test bench for the speed, accuracy and reliability of the Chrome connector
 Use Hermes's Python (it has `websockets`):
 
 ```sh
-PY=/Users/seanwoodward/.hermes/installs/a054e8eb893639fa/environments/144c13c0849643c59ebdb1c3c7f7f488/venv/bin/python
+PY=/Users/seanwoodward/Developer/hermes-pwa/scripts/chrome-bench/hpy
 cd ~/Developer/hermes-pwa/scripts/chrome-bench
 ```
 

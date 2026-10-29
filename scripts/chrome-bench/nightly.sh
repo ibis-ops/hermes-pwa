@@ -19,7 +19,7 @@ for arg in "$@"; do
     *) print -u2 "usage: nightly.sh [--no-bot]"; exit 2 ;;
   esac
 done
-PY=/Users/seanwoodward/.hermes/installs/a054e8eb893639fa/environments/144c13c0849643c59ebdb1c3c7f7f488/venv/bin/python
+PY=/Users/seanwoodward/Developer/hermes-pwa/scripts/chrome-bench/hpy
 B=/tmp/hermes-work/bench
 L=$B/logs
 D=~/Developer/hermes-bench-data

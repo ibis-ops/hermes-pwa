@@ -380,10 +380,10 @@ def _kahunas_truth() -> dict:
         from pathlib import Path
         here = Path(__file__).resolve().parent
         home = Path.home() / ".hermes/profiles/kahunas-connector"
-        py = "/Users/seanwoodward/.hermes/installs/a054e8eb893639fa/environments/144c13c0849643c59ebdb1c3c7f7f488/venv/bin/python"
+        py = str(here / "hpy")  # Hermes's own python and bootstrap (venv paths change with Hermes updates)
         env = {**__import__("os").environ, "HERMES_HOME": str(home)}
         env.pop("NODE_ENV", None)
-        out = subprocess.run([py, "-I", str(here / "kahunas_truth.py")], capture_output=True, text=True, timeout=300,
+        out = subprocess.run([py, str(here / "kahunas_truth.py")], capture_output=True, text=True, timeout=300,
                              env=env, cwd="/tmp/hermes-work/run").stdout
         line = [ln for ln in out.splitlines() if ln.startswith("{")][-1:]
         _KAHUNAS.update(json.loads(line[0]) if line else {"error": "no truth line"})

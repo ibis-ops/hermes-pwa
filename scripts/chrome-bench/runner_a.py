@@ -5,7 +5,7 @@ Each test sends fixed step scripts through chrome_connector.chrome_tool and chec
 against ground truth: what the fixture server received, the bytes of a downloaded file, values
 generated in fixture_server.py. All runs use the bench home (port 9334), never Sean's connector.
 
-    PY=/Users/seanwoodward/.hermes/installs/a054e8eb893639fa/environments/144c13c0849643c59ebdb1c3c7f7f488/venv/bin/python
+    PY=/Users/seanwoodward/Developer/hermes-pwa/scripts/chrome-bench/hpy
     $PY runner_a.py                       # every test x3, then the cold-start pass; next round number
     $PY runner_a.py --round 2 --baseline 1
     $PY runner_a.py --only form_fields,spa_list --repeat 1 --no-cold

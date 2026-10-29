@@ -1,0 +1,24 @@
+#!/bin/zsh
+# Runs Python the way Hermes runs its own code: the launcher's interpreter plus hermes_bootstrap, so Hermes's modules
+# and packages (websockets, yaml) import, and nothing breaks when a Hermes update replaces its venvs (2026-10-29:
+# the venv the bench named was deleted by an update).
+# Usage: hpy script.py [args...]   |   hpy -m module [args...]   (HERMES_HOME as the caller sets it)
+LAUNCHER=~/.hermes/hermes-agent/.hermes/bin/hermes
+PYBIN=$(grep -m1 -o '^exec [^ ]*python3[^ ]*' $LAUNCHER | cut -d' ' -f2)
+[[ -x $PYBIN ]] || { print -u2 "hpy: no Hermes python found in $LAUNCHER"; exit 1; }
+exec "$PYBIN" -I -c "
+import os, runpy, sys
+os.environ.pop('PYTHONHOME', None); os.environ.pop('PYTHONPATH', None); os.environ.pop('VIRTUAL_ENV', None)
+sys.path.insert(0, os.path.expanduser('~/.hermes/hermes-agent'))
+sys._hermes_pin_default_home = True
+import hermes_bootstrap
+args = sys.argv[1:]
+if args[:1] == ['-m']:
+    sys.argv = args[1:]
+    sys.path.insert(0, os.getcwd())
+    runpy.run_module(sys.argv[0], run_name='__main__', alter_sys=True)
+else:
+    sys.argv = args
+    sys.path.insert(0, os.path.dirname(os.path.abspath(args[0])))
+    runpy.run_path(args[0], run_name='__main__')
+" "$@"

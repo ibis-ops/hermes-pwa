@@ -4,7 +4,7 @@
 Same metrics as Runner A (accuracy on run 1, stability over the runs, time, output size). Tasks and
 their checks live in live_tasks.py. Uses the bench home (port 9334), never Sean's connector.
 
-    PY=/Users/seanwoodward/.hermes/installs/a054e8eb893639fa/environments/144c13c0849643c59ebdb1c3c7f7f488/venv/bin/python
+    PY=/Users/seanwoodward/Developer/hermes-pwa/scripts/chrome-bench/hpy
     $PY runner_b.py                         # every task x3; next round number
     $PY runner_b.py --round 2 --baseline 1
     $PY runner_b.py --only hn_front,books_product --repeat 1

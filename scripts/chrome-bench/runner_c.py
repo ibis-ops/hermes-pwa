@@ -10,7 +10,7 @@ chrome calls and steps per call, tool output size, failed steps, tokens and cost
 change history is checked where the task needs proof that an action happened. Only answers, counts
 and the bot's own tool arguments are kept; tool outputs and the system prompt are not copied.
 
-    PY=/Users/seanwoodward/.hermes/installs/a054e8eb893639fa/environments/144c13c0849643c59ebdb1c3c7f7f488/venv/bin/python
+    PY=/Users/seanwoodward/Developer/hermes-pwa/scripts/chrome-bench/hpy
     $PY runner_c.py --all --repeat 2 --workers 2 --round 3 --baseline 2
     $PY runner_c.py --tasks heroku_upload,heroku_download --repeat 1
     $PY runner_c.py --all --model claude-haiku-5.5      # one-turn override, the profile is not changed
