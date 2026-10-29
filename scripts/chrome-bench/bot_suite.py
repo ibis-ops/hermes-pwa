@@ -140,6 +140,15 @@ TESTS: list[Test] = [
     Test("kahunas3-supps", "kahunas-connector-3", "On Kahunas, open the first client on the client list "
          "(kahunas.io/coach/clients/all) and tell me how many supplements are in their supplement plan. Read only. Reply "
          "with the number only, without naming the client.", number(lambda: kahunas()["supplements_first"], "supplements")),
+    Test("default-dropdown", "default", "On https://the-internet.herokuapp.com/dropdown choose Option 2 in the dropdown, "
+         "then tell me which option the page shows as selected. Reply with the option text only.",
+         text(r"Option 2", "Option 2")),
+    Test("content-table", "content-studio", "On https://the-internet.herokuapp.com/tables, sort the first table by Last Name "
+         "(click its header), then tell me the email in the first row. Reply with the email only.",
+         text(r"fbach@yahoo\.com", "fbach@yahoo.com")),
+    Test("manager-wikisearch", "manager", "Use the search box on https://en.wikipedia.org to search for Tirzepatide, open "
+         "the article, and tell me which company makes it. Reply with the company name only.",
+         text(r"Eli Lilly", "Eli Lilly")),
     Test("calendar-count", "google-calander", "How many events are on Sean's Google Calendar for tomorrow? Read only. "
          "Reply with the number only.", any_number("tomorrow's event count"), must_use=""),
     Test("gmail-unread", "gmail-connector", "How many unread emails are in Sean's Gmail inbox right now? Read only. Reply "
