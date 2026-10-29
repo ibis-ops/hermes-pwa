@@ -96,10 +96,27 @@ def read_session(db: Path, session_id: str) -> Optional[dict]:
         con.close()
 
 
+def read_children(db: Path, parent_id: str) -> list[dict]:
+    """Sessions a routed turn handed out (delegate_task with a profile): stored in the router's own state.db."""
+    con = sqlite3.connect(f"file:{db}?mode=ro", uri=True, timeout=10)
+    con.row_factory = sqlite3.Row
+    try:
+        rows = con.execute(f"SELECT {SESSION_COLS}, profile_name FROM sessions WHERE parent_session_id = ? ORDER BY started_at",
+                           (parent_id,)).fetchall()
+        out = []
+        for row in rows:
+            msgs = con.execute("SELECT role, tool_calls, tool_name, content FROM messages WHERE session_id = ? ORDER BY id",
+                               (row["id"],)).fetchall()
+            out.append({"session": dict(row), "messages": [dict(m) for m in msgs]})
+        return out
+    finally:
+        con.close()
+
+
 _FAILED_STEP = re.compile(r"(?m)^\s*[\w.-]*\d+\. (?:FAILED|stopped)")
 
 
-def analyze(messages: list[dict]) -> dict:
+def analyze(messages: list[dict], own: frozenset = frozenset(OWN_TOOLS)) -> dict:
     """Model turns, tool calls by name, chrome calls with their steps, output sizes, failed steps."""
     tools: Counter = Counter()
     chrome_steps: list[int] = []
@@ -120,7 +137,7 @@ def analyze(messages: list[dict]) -> dict:
                 fn = c.get("function") or {}
                 name = fn.get("name") or c.get("name") or "?"
                 tools[name] += 1
-                if name not in OWN_TOOLS:
+                if name not in own:
                     other_args.append(f"{name}: {C.cut(fn.get('arguments') or '', 160)}")
                 if name == "chrome":
                     try:
@@ -140,7 +157,7 @@ def analyze(messages: list[dict]) -> dict:
                 if "chrome: FAILED" in content[:600]:
                     chrome_failed += 1
                 failed_steps += len(_FAILED_STEP.findall(content))
-    other = {k: v for k, v in tools.items() if k not in OWN_TOOLS}
+    other = {k: v for k, v in tools.items() if k not in own}
     return {"turns": turns, "tool_calls": dict(tools), "tool_calls_total": sum(tools.values()),
             "chrome_calls": tools.get("chrome", 0), "chrome_steps": chrome_steps,
             "steps_per_chrome_call": round(statistics.mean(chrome_steps), 2) if chrome_steps else None,
@@ -172,7 +189,7 @@ def history_entries(profile: str, session_id: str, since: float) -> list[dict]:
 
 
 def run_task(task: T.BotTask, profile: str, n: int, run_no: int, timeout: int, truth: Any, model: str,
-             reasoning: str, tag: str = "", toolsets: str = "", base: str = "") -> dict:
+             reasoning: str, tag: str = "", toolsets: str = "", base: str = "", route_to: str = "") -> dict:
     out_json = C.OUT_DIR / "logs" / f"round-{n}-bot{tag}-{task.name}-r{run_no}.turn.json"
     out_json.parent.mkdir(parents=True, exist_ok=True)
     out_json.unlink(missing_ok=True)
@@ -201,8 +218,26 @@ def run_task(task: T.BotTask, profile: str, n: int, run_no: int, timeout: int, t
         if found:
             break
         time.sleep(0.5)
-    stats = analyze(found["messages"]) if found else {}
     sess = found["session"] if found else {}
+    children: list[dict] = []
+    if route_to and sid:
+        # The router's turn plus what it handed out: the child's tools, tokens and cost count too.
+        for _ in range(10):
+            children = read_children(profile_home(profile) / "state.db", sid)
+            if children:
+                break
+            time.sleep(0.5)
+        msgs = (found["messages"] if found else []) + [m for c in children for m in c["messages"]]
+        stats = analyze(msgs, frozenset(OWN_TOOLS | {"delegate_task"}))
+        if sess:
+            sess = dict(sess)
+            for key in ("api_call_count", "input_tokens", "output_tokens", "cache_read_tokens", "cache_write_tokens",
+                        "reasoning_tokens", "estimated_cost_usd"):
+                sess[key] = (sess.get(key) or 0) + sum((c["session"].get(key) or 0) for c in children)
+            sess["model"] = ", ".join([str(found["session"].get("model"))] +
+                                      [f"{c['session'].get('profile_name')}: {c['session'].get('model')}" for c in children])
+    else:
+        stats = analyze(found["messages"]) if found else {}
     answer = str(turn.get("response") or "").strip() or (stdout or "").split("STATS ")[0].strip()
     stale = isinstance(truth, dict) and truth.get("stale")
     try:
@@ -211,11 +246,26 @@ def run_task(task: T.BotTask, profile: str, n: int, run_no: int, timeout: int, t
         ok, why = False, f"bench error in the check: {type(exc).__name__}: {exc}"
     hist_ok, hist_why = True, ""
     if task.history is not None and ok:
-        hist_ok, hist_why = task.history(history_entries(profile, sid, since))
+        if route_to:
+            entries = [e for c in children for e in history_entries(route_to, c["session"]["id"], since)]
+        else:
+            entries = history_entries(profile, sid, since)
+        hist_ok, hist_why = task.history(entries)
+    if task.group == "kahunas":
+        # Kahunas only through the chrome connector: other browser tools leave no change history to check
+        # (round 29: a misrouted task signed in with browser_exec using a password read from a note).
+        other_browser = sorted(t for t in (stats.get("other_tools") or {})
+                               if t.startswith("browser") or t in ("computer_use", "execute_code"))
+        if other_browser:
+            hist_ok, hist_why = False, f"touched Kahunas outside the chrome connector: {other_browser}"
     used_chrome = (stats.get("chrome_calls") or 0) > 0
-    passed = bool(ok and hist_ok and used_chrome)
+    routed = [str(c["session"].get("profile_name")) for c in children]
+    routed_ok = not route_to or route_to in routed
+    passed = bool(ok and hist_ok and used_chrome and routed_ok)
     if ok and not used_chrome:
         why += " (but no chrome call: answered without the connector)"
+    if not routed_ok:
+        why += f" (not handed to {route_to}: {routed or 'no child session'})"
     cached = (sess.get("cache_read_tokens") or 0) + (sess.get("cache_write_tokens") or 0)
     return {
         "name": task.name, "run": run_no, "pass": passed, "stale": bool(stale), "answer_ok": ok,
@@ -227,6 +277,8 @@ def run_task(task: T.BotTask, profile: str, n: int, run_no: int, timeout: int, t
         "input_tokens": (sess.get("input_tokens") or 0) + cached if sess else None,
         "output_tokens": sess.get("output_tokens"), "reasoning_tokens": sess.get("reasoning_tokens"),
         "cache_read_tokens": sess.get("cache_read_tokens"), "cost_usd": sess.get("estimated_cost_usd"),
+        **({"routed_to": routed, "child_s": [round((c["session"].get("ended_at") or 0) - (c["session"].get("started_at") or 0), 1)
+                                              for c in children]} if route_to else {}),
     }
 
 
@@ -366,6 +418,8 @@ def installed_head(profile: str) -> str:
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description="Runner C: the bot (LLM + its Chrome) on read-only interactive tasks.")
     ap.add_argument("--profile", default="kahunas-connector")
+    ap.add_argument("--route-to", default="", help="routed turns: --profile router --route-to kahunas-connector (the "
+                    "router must hand each task to that profile; its child sessions and chrome history are counted)")
     group = ap.add_mutually_exclusive_group()
     group.add_argument("--tasks", default="", help="comma-separated task names from bot_tasks.py")
     group.add_argument("--all", action="store_true", help="every core task (with --extra, the extra ones too)")
@@ -451,7 +505,7 @@ def main(argv: list[str] | None = None) -> int:
                     chain = queue.pop(0)
                 for t in chain:
                     rec = run_task(t, args.profile, n, run_no, args.timeout, truths.get(t.name), args.model,
-                                   args.reasoning, args.tag, args.toolsets, fx.base if fx else "")
+                                   args.reasoning, args.tag, args.toolsets, fx.base if fx else "", args.route_to)
                     with lock:
                         records.append(rec)
                         C.save_partial(kind, n, rec)
