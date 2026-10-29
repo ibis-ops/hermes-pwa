@@ -597,3 +597,30 @@ class EvalDenyTests(unittest.TestCase):
                      "document.forms[0].elements.passwd.value"):
             with self.assertRaises(cc.ConnectorError):
                 cc.run_eval(None, expr)
+
+
+class SharedChromeSettingsTests(unittest.TestCase):
+    def _settings(self, raw: dict) -> "cc.Settings":
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            (home / "chrome").mkdir()
+            (home / "chrome" / "connector.json").write_text(json.dumps(raw))
+            return cc.load_settings(home)
+
+    def test_a_shared_profile_and_download_folder(self):
+        st = self._settings({"port": 9335, "profile": "/tmp/web-chrome/profile", "downloads": "/tmp/web-chrome/downloads"})
+        self.assertEqual((st.port, st.profile_dir, st.downloads_dir),
+                         (9335, Path("/tmp/web-chrome/profile"), Path("/tmp/web-chrome/downloads")))
+        self.assertEqual(st.history_dir.name, "history")  # each bot keeps its own history
+
+    def test_without_them_everything_stays_in_the_bots_home(self):
+        st = self._settings({"port": 9333, "profile": "relative/not/allowed"})
+        self.assertEqual(st.profile_dir, st.home / "profile")
+        self.assertEqual(st.downloads_dir, st.home / "downloads")
+
+    def test_chrome_for_testing_is_the_default_when_installed(self):
+        bin_ = cc.default_chrome_bin()
+        if any(p.exists() for p in cc.CHROME_FOR_TESTING_BINS):
+            self.assertIn("Chrome for Testing", bin_)
+        else:
+            self.assertEqual(bin_, cc.GOOGLE_CHROME_BIN)

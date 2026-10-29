@@ -46,7 +46,23 @@ from typing import Any, Callable, Optional
 TOOL = "chrome"
 HISTORY_TOOL = "chrome_history"
 DEFAULT_PORT = 9333
-CHROME_BIN = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+GOOGLE_CHROME_BIN = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+# A headless Chrome started from Google Chrome.app registers with macOS as Sean's Chrome, and his own Chrome then
+# opens no window (2026-10-28). Chrome for Testing is a separate app (com.google.chrome.for.testing), so it is the
+# default when installed; connector.json "chrome" still picks any binary.
+CHROME_FOR_TESTING_BINS = (
+    Path.home() / ".hermes/chrome-for-testing/156.0.8078.4/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing",
+)
+
+
+def default_chrome_bin() -> str:
+    for candidate in CHROME_FOR_TESTING_BINS:
+        if candidate.exists():
+            return str(candidate)
+    return GOOGLE_CHROME_BIN
+
+
+CHROME_BIN = default_chrome_bin()
 JS_PATH = Path(__file__).with_name("chrome_connector.js")
 
 STEP_TIMEOUT_S = 30.0
@@ -101,10 +117,14 @@ class Settings:
     port: int = DEFAULT_PORT
     headless: bool = True
     chrome_bin: str = CHROME_BIN
+    # A Chrome several bots share (the web Chrome): one profile and one download folder for all of them, while
+    # each bot keeps its own history, reads, shots and recipes under its own home.
+    profile: Optional[Path] = None
+    downloads: Optional[Path] = None
 
     @property
     def profile_dir(self) -> Path:
-        return self.home / "profile"
+        return self.profile or self.home / "profile"
 
     @property
     def history_dir(self) -> Path:
@@ -112,7 +132,7 @@ class Settings:
 
     @property
     def downloads_dir(self) -> Path:
-        return self.home / "downloads"
+        return self.downloads or self.home / "downloads"
 
     @property
     def shots_dir(self) -> Path:
@@ -137,7 +157,16 @@ def load_settings(hermes_home: Optional[Path] = None) -> Optional[Settings]:
     if not isinstance(port, int) or not 1024 < port < 65536:
         port = DEFAULT_PORT
     chrome_bin = raw.get("chrome") if isinstance(raw.get("chrome"), str) else CHROME_BIN
-    return Settings(home=home, port=port, headless=raw.get("headless", True) is not False, chrome_bin=chrome_bin)
+
+    def folder(key: str) -> Optional[Path]:
+        value = raw.get(key)
+        if not isinstance(value, str) or not value.strip():
+            return None
+        path = Path(value).expanduser()
+        return path if path.is_absolute() else None
+
+    return Settings(home=home, port=port, headless=raw.get("headless", True) is not False, chrome_bin=chrome_bin,
+                    profile=folder("profile"), downloads=folder("downloads"))
 
 
 def tools_available() -> bool:
@@ -226,7 +255,7 @@ def _remove_stale_lock(profile: Path) -> None:
 def launch_chrome(settings: Settings, *, visible: Optional[bool] = None, url: str = "about:blank") -> dict:
     """Start Chrome on the connector profile (detached, so a gateway restart leaves it up)."""
     if not Path(settings.chrome_bin).exists():
-        raise ConnectorError(f"Google Chrome is not installed at {settings.chrome_bin}")
+        raise ConnectorError(f"the connector's Chrome is not installed at {settings.chrome_bin}")
     if not settings.profile_dir.is_dir():
         raise ConnectorError(f"the connector profile folder is missing: {settings.profile_dir}")
     headless = settings.headless if visible is None else not visible
@@ -234,6 +263,8 @@ def launch_chrome(settings: Settings, *, visible: Optional[bool] = None, url: st
     settings.downloads_dir.mkdir(parents=True, exist_ok=True)
     args = [settings.chrome_bin, f"--user-data-dir={settings.profile_dir}",
             f"--remote-debugging-port={settings.port}", *CHROME_FLAGS]
+    if "Google Chrome.app" not in settings.chrome_bin:
+        args += ["--use-mock-keychain", "--password-store=basic"]  # no keychain prompts outside Google Chrome
     if headless:
         args.append("--headless=new")
     args.append(url)
@@ -3139,7 +3170,7 @@ def _verify(settings: Settings, key: str, entries: list) -> str:
     return "verify on the open page:\n" + _indent("\n".join(lines) or "(no changed fields on this page)")
 
 
-CHROME_DESCRIPTION = """Your web browser for EVERY site (any site, not only Kahunas): this bot's own Google Chrome, headless, always running, signed in to Sean's sites. Use it to open, search, click, fill forms, answer dialogs, upload, download and read live data. Do not use web_extract (it can return an old cached copy), curl or wget, or the browser_* tools for web pages.
+CHROME_DESCRIPTION = """Your web browser for EVERY site (any site, not only Kahunas): this bot's own headless Chrome, always running, signed in only where this bot has a saved login. Use it to open, search, click, fill forms, answer dialogs, upload, download and read live data. Do not use web_extract (it can return an old cached copy), curl or wget, or the browser_* tools for web pages.
 
 FASTEST: put every step you already know into ONE call; do not spend a call just to look at a page first: open it and act in the same call, and mark steps that may not apply with ? (a missing banner or item is skipped in about a second). The reply says what each step did, every change with its value before and after (read back from the page), and a map of the page with refs (e12) for the next call; after the first map only what changed, and after a call that ends with a read just the page line and the controls on screen.
 

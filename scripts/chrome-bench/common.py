@@ -35,11 +35,16 @@ FILES_DIR = OUT_DIR / "files"
 # The isolated home and the connector
 # ---------------------------------------------------------------------------------------------
 
+CONNECTOR_CHROME = str(Path.home() / ".hermes/chrome-for-testing/156.0.8078.4/Google Chrome for Testing.app/Contents/MacOS/"
+                       "Google Chrome for Testing")
+
+
 def setup_home() -> None:
     """chrome/connector.json (port 9334, headless, no zero data retention needed) and an empty profile folder."""
     (BENCH_CHROME / "profile").mkdir(parents=True, exist_ok=True)
     cfg = BENCH_CHROME / "connector.json"
-    want = {"port": BENCH_PORT, "headless": True, "zero_data_retention": False}  # Sean, 2026-10-28
+    # Chrome for Testing (the connector's default) never passes itself off as Sean's Chrome (2026-10-28).
+    want = {"port": BENCH_PORT, "headless": True, "zero_data_retention": False, "chrome": CONNECTOR_CHROME}
     try:
         current = json.loads(cfg.read_text(encoding="utf-8"))
     except (OSError, ValueError):
