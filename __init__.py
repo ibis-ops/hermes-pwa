@@ -8,6 +8,7 @@ from typing import Any, Callable
 
 from .bot_graph import hook_context as team_map_context
 from .pwa_router import hook_context as router_context
+from .hub_status import hub_command, hub_context
 from .push_common import (
     approval_push_payload,
     claim_push_dedupe,
@@ -235,6 +236,12 @@ def _on_pre_llm_call(**kwargs: Any) -> dict[str, str] | None:
             parts.append(route)
     except Exception as exc:  # pragma: no cover - defensive: the router decides for itself
         logger.debug("Hermes PWA router hook ignored error: %s", exc)
+    try:
+        hub = hub_context(session_id, kwargs.get("user_message"), parent_session_id=parent_session_id)
+        if hub:
+            parts.append(hub)
+    except Exception as exc:  # pragma: no cover - defensive: the bot reads the Hub itself
+        logger.debug("Hermes PWA Claude Hub hook ignored error: %s", exc)
     return {"context": "\n\n".join(parts)} if parts else None
 
 
@@ -243,6 +250,13 @@ def register(ctx: Any) -> None:
     ctx.register_hook("post_approval_response", _on_post_approval_response)
     ctx.register_hook("post_llm_call", _on_post_llm_call)
     ctx.register_hook("pre_llm_call", _on_pre_llm_call)
+    # /hub: what every running Claude Code chat is doing, straight from Claude Hub, with no model call.
+    if hasattr(ctx, "register_command"):
+        try:
+            ctx.register_command("hub", hub_command, args_hint="[all | chat <id> | search <text>]",
+                                 description="Claude Hub now: what each running Claude Code chat is doing (instant, no model)")
+        except Exception as exc:  # pragma: no cover - defensive: the rest of the plugin must load regardless
+            logger.warning("Hermes PWA /hub command not registered: %s", exc)
     # The Chrome connector's tools; each one shows only in a profile with <HERMES_HOME>/chrome/connector.json.
     if hasattr(ctx, "register_tool"):
         try:
