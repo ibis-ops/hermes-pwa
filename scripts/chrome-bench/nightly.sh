@@ -106,7 +106,9 @@ fi
 # The row: counts from each results file, regressions against the previous nightly of the same kind (the highest
 # six-digit round id below today's, found in the bench folder, else in the rsync copy after a reboot cleared /tmp).
 build_row() {
-  $PY -I - "$@" <<'PYEOF'
+  # hpy runs a file (not stdin): the summary code goes to a file first.
+  local code=$L/nightly-summary.py
+  cat > $code <<'PYEOF'
 import json
 import re
 import sys
@@ -193,6 +195,7 @@ notes.append(f"{minutes} min")
 print(f"| {datetime.now().strftime('%Y-%m-%d %H:%M')} | {round_id} | {status} | A {cells['A']} | B {cells['B']} "
       f"| C {cells['C']} | {reg_col} | {'; '.join(notes)} |")
 PYEOF
+  $PY $code "$@"
 }
 ROW=$(build_row $B $D/bench $ROUND ${RC[A]:--} ${RC[B]:--} ${RC[C]:--} $(( SECONDS / 60 )))
 if [[ $? -ne 0 || -z $ROW ]]; then
