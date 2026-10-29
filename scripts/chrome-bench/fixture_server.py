@@ -188,11 +188,12 @@ COLOURS = ["blue", "red", "green", "black", "white", "blue"]
 def shop_items(token: str) -> list[dict]:
     rng = random.Random(f"shop:{token}")
     nouns = ["Mug", "Lamp", "Scarf", "Bottle", "Notebook", "Cushion", "Planter", "Clock", "Tray", "Basket"]
+    # Unique names with no number in them (round 27: the bot dropped a trailing "139" as if it were a stock code).
+    pairs = [f"{a} {n}" for a in ("Nordic", "Coastal", "Urban", "Rustic", "Studio") for n in nouns]
+    names = rng.sample(pairs, 40)
     out = []
     for i in range(40):
-        out.append({"name": f"{rng.choice(['Nordic', 'Coastal', 'Urban', 'Rustic', 'Studio'])} {rng.choice(nouns)} "
-                            f"{100 + i}",
-                    "colour": rng.choice(COLOURS), "price": round(rng.uniform(6, 90), 2),
+        out.append({"name": names[i], "colour": rng.choice(COLOURS), "price": round(rng.uniform(6, 90), 2),
                     "stock": rng.random() > 0.35})
     # The cheapest blue item overall is out of stock, so the answer needs the stock column too.
     blue = sorted((x for x in out if x["colour"] == "blue"), key=lambda x: x["price"])
