@@ -405,11 +405,14 @@ class DirectiveTests(unittest.TestCase):
             self.assertIn('"just the count" means a number', text)
             self.assertIn("do not reopen its log or redo its work to check it", text)
             self.assertIn("say only what its result confirms", text)
+            self.assertIn("must read the saved state back after saving", text)
+            self.assertIn("Call it done only when that read-back matches", text)
         decision = pwa_router.decide("Plan my week across email and calendar", bot="router", settings=ON, graph=ROUTER_ON_TOP,
                                      routes=ROUTES, key="k", post=jev_answer("manager", 0.95))
         split = pwa_router.directive("router", decision, False)
         self.assertIn("add no extra checks or scope", split)
         self.assertIn("without reopening their logs or redoing their work unless one failed", split)
+        self.assertIn("must read the saved state back after saving", split)
         for text in (hand, unsure, split):
             self.assertNotIn("\u2014", text)
 

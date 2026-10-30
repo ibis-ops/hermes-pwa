@@ -727,12 +727,20 @@ _AS_ASKED = (
     "(\"just the count\" means a number)."
 )
 # Seen on the Mac: after a bot answered, the router reopened the bot's log or redid its search to
-# check it, which added 4 to 10 seconds to every handoff.
+# check it, which added 4 to 10 seconds to every handoff. Writes are the exception: on 2026-10-28 a
+# 7-day Kahunas edit was relayed as done from the bot's own claim; two days were missing and one line
+# was 10x. So a write needs the bot's read-back of the saved state before it is called done.
+_WRITE_PROOF = (
+    "For anything sent, created or changed, put in the goal that the bot must read the saved state back after "
+    "saving (reload and read the values, an event ID or link, a sent confirmation) and report what it read. "
+    "Call it done only when that read-back matches what Sean asked; otherwise tell him what was saved, what "
+    "was not, and that it is not verified."
+)
 _RELAY = (
     "When the answer comes back, pass it on in Sean's format, in a line or two unless he asked for more. "
-    "It comes from the bot's own tools, so do not reopen its log or redo its work to check it; look closer "
-    "only when it failed, came back empty or contradicts itself, and for anything sent, created or changed, "
-    "say only what its result confirms."
+    "A lookup comes from the bot's own tools, so do not reopen its log or redo its work to check it; look closer "
+    "only when it failed, came back empty or contradicts itself, and say only what its result confirms. "
+    + _WRITE_PROOF
 )
 
 
@@ -793,6 +801,7 @@ def _directive(bot: str, decision: dict[str, Any], orchestration: bool) -> str:
                 "per bot and all in one call so they work side by side, each goal with Sean's own words and everything "
                 f"that bot needs. {_NAME_THE_PROFILE} {_AS_ASKED} Then put their answers together for Sean in a few "
                 "lines, without reopening their logs or redoing their work unless one failed or came back empty. "
+                f"{_WRITE_PROOF} "
                 f"{_NO_WORKAROUNDS} {label}'s team: {roster}."
             )
         return (
