@@ -186,8 +186,22 @@ describe('Projects', () => {
     await waitFor(() => expect(screen.getByText('Task 1')).toBeInTheDocument());
     fireEvent.click(screen.getByText('Task 1'));
     await waitFor(() => expect(screen.getByLabelText(/Add comment/i)).toBeInTheDocument());
-    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'done' } });
+    fireEvent.change(screen.getByLabelText('Status'), { target: { value: 'done' } });
     await waitFor(() => expect(restMock.kanbanUpdateTask).toHaveBeenCalledWith('main', 't-1', { status: 'done' }));
+  });
+
+  it('hands a task to another bot from the detail sheet, or leaves it unassigned', async () => {
+    vi.mocked(restMock.kanbanUpdateTask).mockResolvedValue({ id: 't-1', title: 'Task 1', status: 'ready', createdAt: Date.now() });
+    render(<Projects rest={restMock} />);
+    await waitFor(() => expect(screen.getByText('Task 1')).toBeInTheDocument());
+    fireEvent.click(screen.getByText('Task 1'));
+    await waitFor(() => expect(screen.getByLabelText('Assignee')).toBeInTheDocument());
+    const picker = screen.getByLabelText('Assignee') as HTMLSelectElement;
+    expect(Array.from(picker.options).map((o) => o.textContent)).toEqual(['— Unassigned —', 'Default', 'Dev']);
+    fireEvent.change(picker, { target: { value: 'dev' } });
+    await waitFor(() => expect(restMock.kanbanUpdateTask).toHaveBeenCalledWith('main', 't-1', { assignee: 'dev' }));
+    fireEvent.change(screen.getByLabelText('Assignee'), { target: { value: '' } });
+    await waitFor(() => expect(restMock.kanbanUpdateTask).toHaveBeenCalledWith('main', 't-1', { assignee: '' }));
   });
 
   it('restores the last selected board from localStorage', async () => {

@@ -70,6 +70,11 @@ function formatTime(ts: number): string {
   return `${Math.floor(h / 24)}d`;
 }
 
+/** A bot is running the card now (`in_progress` is the legacy name). */
+function isRunning(status: TaskStatus): boolean {
+  return status === 'running' || status === 'in_progress';
+}
+
 export function Projects({ rest }: ProjectsProps) {
   const {
     boards,
@@ -85,6 +90,7 @@ export function Projects({ rest }: ProjectsProps) {
     loadTaskDetail,
     createTask,
     moveTask,
+    assignTask,
     addComment,
     clearSelectedTask,
   } = useProjectsStore();
@@ -244,6 +250,11 @@ export function Projects({ rest }: ProjectsProps) {
   async function handleMove(status: TaskStatus) {
     if (!selectedTask) return;
     await moveTask(rest, selectedTask.id, status);
+  }
+
+  async function handleAssign(assignee: string) {
+    if (!selectedTask) return;
+    await assignTask(rest, selectedTask.id, assignee);
   }
 
   async function handleComment() {
@@ -584,8 +595,9 @@ export function Projects({ rest }: ProjectsProps) {
           }
         >
           <div className="hm-projects__field">
-            <label className="hm-projects__label">Status</label>
+            <label className="hm-projects__label" htmlFor="hm-projects-task-status">Status</label>
             <select
+              id="hm-projects-task-status"
               className="hm-select"
               value={selectedTask.status}
               onChange={(e) => void handleMove(e.target.value as TaskStatus)}
@@ -593,6 +605,29 @@ export function Projects({ rest }: ProjectsProps) {
               {MOVE_STATUSES.map((s) => (
                 <option key={s} value={s}>
                   {COLUMN_LABEL[s]}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* The bot that runs the card. Hermes will not move a card while a bot is running it. */}
+          <div className="hm-projects__field">
+            <label className="hm-projects__label" htmlFor="hm-projects-task-assignee">Assignee</label>
+            <select
+              id="hm-projects-task-assignee"
+              className="hm-select"
+              value={selectedTask.assignee ?? ''}
+              disabled={isRunning(selectedTask.status)}
+              title={isRunning(selectedTask.status) ? 'Running now: change the bot when it stops' : undefined}
+              onChange={(e) => void handleAssign(e.target.value)}
+            >
+              <option value="">— Unassigned —</option>
+              {selectedTask.assignee && !assigneeOptions.some((p) => p.value === selectedTask.assignee) && (
+                <option value={selectedTask.assignee}>{selectedTask.assignee}</option>
+              )}
+              {assigneeOptions.map((p) => (
+                <option key={p.value} value={p.value}>
+                  {p.label}
                 </option>
               ))}
             </select>

@@ -60,6 +60,8 @@ export interface ProjectsStore {
     },
   ): Promise<void>;
   moveTask(rest: RestClient, taskId: string, status: TaskStatus): Promise<void>;
+  /** Hand a task to another bot (`''` leaves it unassigned). Hermes refuses while it is running. */
+  assignTask(rest: RestClient, taskId: string, assignee: string): Promise<void>;
   loadTaskDetail(rest: RestClient, taskId: string): Promise<void>;
   addComment(rest: RestClient, taskId: string, body: string): Promise<void>;
   steer(rest: RestClient, taskId: string, text: string): Promise<void>;
@@ -205,6 +207,22 @@ export const useProjectsStore = create<ProjectsStore>((set, get) => ({
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Failed to move task.';
+      set({ error: msg });
+      throw err;
+    }
+  },
+
+  async assignTask(rest, taskId, assignee) {
+    const slug = get().activeBoardSlug;
+    if (!slug) return;
+    try {
+      await rest.kanbanUpdateTask(slug, taskId, { assignee });
+      await get().openBoard(rest, slug);
+      if (get().selectedTask?.id === taskId) {
+        await get().loadTaskDetail(rest, taskId);
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Failed to change the bot.';
       set({ error: msg });
       throw err;
     }
