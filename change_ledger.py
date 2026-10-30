@@ -290,20 +290,25 @@ def on_post_tool_call(**kwargs: Any) -> None:
 
 
 def read_entries(since_id: str = "", months: int = 2) -> list[dict[str, Any]]:
-    """Ledger lines newer than ``since_id`` (ids sort by time), oldest first, from the last ``months`` files."""
+    """Ledger lines after the line ``since_id`` (in the order they were written, which ids alone cannot give when two
+    land in the same millisecond), from the last ``months`` files. An unknown ``since_id`` falls back to id order."""
     files = sorted(ledger_dir().glob("*.jsonl"))[-months:]
     out: list[dict[str, Any]] = []
     for f in files:
         try:
-            with open(f, encoding="utf-8") as fh:
+            with open(f, encoding="utf-8", newline="\n") as fh:
                 for line in fh:
                     try:
                         e = json.loads(line)
                     except ValueError:
                         continue
-                    if isinstance(e, dict) and str(e.get("id", "")) > since_id:
+                    if isinstance(e, dict) and isinstance(e.get("id"), str):
                         out.append(e)
         except OSError:
             continue
-    out.sort(key=lambda e: str(e.get("id", "")))
-    return out
+    if not since_id:
+        return out
+    ids = [e["id"] for e in out]
+    if since_id in ids:
+        return out[len(ids) - ids[::-1].index(since_id):]
+    return [e for e in out if e["id"] > since_id]

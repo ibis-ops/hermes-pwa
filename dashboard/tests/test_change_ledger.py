@@ -85,7 +85,7 @@ class LedgerFileTests(unittest.TestCase):
             lines = [json.loads(x) for f in Path(d).glob("*.jsonl") for x in f.read_text().splitlines()]
             self.assertEqual([x["id"] for x in lines], [a["id"], b["id"]])
             self.assertEqual((b["bot"], b["task"], b["status"], b["error"]), ("default", "t2", "error", "no such file"))
-            self.assertEqual([e["id"] for e in cl.read_entries()], sorted([a["id"], b["id"]]))
+            self.assertEqual([e["id"] for e in cl.read_entries()], [a["id"], b["id"]])  # written order
             self.assertEqual([e["id"] for e in cl.read_entries(since_id=a["id"])], [b["id"]])
 
     def test_hook_never_raises(self):

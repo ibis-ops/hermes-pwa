@@ -11,6 +11,7 @@ from .pwa_router import hook_context as router_context
 from .hub_status import hub_command, hub_context
 from .change_ledger import on_post_tool_call as record_change
 from .message_guard import on_pre_tool_call as guard_messages
+from .handoff_memory import handoff_memory_context
 from .push_common import (
     approval_push_payload,
     claim_push_dedupe,
@@ -238,6 +239,13 @@ def _on_pre_llm_call(**kwargs: Any) -> dict[str, str] | None:
             parts.append(route)
     except Exception as exc:  # pragma: no cover - defensive: the router decides for itself
         logger.debug("Hermes PWA router hook ignored error: %s", exc)
+    try:
+        # Hermes builds hand-offs without memory; the bot doing the work gets the shared memory on its first turn.
+        mem = handoff_memory_context(session_id, parent_session_id)
+        if mem:
+            parts.append(mem)
+    except Exception as exc:  # pragma: no cover - defensive: the hand-off runs without memory, as before
+        logger.debug("Hermes PWA hand-off memory hook ignored error: %s", exc)
     try:
         hub = hub_context(session_id, kwargs.get("user_message"), parent_session_id=parent_session_id)
         if hub:
