@@ -11,7 +11,7 @@ from .pwa_router import hook_context as router_context
 from .hub_status import hub_command, hub_context
 from .change_ledger import on_post_tool_call as record_change
 from .message_guard import on_pre_tool_call as guard_messages
-from .handoff_memory import part_hooks as handoff_memory_hooks
+from .handoff_memory import delegate_with_memory
 from .push_common import (
     approval_push_payload,
     claim_push_dedupe,
@@ -258,10 +258,8 @@ def register(ctx: Any) -> None:
     # No bot sends anything to anyone without Sean's explicit yes: sends go to his approval prompt (denied where he
     # cannot answer: scheduled jobs, one-shot runs, hand-offs), and are blocked outright when approvals are off.
     ctx.register_hook("pre_tool_call", guard_messages)
-    # Hermes builds hand-offs without memory: the bot doing the work gets the shared memory on its first turn, in
-    # pieces under Hermes's 10,000-character limit for one hook's context.
-    for hook in handoff_memory_hooks():
-        ctx.register_hook("pre_llm_call", hook)
+    # Hermes builds hand-offs without memory: every delegated task carries the shared memory in its context.
+    ctx.register_hook("pre_tool_call", delegate_with_memory)
     # /hub: what every running Claude Code chat is doing, straight from Claude Hub, with no model call.
     if hasattr(ctx, "register_command"):
         try:

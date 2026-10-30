@@ -51,3 +51,28 @@ class HandoffMemoryTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class DelegateWithMemoryTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        (self.tmp / "memories").mkdir()
+        (self.tmp / "memories" / "MEMORY.md").write_text("Kahunas URL is kahunas.io/dashboard.", encoding="utf-8")
+        (self.tmp / "memories" / "USER.md").write_text("Sean wants tables.", encoding="utf-8")
+
+    def test_every_task_gets_the_memory_once(self):
+        args = {"tasks": [{"goal": "a", "context": "ctx a", "profile": "kahunas-connector"}, {"goal": "b"}]}
+        with patch.object(hm, "_root_hermes_home", return_value=self.tmp):
+            r = hm.delegate_with_memory(tool_name="delegate_task", args=args)
+            tasks = r["args"]["tasks"]
+            self.assertEqual(r["action"], "modify")
+            self.assertTrue(tasks[0]["context"].startswith("ctx a\n\n" + hm.MARK))
+            self.assertIn("- Kahunas URL is kahunas.io/dashboard.", tasks[1]["context"])
+            self.assertEqual(tasks[0]["profile"], "kahunas-connector")
+            self.assertIsNone(hm.delegate_with_memory(tool_name="delegate_task", args={"tasks": tasks}))
+
+    def test_legacy_goal_shape_and_other_tools(self):
+        with patch.object(hm, "_root_hermes_home", return_value=self.tmp):
+            r = hm.delegate_with_memory(tool_name="delegate_task", args={"goal": "x"})
+            self.assertIn(hm.MARK, r["args"]["context"])
+            self.assertIsNone(hm.delegate_with_memory(tool_name="terminal", args={"command": "ls"}))

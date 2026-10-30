@@ -3,12 +3,13 @@
 Hermes builds every delegated child (a hand-off from the router, the manager or any bot) with ``skip_memory=True``:
 the bot that does the work never sees the shared MEMORY.md and USER.md that every top-level chat gets, so lessons
 the team has learned (where things are, which tool works, what Sean wants) are missing exactly where the work
-happens. These ``pre_llm_call`` pieces hand a child the same shared memory once, on its first turn.
+happens. A child's own ``pre_llm_call`` hooks do not reach it either (it runs under the target bot's scope inside
+the parent's worker, where the plugin is not loaded; measured 2026-10-29), so the memory goes in from the parent's
+side: a ``pre_tool_call`` hook adds it to the context of every task in a ``delegate_task`` call, which the child
+reads on its first turn.
 
-Hermes swaps any one hook's context over 10,000 characters for a preview and a file path, and the memory may reach
-26,000 (20,000 for MEMORY.md plus 6,000 for USER.md), so it goes in up to ``PARTS`` pieces of at most ``PART_MAX``
-characters, each from its own hook. The memory is the one shared folder every profile links to (<Hermes root>/
-memories, which points at the vault's Hermes/Memory). Read-only: nothing here writes memory.
+The memory is the one shared folder every profile links to (<Hermes root>/memories, which points at the vault's
+Hermes/Memory). Read-only: nothing here writes memory.
 """
 
 from __future__ import annotations
@@ -71,6 +72,50 @@ def memory_parts() -> list[str]:
             body.append(f"- {entry}")
         out.append(head + "\n" + "\n".join(body))
     return out
+
+
+MARK = "SHARED MEMORY (the notes every Hermes bot keeps"
+
+
+def memory_text() -> str | None:
+    """The whole shared memory as one block for a hand-off's context."""
+    memory, user = _entries("MEMORY.md"), _entries("USER.md")
+    if not memory and not user:
+        return None
+    parts = [MARK + "; a hand-off does not load them by itself, so here they are). Follow them like your own memory; "
+             "your SOUL and the task come first where they differ."]
+    if user:
+        parts.append("About Sean:\n" + "\n".join(f"- {e}" for e in user))
+    if memory:
+        parts.append("How to work:\n" + "\n".join(f"- {e}" for e in memory))
+    return "\n\n".join(parts)
+
+
+def delegate_with_memory(**kwargs: Any) -> dict[str, Any] | None:
+    """pre_tool_call: give every task of a delegate_task call the shared memory in its context (once)."""
+    if kwargs.get("tool_name") != "delegate_task":
+        return None
+    args = kwargs.get("args")
+    if not isinstance(args, dict):
+        return None
+    try:
+        block = memory_text()
+    except Exception:
+        return None
+    if not block:
+        return None
+    tasks = args.get("tasks")
+    if isinstance(tasks, list):
+        changed, out = False, []
+        for t in tasks:
+            if isinstance(t, dict) and MARK not in str(t.get("context") or ""):
+                t = {**t, "context": (str(t.get("context") or "") + "\n\n" + block).strip()}
+                changed = True
+            out.append(t)
+        return {"action": "modify", "args": {"tasks": out}} if changed else None
+    if args.get("goal") and MARK not in str(args.get("context") or ""):  # the legacy single-goal shape
+        return {"action": "modify", "args": {"context": (str(args.get("context") or "") + "\n\n" + block).strip()}}
+    return None
 
 
 def handoff_memory_part(index: int, session_id: str, parent_session_id: str = "") -> str | None:
