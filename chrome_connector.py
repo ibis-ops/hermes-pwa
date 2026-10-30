@@ -535,6 +535,7 @@ class Tab(_Scripted):
         self.nav_seq = 0
         self.load_seq = 0
         self.dialog_policy = "accept"
+        self.allow_send = False  # set for one call by an "allow send" step, which Sean approves first
         self.prompt_text = ""
         self.dialogs: list[str] = []
         self.file_chooser: Optional[int] = None
@@ -597,12 +598,17 @@ class Tab(_Scripted):
         params = msg.get("params") or {}
         if method == "Page.javascriptDialogOpening":
             accept = self.dialog_policy != "dismiss" or params.get("type") == "beforeunload"
+            held = (accept and params.get("type") != "beforeunload" and not getattr(self, "allow_send", False)
+                    and bool(_SEND_CONTEXT.search(str(params.get("message") or ""))))
+            if held:
+                accept = False  # it would send or notify someone: never without Sean's yes
             body: dict[str, Any] = {"accept": accept}
             if params.get("type") == "prompt":
                 body["promptText"] = self.prompt_text or params.get("defaultPrompt") or ""
             self.browser.cdp.post("Page.handleJavaScriptDialog", body, session=self.session_id)
             self.dialogs.append(f"{params.get('type', 'dialog')} \"{_cut(params.get('message', ''), 160)}\" "
-                                f"{'accepted' if accept else 'dismissed'}")
+                                f"{'accepted' if accept else 'dismissed'}"
+                                + (" (it would send or notify someone; that needs Sean's yes)" if held else ""))
         elif method == "Page.frameStartedLoading":
             if params.get("frameId") == self.target_id:
                 self.pending_nav = True
@@ -662,12 +668,17 @@ class Tab(_Scripted):
         if msg.get("method") == "Page.javascriptDialogOpening":
             params = msg.get("params") or {}
             accept = self.dialog_policy != "dismiss" or params.get("type") == "beforeunload"
+            held = (accept and params.get("type") != "beforeunload" and not getattr(self, "allow_send", False)
+                    and bool(_SEND_CONTEXT.search(str(params.get("message") or ""))))
+            if held:
+                accept = False  # it would send or notify someone: never without Sean's yes
             body: dict[str, Any] = {"accept": accept}
             if params.get("type") == "prompt":
                 body["promptText"] = self.prompt_text or params.get("defaultPrompt") or ""
             self.browser.cdp.post("Page.handleJavaScriptDialog", body, session=frame.session_id)
             self.dialogs.append(f"{params.get('type', 'dialog')} \"{_cut(params.get('message', ''), 160)}\" "
-                                f"{'accepted' if accept else 'dismissed'} (in frame f{frame.index})")
+                                f"{'accepted' if accept else 'dismissed'} (in frame f{frame.index})"
+                                + (" (it would send or notify someone; that needs Sean's yes)" if held else ""))
 
 
 @dataclass
@@ -1390,10 +1401,43 @@ def _prune_reads(folder: Path) -> None:
             pass
 
 
+# No message to anyone without Sean's yes: a click on a control that sends (Send, Reply, Notify, Post, Share, Invite), an
+# affirmative (Yes, OK, Confirm) inside a prompt about notifying or messaging (Kahunas asks "Do you want to notify your
+# client that this plan has been updated?"), or Enter in a message box. An "allow send" step lifts this for one call;
+# the plugin's message guard sends that call to Sean for approval first.
+_SEND_CONTEXT = re.compile(r"\b(?:notify|notification|send|message|messages|e-?mail|sms|text message|invite|invitation|"
+                           r"share with|reply|publish|post to)\b", re.I)
+_SEND_LABEL = re.compile(r"^\W*(?:send|notify|reply|post|publish|share|invite|message|email|tweet|submit reply)\b", re.I)
+_SELECTOR_PREFIX = re.compile(r"^\s*(?:text|role|css|label|aria|name|placeholder)\s*[:=]\s*", re.I)
+_AFFIRM_LABEL = re.compile(r"^\W*(?:yes|ok|okay|confirm|send|notify|submit|reply|share|invite|post|publish|continue|proceed|done)\b", re.I)
+_NEEDS_YES = ("Sending needs Sean's explicit yes: ask him, and only after his yes run the same steps with 'allow send' as "
+              "the first step (Sean approves that call in his Approvals tab).")
+
+
+def _refuse_send(view: Any, tab: Tab, asked: str, ref: Any) -> None:
+    if getattr(tab, "allow_send", False):
+        return
+    words = _SELECTOR_PREFIX.sub("", str(asked))  # "text:Send" names the control "Send"; "#id", "e12" name none
+    if not re.match(r"^(?:[#.\[]|e\d+$)", words) and _SEND_LABEL.match(words):
+        raise ConnectorError(f"not clicked: {_q(_cut(str(asked), 40))} would send a message or notify someone. {_NEEDS_YES}")
+    try:
+        info = view.hcx("sendCheck", ref)
+    except ConnectorError:
+        return
+    if not isinstance(info, dict) or info.get("error"):
+        return
+    label, ctx = str(info.get("label") or ""), str(info.get("context") or "")
+    if _SEND_LABEL.match(label) or (_AFFIRM_LABEL.match(label) and _SEND_CONTEXT.search(ctx)):
+        raise ConnectorError(f"not clicked: {_q(_cut(label, 40))} would send a message or notify someone"
+                             + (f" ({_cut(ctx, 140)})" if ctx else "") + f". {_NEEDS_YES}")
+
+
 def click(tab: Tab, target: str, *, double: bool = False) -> dict:
+    asked = target
     view, target = locate(tab, target)
     p = _point(view, target)
     _refuse_loose_action(target, p)
+    _refuse_send(view, tab, asked, p.get("ref") or target)
     url_before = tab.evaluate("location.href")
     nav_before = tab.nav_seq
     opened_before = len(tab.browser.opened)
@@ -1907,7 +1951,7 @@ def change_line(e: dict) -> str:
 # Steps
 # ---------------------------------------------------------------------------------------------
 
-ACTIONS = ("go", "click", "dblclick", "rightclick", "drag", "type", "fill", "select", "check", "uncheck", "press", "hover", "scroll",
+ACTIONS = ("allow", "go", "click", "dblclick", "rightclick", "drag", "type", "fill", "select", "check", "uncheck", "press", "hover", "scroll",
            "wait", "read", "eval", "screenshot", "upload", "download", "tab", "back", "forward", "reload",
            "dialog", "fast", "browser", "api", "each", "recipe", "save_recipe", "recipes", "login", "map",
            "auto", "ask")
@@ -1938,10 +1982,13 @@ class Run:
         self.dialogs_before: Optional[int] = None  # dialogs on the tab when the call began
         self.read_ok = False  # the last step was a read that found something
         self.done_steps: list = []  # steps of this call that worked so far (save_recipe without steps)
+        self.allow_send = False  # an "allow send" step that Sean approved, for this call only
 
     @property
     def tab(self) -> Tab:
-        return self.browser.active_tab(self.sess)
+        t = self.browser.active_tab(self.sess)
+        t.allow_send = self.allow_send
+        return t
 
     def url(self) -> str:
         try:
@@ -2288,6 +2335,13 @@ class Run:
 
     def do_press(self, step: dict, keys: Any) -> str:
         url = self.url()
+        if str(keys).strip().lower().split("+")[-1] in ("enter", "return") and not getattr(self, "allow_send", False):
+            try:
+                info = self.tab.hcx("sendCheck", None)
+            except ConnectorError:
+                info = None
+            if isinstance(info, dict) and info.get("composer"):
+                raise ConnectorError(f"not pressed: Enter in a message box would send it. {_NEEDS_YES}")
         r = press(self.tab, str(keys))
         after = self.url()
         if str(keys).lower() in ("enter", "return"):
@@ -2500,6 +2554,14 @@ class Run:
             raise ConnectorError(f"there are {len(sess.tabs)} tabs")
         sess.active = sess.tabs[idx - 1]
         return f"switched to tab #{idx} {_short_url(self.url())}"
+
+    def do_allow(self, step: dict, what: Any) -> str:
+        if str(what).strip().lower() not in ("send", "sending", "message", "messages", "notify"):
+            raise ConnectorError('allow takes "send": allow send (Sean approves the call first)')
+        self.allow_send = True
+        for t in self.sess.tabs:
+            t.allow_send = True
+        return "sending allowed for this call only (Sean approved it)"
 
     def do_dialog(self, step: dict, how: Any) -> str:
         word, _, extra = str(how).strip().partition(" ")
@@ -2926,6 +2988,8 @@ def parse_line(line: str) -> dict:
             text = value if value is not None else (extra or None)
             if text is not None:
                 step["text"] = text
+        elif verb == "allow":
+            step = {"allow": rest.strip() or "send"}
         elif verb == "fast":
             step = {"fast": rest.lower() not in ("off", "false", "no")}
         elif verb == "browser":
@@ -3146,6 +3210,8 @@ def chrome_tool(args: dict, task_id: Optional[str] = None, session_id: Optional[
                 run.lines.append(f"0. {n}")
             sess.notes.clear()
             run.dialogs_before = len(tab.dialogs)
+            for t in sess.tabs:
+                t.allow_send = False  # never carried over from an earlier call
             if args.get("fast") is not None:
                 set_fast(tab, bool(args.get("fast")))
             run.fast = tab.fast
@@ -3165,6 +3231,9 @@ def chrome_tool(args: dict, task_id: Optional[str] = None, session_id: Optional[
             run.lines.append(f"FAILED: {type(exc).__name__}: {str(exc)[:300]}")
             run.failed = True
             page = ""
+        finally:
+            for t in sess.tabs:
+                t.allow_send = False  # the yes covered this call only
     took = time.monotonic() - t0
     done = sum(1 for ln in run.lines if not re.match(r"^[\d.]+(-[\d.]+)?\. (FAILED|skipped|stopped)", ln))
     head = f"chrome: {'FAILED, ' if run.failed else ''}{len(steps)} step{'s' if len(steps) != 1 else ''} in {_secs(took)}"

@@ -10,6 +10,7 @@ from .bot_graph import hook_context as team_map_context
 from .pwa_router import hook_context as router_context
 from .hub_status import hub_command, hub_context
 from .change_ledger import on_post_tool_call as record_change
+from .message_guard import on_pre_tool_call as guard_messages
 from .push_common import (
     approval_push_payload,
     claim_push_dedupe,
@@ -253,6 +254,9 @@ def register(ctx: Any) -> None:
     ctx.register_hook("pre_llm_call", _on_pre_llm_call)
     # Every change a bot makes goes into the change ledger, for the Auditor bot to check afterwards.
     ctx.register_hook("post_tool_call", record_change)
+    # No bot sends anything to anyone without Sean's explicit yes: sends go to his approval prompt (denied where he
+    # cannot answer: scheduled jobs, one-shot runs, hand-offs), and are blocked outright when approvals are off.
+    ctx.register_hook("pre_tool_call", guard_messages)
     # /hub: what every running Claude Code chat is doing, straight from Claude Hub, with no model call.
     if hasattr(ctx, "register_command"):
         try:

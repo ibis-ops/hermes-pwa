@@ -5,7 +5,7 @@
 // CDP, so pages see real events. Password values are never returned.
 (function () {
   'use strict';
-  var VERSION = 20;
+  var VERSION = 21;
   if (window.__hcx && window.__hcx.version >= VERSION) return;
 
   // ---- activity tracking for settle detection ----------------------------------------------
@@ -1486,8 +1486,40 @@
     return out;
   }
 
+  // What a click or an Enter would act on: the control's own words, whether it is a message box, and the text of the
+  // prompt or dialog around it ("Do you want to notify your client?"). Read by the connector's no-message guard.
+  function sendCheck(el) {
+    var label = ((el.innerText || el.value || '') + '').trim() || el.getAttribute('aria-label') || el.getAttribute('title') || '';
+    label = label.replace(/\s+/g, ' ').slice(0, 80);
+    var hint = [el.getAttribute('placeholder'), el.getAttribute('aria-label'), el.getAttribute('name'), el.id,
+                (typeof el.className === 'string' ? el.className : ''), el.getAttribute('data-testid')].join(' ');
+    var editable = el.isContentEditable || el.tagName === 'TEXTAREA' ||
+                   (el.tagName === 'INPUT' && /^(text|search|)$/i.test(el.getAttribute('type') || ''));
+    var composer = !!editable && /message|reply|chat|write|comment|type a|send|compose|respond/i.test(hint);
+    var ctx = '', n = el, i = 0;
+    while (n && n !== document.body && i < 8) {
+      var role = (n.getAttribute && n.getAttribute('role')) || '';
+      var cls = (typeof n.className === 'string' ? n.className : '');
+      if (/dialog|alertdialog|alert/.test(role) || (n.getAttribute && n.getAttribute('aria-modal') === 'true') ||
+          /modal|alert|notice|toast|swal|popup|dialog|notif|confirm/i.test(cls)) {
+        ctx = (n.innerText || '').replace(/\s+/g, ' ').slice(0, 400);
+        break;
+      }
+      n = n.parentElement;
+      i++;
+    }
+    if (!ctx && el.parentElement) {
+      ctx = ((el.parentElement.parentElement || el.parentElement).innerText || '').replace(/\s+/g, ' ').slice(0, 300);
+    }
+    return { label: label, context: ctx, composer: composer };
+  }
+
   window.__hcx = {
     version: VERSION,
+    sendCheck: function (t) {
+      if (t === null || t === undefined) return sendCheck(document.activeElement || document.body);
+      return withTarget(t, sendCheck);
+    },
     map: map,
     read: read,
     busy: busy,
