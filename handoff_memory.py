@@ -5,8 +5,13 @@ the bot that does the work never sees the shared MEMORY.md and USER.md that ever
 the team has learned (where things are, which tool works, what Sean wants) are missing exactly where the work
 happens. A child's own ``pre_llm_call`` hooks do not reach it either (it runs under the target bot's scope inside
 the parent's worker, where the plugin is not loaded; measured 2026-10-29), so the memory goes in from the parent's
-side: a ``pre_tool_call`` hook adds it to the context of every task in a ``delegate_task`` call, which the child
-reads on its first turn.
+side: a ``pre_tool_call`` hook adds it to the context of every task in a ``delegate_task`` call, which Hermes puts in
+the child's system prompt.
+
+Only what fits the task goes in. Everything about Sean (USER.md: short, and it applies to any work) and the MEMORY.md
+notes that share the most distinctive words with the task, its context and the target bot's role on the team map, up
+to NOTES_BUDGET characters, then a pointer to the full file for anything else. The whole memory in every hand-off
+would cost each child about 3,700 tokens.
 
 The memory is the one shared folder every profile links to (<Hermes root>/memories, which points at the vault's
 Hermes/Memory). Read-only: nothing here writes memory.
@@ -14,22 +19,48 @@ Hermes/Memory). Read-only: nothing here writes memory.
 
 from __future__ import annotations
 
-import threading
-from collections import OrderedDict
+import json
+import math
+import re
+from collections import Counter
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 try:  # Loaded as part of the plugin package (the gateway's hooks).
+    from . import bot_graph  # type: ignore
     from .bot_graph import _root_hermes_home  # type: ignore
 except ImportError:  # Loaded on its own (the tests).
+    import bot_graph  # type: ignore
     from bot_graph import _root_hermes_home  # type: ignore
 
 DELIMITER = "\n§\n"
-PARTS = 3
-PART_MAX = 9500
-_SEEN_LIMIT = 4000
-_seen_lock = threading.Lock()
-_seen: "OrderedDict[tuple[int, str], bool]" = OrderedDict()
+MARK = "SHARED MEMORY (the notes every Hermes bot keeps"
+NOTES_BUDGET = 4000  # characters of MEMORY.md notes per hand-off (the whole file is about 11,000)
+MAX_NOTES = 8
+# Notes about Hermes's own tools that every bot uses in a hand-off (write_file overwrites; clarify never reaches Sean
+# from a subagent) go to every hand-off, whatever the topic.
+ALWAYS = re.compile(r"\b(?:subagent|write_file)\b", re.I)
+
+# Names decide relevance, not ordinary words: in a long hand-off brief nearly every note shares some plain word with
+# the task ("check", "read", "send"), and with only a few dozen notes a plain word that happens to appear once looks
+# rare. A name is a code-like token (write_file, kahunas.io, hubq.py), a capitalised word inside a sentence (Kahunas,
+# Gmail, Claude Hub), a short acronym (CDP, TCC) or a lone &; for notes, also the words of a leading "Topic:" label.
+_TOKEN = re.compile(r"[A-Za-z0-9&#~][A-Za-z0-9&_./#~'-]*")
+_CODE = re.compile(r"[_./#~]")
+_GENERIC = frozenset("""
+    sean hermes herme mac oct nov dec jan feb mar apr may jun jul aug sep sept mon tue wed thu fri sat sun the this that
+    these those when where what which who never always only every each any all also and but for with from into onto
+    over under use used uses using via per not none no yes ok api url cli app apps tool tools profile profiles system
+    bot bots task tasks work job jobs lesson lessons fix fixes check checks read reads write writes run runs entire full
+    real default new old first last long short local global main other same such more most less least many much some one
+    two three four five six seven eight nine ten if then else than so as at by in on of to or an a is are was were be
+    been user open item data general root index desktop document resource pro ram opt send show code exit max maximum now
+    started activity set order e.g http page web save login home json agent query total cost internal stop limited
+    export integration connection space ids config yaml enter allowed log blocked denied withdrawn file entity html
+    gotcha vital protocol thing things way part parts
+""".split())
+# Words in bot names that say nothing about the topic (gmail-connector, obsidian-vault-manager).
+_PROFILE_GENERIC = frozenset({"connector", "manager", "driver", "librarian", "studio", "watch", "prep", "monitor", "default"})
 
 
 def _memory_dir() -> Path:
@@ -44,117 +75,118 @@ def _entries(name: str) -> list[str]:
     return [e.strip() for e in text.split(DELIMITER) if e.strip()]
 
 
-def memory_parts() -> list[str]:
-    """The shared memory as at most PARTS pieces of at most PART_MAX characters, whole entries only."""
-    lines = [("About Sean", e) for e in _entries("USER.md")] + [("How to work", e) for e in _entries("MEMORY.md")]
-    if not lines:
-        return []
-    chunks: list[list[tuple[str, str]]] = [[]]
-    size = 0
-    for kind, entry in lines:
-        cost = len(entry) + 4 + (len(kind) + 3 if not chunks[-1] or chunks[-1][-1][0] != kind else 0)
-        if chunks[-1] and size + cost > PART_MAX - 400:
-            chunks.append([])
-            size = 0
-        chunks[-1].append((kind, entry[: PART_MAX - 600]))
-        size += cost
-    chunks = chunks[:PARTS]
-    out = []
-    for i, chunk in enumerate(chunks, 1):
-        head = (f"SHARED MEMORY, part {i} of {len(chunks)} (the notes every Hermes bot keeps; a hand-off does not load them "
-                "by itself, so here they are). Follow them like your own memory; your SOUL and the task come first where "
-                "they differ.")
-        body, last = [], None
-        for kind, entry in chunk:
-            if kind != last:
-                body.append(f"\n{kind}:")
-                last = kind
-            body.append(f"- {entry}")
-        out.append(head + "\n" + "\n".join(body))
+def _norm(word: str) -> str:
+    w = word.lower().strip("./-_#~'")
+    w = w[:-2] if w.endswith("'s") else w
+    return w[:-1] if len(w) > 4 and w.endswith("s") and not w.endswith("ss") else w
+
+
+def _parts(word: str) -> set[str]:
+    """A name and its pieces (kahunas.io: kahunas.io, kahuna, io), without generic words, numbers and two-letter
+    bits."""
+    whole = _norm(word)
+    out = {whole} | {_norm(p) for p in re.split(r"[_./#~-]+", whole) if p}
+    return {p for p in out if p == "&" or (len(p) >= 3 and not p.isdigit() and p not in _GENERIC)}
+
+
+def _names(text: str, label: bool = False) -> set[str]:
+    out: set[str] = set()
+    if label and ":" in text[:70]:  # "Kahunas select2 food search: ..." names its topic
+        for w in _TOKEN.findall(text.split(":", 1)[0]):
+            out |= _parts(w)
+    for m in _TOKEN.finditer(text):
+        w = m.group(0)
+        before = text[:m.start()].rstrip(" \"'`(")
+        sentence_start = not before or before[-1] in ".:;!?\n"
+        code = bool(_CODE.search(w.strip("./'"))) or (any(c.isdigit() for c in w) and any(c.isalpha() for c in w))
+        capital = (w[:1].isupper() and not sentence_start) or (w.isupper() and 2 <= len(w) <= 5)
+        backticked = m.start() > 0 and text[m.start() - 1] == "`"
+        if code or capital or backticked or w == "&":
+            out |= _parts(w)
     return out
 
 
-MARK = "SHARED MEMORY (the notes every Hermes bot keeps"
+def _role(profile: str) -> str:
+    try:
+        node = ((bot_graph.load() or {}).get("nodes") or {}).get(profile) or {}
+        return str(node.get("role") or "")
+    except Exception:
+        return ""
 
 
-def memory_text() -> str | None:
-    """The whole shared memory as one block for a hand-off's context."""
-    memory, user = _entries("MEMORY.md"), _entries("USER.md")
-    if not memory and not user:
+def pick_notes(notes: list[str], task_text: str, profile: str = "", budget: int = NOTES_BUDGET) -> list[str]:
+    """The notes that fit a task, in file order: the ALWAYS notes, then the notes sharing the most names with the task,
+    its context and the target bot (its name and its role on the team map), each name weighted by how few notes
+    carry it; at most MAX_NOTES notes and ``budget`` characters."""
+    if not notes:
+        return []
+    wanted = _names(task_text)
+    if profile:
+        wanted |= {p for w in profile.split("-") for p in _parts(w)} - _PROFILE_GENERIC
+        wanted |= _names(_role(profile))
+    sets = [_names(n, label=True) for n in notes]
+    df = Counter(t for s in sets for t in s)
+    n = len(notes)
+    scored = []
+    for i, s in enumerate(sets):
+        score = sum(math.log((n + 1) / (df[t] + 0.5)) for t in s & wanted) + (100.0 if ALWAYS.search(notes[i]) else 0.0)
+        if score >= 1.0:
+            scored.append((score, i))
+    chosen, used = [], 0
+    for _, i in sorted(scored, key=lambda x: (-x[0], x[1])):
+        if len(chosen) < MAX_NOTES and used + len(notes[i]) <= budget:
+            chosen.append(i)
+            used += len(notes[i])
+    return [notes[i] for i in sorted(chosen)]
+
+
+def memory_text(task_text: str = "", profile: str = "") -> str | None:
+    """The shared memory for one hand-off: all of USER.md, the MEMORY.md notes that fit the task, and where the rest
+    is."""
+    notes, user = _entries("MEMORY.md"), _entries("USER.md")
+    if not notes and not user:
         return None
-    parts = [MARK + "; a hand-off does not load them by itself, so here they are). Follow them like your own memory; "
-             "your SOUL and the task come first where they differ."]
+    picked = pick_notes(notes, task_text, profile)
+    parts = [MARK + "; a hand-off does not load them by itself, so here are the ones for this task). Follow them like "
+             "your own memory; your SOUL and the task come first where they differ."]
     if user:
         parts.append("About Sean:\n" + "\n".join(f"- {e}" for e in user))
-    if memory:
-        parts.append("How to work:\n" + "\n".join(f"- {e}" for e in memory))
+    if picked:
+        parts.append("How to work (the notes that fit this task):\n" + "\n".join(f"- {e}" for e in picked))
+    if len(picked) < len(notes):
+        parts.append(f"{len(notes) - len(picked)} more notes are in {_memory_dir() / 'MEMORY.md'} (entries separated "
+                     "by §); read it when the task touches something not covered here.")
     return "\n\n".join(parts)
 
 
+def _with_memory(task: dict[str, Any]) -> dict[str, Any] | None:
+    context = str(task.get("context") or "")
+    if MARK in context:
+        return None
+    block = memory_text(f"{task.get('goal') or ''}\n{context}", str(task.get("profile") or ""))
+    return {**task, "context": (context + "\n\n" + block).strip()} if block else None
+
+
 def delegate_with_memory(**kwargs: Any) -> dict[str, Any] | None:
-    """pre_tool_call: give every task of a delegate_task call the shared memory in its context (once)."""
+    """pre_tool_call: give every task of a delegate_task call the shared memory that fits it, in its context (once)."""
     if kwargs.get("tool_name") != "delegate_task":
         return None
     args = kwargs.get("args")
     if not isinstance(args, dict):
         return None
     try:
-        block = memory_text()
+        tasks = args.get("tasks")
+        if isinstance(tasks, str):  # small models send the list as a JSON string; Hermes accepts either
+            try:
+                tasks = json.loads(tasks)
+            except ValueError:
+                return None
+        if isinstance(tasks, list) and tasks:
+            out = [(_with_memory(t) or t) if isinstance(t, dict) else t for t in tasks]
+            return {"action": "modify", "args": {"tasks": out}} if out != tasks else None
+        if args.get("goal"):  # the legacy single-goal shape
+            task = _with_memory({"goal": args.get("goal"), "context": args.get("context")})
+            return {"action": "modify", "args": {"context": task["context"]}} if task else None
     except Exception:
         return None
-    if not block:
-        return None
-    tasks = args.get("tasks")
-    if isinstance(tasks, list):
-        changed, out = False, []
-        for t in tasks:
-            if isinstance(t, dict) and MARK not in str(t.get("context") or ""):
-                t = {**t, "context": (str(t.get("context") or "") + "\n\n" + block).strip()}
-                changed = True
-            out.append(t)
-        return {"action": "modify", "args": {"tasks": out}} if changed else None
-    if args.get("goal") and MARK not in str(args.get("context") or ""):  # the legacy single-goal shape
-        return {"action": "modify", "args": {"context": (str(args.get("context") or "") + "\n\n" + block).strip()}}
     return None
-
-
-def handoff_memory_part(index: int, session_id: str, parent_session_id: str = "") -> str | None:
-    """Piece ``index`` of the shared memory for a hand-off's first turn; None for top-level chats (Hermes loads
-    memory for them), for later turns and when the memory has fewer pieces."""
-    if not parent_session_id or not session_id:
-        return None
-    with _seen_lock:
-        key = (index, session_id)
-        if key in _seen:
-            return None
-        _seen[key] = True
-        while len(_seen) > _SEEN_LIMIT * PARTS:
-            _seen.popitem(last=False)
-    parts = memory_parts()
-    return parts[index] if index < len(parts) else None
-
-
-def part_hooks() -> list[Callable[..., Any]]:
-    """One pre_llm_call hook per piece, so Hermes measures each piece on its own."""
-    def make(i: int) -> Callable[..., Any]:
-        def hook(**kwargs: Any) -> dict[str, str] | None:
-            try:
-                text = handoff_memory_part(i, str(kwargs.get("session_id") or ""), str(kwargs.get("parent_session_id") or ""))
-            except Exception:
-                return None
-            return {"context": text} if text else None
-        hook.__name__ = f"handoff_memory_part_{i}"
-        return hook
-    return [make(i) for i in range(PARTS)]
-
-
-def handoff_memory_context(session_id: str, parent_session_id: str = "") -> str | None:
-    """All pieces joined (kept for callers that want one block)."""
-    pieces = [handoff_memory_part(i, session_id, parent_session_id) for i in range(PARTS)]
-    joined = "\n\n".join(p for p in pieces if p)
-    return joined or None
-
-
-def forget_seen() -> None:
-    with _seen_lock:
-        _seen.clear()
